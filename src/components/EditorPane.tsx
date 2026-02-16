@@ -1,4 +1,5 @@
 import { forwardRef } from 'react';
+import type { JSONContent } from '@tiptap/core';
 
 import type { ChapterDocument } from '../types/book';
 import TiptapEditor, { type TiptapEditorHandle } from './TiptapEditor';
@@ -6,7 +7,7 @@ import TiptapEditor, { type TiptapEditorHandle } from './TiptapEditor';
 interface EditorPaneProps {
   chapter: ChapterDocument | null;
   autosaveIntervalMs: number;
-  onContentChange: (value: string) => void;
+  onContentChange: (payload: { html: string; json: JSONContent }) => void;
   onBlur: () => void;
 }
 

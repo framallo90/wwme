@@ -10,9 +10,10 @@ import OutlineView from './components/OutlineView';
 import SettingsPanel from './components/SettingsPanel';
 import Sidebar from './components/Sidebar';
 import type { TiptapEditorHandle } from './components/TiptapEditor';
+import { DEFAULT_APP_CONFIG } from './lib/config';
 import { exportBookMarkdownByChapter, exportBookMarkdownSingleFile, exportChapterMarkdown } from './lib/export';
 import { generateWithOllama } from './lib/ollamaClient';
-import { AI_ACTIONS, buildActionPrompt } from './lib/prompts';
+import { AI_ACTIONS, buildActionPrompt, buildAutoRewritePrompt, buildChatPrompt } from './lib/prompts';
 import {
   clearCoverImage,
   createBookProject,
@@ -31,11 +32,24 @@ import {
   setCoverImage,
   updateBookChats,
 } from './lib/storage';
-import { getNowIso, normalizeAiOutput, randomId, stripHtml } from './lib/text';
+import { getNowIso, normalizeAiOutput, plainTextToHtml, randomId, stripHtml } from './lib/text';
 import type { AppConfig, BookProject, ChatMessage, ChatScope, MainView } from './types/book';
-import { DEFAULT_APP_CONFIG } from './lib/config';
 
 import './App.css';
+
+function buildBookContext(book: BookProject, chaptersOverride?: BookProject['chapters']): string {
+  const chapters = chaptersOverride ?? book.chapters;
+  return book.metadata.chapterOrder
+    .map((chapterId, index) => {
+      const chapter = chapters[chapterId];
+      if (!chapter) {
+        return '';
+      }
+      return `Capitulo ${index + 1}: ${chapter.title}\n${stripHtml(chapter.content)}`;
+    })
+    .filter(Boolean)
+    .join('\n\n');
+}
 
 function App() {
   const editorRef = useRef<TiptapEditorHandle | null>(null);
@@ -102,18 +116,6 @@ function App() {
   }, []);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const loaded = await loadAppConfig();
-        setConfig(loaded);
-        setStatus('Config cargada.');
-      } catch (error) {
-        setStatus(`Error cargando config: ${(error as Error).message}`);
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
     if (!book) {
       setActiveChapterId(null);
       return;
@@ -176,7 +178,9 @@ function App() {
   const loadProject = useCallback(
     async (projectPath: string) => {
       const loaded = await loadBookProject(projectPath);
+      const loadedConfig = await loadAppConfig(loaded.path);
       setBook(loaded);
+      setConfig(loadedConfig);
       setActiveChapterId(loaded.metadata.chapterOrder[0] ?? null);
       setMainView('editor');
       setFeedback('');
@@ -207,7 +211,9 @@ function App() {
       }
 
       const created = await createBookProject(selectedDirectory, title, author);
+      const loadedConfig = await loadAppConfig(created.path);
       setBook(created);
+      setConfig(loadedConfig);
       setActiveChapterId(created.metadata.chapterOrder[0] ?? null);
       setMainView('editor');
       setFeedback('');
@@ -238,7 +244,7 @@ function App() {
   }, [loadProject]);
 
   const handleEditorChange = useCallback(
-    (content: string) => {
+    (payload: { html: string; json: unknown }) => {
       if (!book || !activeChapterId) {
         return;
       }
@@ -261,7 +267,8 @@ function App() {
             ...previous.chapters,
             [activeChapterId]: {
               ...chapter,
-              content,
+              content: payload.html,
+              contentJson: payload.json,
               updatedAt: getNowIso(),
             },
           },
@@ -272,13 +279,18 @@ function App() {
   );
 
   const handleSaveSettings = useCallback(async () => {
+    if (!book) {
+      setStatus('Abri un libro para guardar config en mi-libro/config.json.');
+      return;
+    }
+
     try {
-      await saveAppConfig(config);
-      setStatus('Settings guardados.');
+      await saveAppConfig(book.path, config);
+      setStatus('Settings guardados en config.json del libro.');
     } catch (error) {
       setStatus(`Error guardando settings: ${(error as Error).message}`);
     }
-  }, [config]);
+  }, [book, config]);
 
   const handleCreateChapter = useCallback(async () => {
     if (!book) {
@@ -492,68 +504,227 @@ function App() {
         return;
       }
 
-      const chapterText = activeChapter ? stripHtml(activeChapter.content) : '';
-      const bookContext = orderedChapters
-        .map((chapter, index) => `Capitulo ${index + 1}: ${chapter.title}\n${stripHtml(chapter.content)}`)
-        .join('\n\n');
-      const history = scope === 'book' ? book.metadata.chats.book : book.metadata.chats.chapters[activeChapterId ?? ''] ?? [];
-      const compactHistory = history
-        .slice(-8)
-        .map((item) => `${item.role === 'user' ? 'Usuario' : 'Asistente'}: ${item.content}`)
-        .join('\n');
+      const history =
+        scope === 'book' ? book.metadata.chats.book : book.metadata.chats.chapters[activeChapterId ?? ''] ?? [];
 
-      const prompt = [
-        `Libro: ${book.metadata.title}`,
-        activeChapter ? `Capitulo activo: ${activeChapter.title}` : 'Sin capitulo activo',
-        '',
-        scope === 'book' ? 'Contexto global del libro:' : 'Contexto del capitulo:',
-        scope === 'book' ? bookContext : chapterText,
-        '',
-        'Historial reciente:',
-        compactHistory || '(vacio)',
-        '',
-        'Mensaje actual del usuario:',
-        message,
-      ].join('\n');
+      const userMessage: ChatMessage = {
+        id: randomId('msg'),
+        role: 'user',
+        scope,
+        content: message,
+        createdAt: getNowIso(),
+      };
+      const withUser = [...history, userMessage];
 
       setAiBusy(true);
       setStatus('Consultando Ollama...');
 
       try {
-        const userMessage: ChatMessage = {
-          id: randomId('msg'),
-          role: 'user',
-          scope,
-          content: message,
-          createdAt: getNowIso(),
-        };
-        const withUser = [...history, userMessage];
         await persistScopeMessages(scope, withUser);
 
-        const answer = normalizeAiOutput(
-          await generateWithOllama({
-            config,
-            prompt,
-          }),
-        );
+        const chapterText = activeChapter ? stripHtml(activeChapter.content) : '';
+        const compactHistory = history
+          .slice(-8)
+          .map((item) => `${item.role === 'user' ? 'Usuario' : 'Asistente'}: ${item.content}`)
+          .join('\n');
+
+        if (!config.autoApplyChatChanges) {
+          const prompt = buildChatPrompt({
+            scope,
+            message,
+            bookTitle: book.metadata.title,
+            chapterTitle: activeChapter?.title,
+            chapterText,
+            fullBookText: buildBookContext(book),
+            compactHistory,
+          });
+
+          const answer = normalizeAiOutput(
+            await generateWithOllama({
+              config,
+              prompt,
+            }),
+          );
+
+          const assistantMessage: ChatMessage = {
+            id: randomId('msg'),
+            role: 'assistant',
+            scope,
+            content: answer,
+            createdAt: getNowIso(),
+          };
+
+          await persistScopeMessages(scope, [...withUser, assistantMessage]);
+          setStatus('Respuesta IA recibida.');
+          return;
+        }
+
+        const iterations = Math.max(1, Math.min(10, config.chatApplyIterations));
+
+        if (scope === 'chapter') {
+          if (!activeChapterId) {
+            throw new Error('No hay capitulo activo para aplicar cambios.');
+          }
+
+          let workingChapters: BookProject['chapters'] = { ...book.chapters };
+          let chapter = workingChapters[activeChapterId];
+
+          if (!chapter) {
+            throw new Error('No se encontro el capitulo activo.');
+          }
+
+          let lastResponse = '';
+
+          for (let iteration = 1; iteration <= iterations; iteration += 1) {
+            if (config.autoVersioning) {
+              await saveChapterSnapshot(book.path, chapter, `Chat auto-aplicar ${iteration}/${iterations}`);
+            }
+
+            const prompt = buildAutoRewritePrompt({
+              userInstruction: message,
+              bookTitle: book.metadata.title,
+              chapterTitle: chapter.title,
+              chapterText: stripHtml(chapter.content),
+              fullBookText: buildBookContext(book, workingChapters),
+              chapterIndex: book.metadata.chapterOrder.indexOf(chapter.id) + 1,
+              chapterTotal: book.metadata.chapterOrder.length,
+              iteration,
+              totalIterations: iterations,
+            });
+
+            lastResponse = normalizeAiOutput(
+              await generateWithOllama({
+                config,
+                prompt,
+              }),
+            );
+
+            const chapterDraft = {
+              ...chapter,
+              content: plainTextToHtml(lastResponse),
+              contentJson: null,
+              updatedAt: getNowIso(),
+            };
+            chapter = await saveChapter(book.path, chapterDraft);
+            workingChapters = {
+              ...workingChapters,
+              [chapter.id]: chapter,
+            };
+
+            setStatus(`Aplicando cambios al capitulo (${iteration}/${iterations})...`);
+          }
+
+          setBook((previous) => {
+            if (!previous || previous.path !== book.path) {
+              return previous;
+            }
+
+            return {
+              ...previous,
+              chapters: workingChapters,
+            };
+          });
+
+          dirtyRef.current = false;
+
+          const assistantMessage: ChatMessage = {
+            id: randomId('msg'),
+            role: 'assistant',
+            scope,
+            content: lastResponse,
+            createdAt: getNowIso(),
+          };
+
+          await persistScopeMessages(scope, [...withUser, assistantMessage]);
+          setStatus('Chat aplicado automaticamente al capitulo.');
+          return;
+        }
+
+        let workingChapters: BookProject['chapters'] = { ...book.chapters };
+
+        for (let iteration = 1; iteration <= iterations; iteration += 1) {
+          for (let index = 0; index < book.metadata.chapterOrder.length; index += 1) {
+            const chapterId = book.metadata.chapterOrder[index];
+            const chapter = workingChapters[chapterId];
+            if (!chapter) {
+              continue;
+            }
+
+            if (config.autoVersioning) {
+              await saveChapterSnapshot(
+                book.path,
+                chapter,
+                `Chat auto-aplicar libro cap ${index + 1} iter ${iteration}/${iterations}`,
+              );
+            }
+
+            const prompt = buildAutoRewritePrompt({
+              userInstruction: message,
+              bookTitle: book.metadata.title,
+              chapterTitle: chapter.title,
+              chapterText: stripHtml(chapter.content),
+              fullBookText: buildBookContext(book, workingChapters),
+              chapterIndex: index + 1,
+              chapterTotal: book.metadata.chapterOrder.length,
+              iteration,
+              totalIterations: iterations,
+            });
+
+            const response = normalizeAiOutput(
+              await generateWithOllama({
+                config,
+                prompt,
+              }),
+            );
+
+            const chapterDraft = {
+              ...chapter,
+              content: plainTextToHtml(response),
+              contentJson: null,
+              updatedAt: getNowIso(),
+            };
+            const persisted = await saveChapter(book.path, chapterDraft);
+            workingChapters = {
+              ...workingChapters,
+              [chapterId]: persisted,
+            };
+
+            setStatus(
+              `Aplicando cambios al libro: cap ${index + 1}/${book.metadata.chapterOrder.length}, iter ${iteration}/${iterations}...`,
+            );
+          }
+        }
+
+        setBook((previous) => {
+          if (!previous || previous.path !== book.path) {
+            return previous;
+          }
+
+          return {
+            ...previous,
+            chapters: workingChapters,
+          };
+        });
+
+        dirtyRef.current = false;
 
         const assistantMessage: ChatMessage = {
           id: randomId('msg'),
           role: 'assistant',
           scope,
-          content: answer,
+          content: `Cambios aplicados automaticamente en todo el libro (${book.metadata.chapterOrder.length} capitulos, ${iterations} iteracion/es).`,
           createdAt: getNowIso(),
         };
 
         await persistScopeMessages(scope, [...withUser, assistantMessage]);
-        setStatus('Respuesta IA recibida.');
+        setStatus('Chat aplicado automaticamente al libro completo.');
       } catch (error) {
         setStatus(`Error de IA: ${(error as Error).message}`);
       } finally {
         setAiBusy(false);
       }
     },
-    [book, activeChapter, activeChapterId, orderedChapters, config, persistScopeMessages],
+    [book, activeChapter, activeChapterId, config, persistScopeMessages],
   );
 
   const handleRunAction = useCallback(
@@ -574,17 +745,13 @@ function App() {
         return;
       }
 
-      const allBookText = orderedChapters
-        .map((chapter, index) => `Capitulo ${index + 1}: ${chapter.title}\n${stripHtml(chapter.content)}`)
-        .join('\n\n');
-
       const prompt = buildActionPrompt({
         actionId,
         selectedText,
         chapterTitle: activeChapter.title,
         bookTitle: book.metadata.title,
         chapterContext: stripHtml(activeChapter.content),
-        fullBookContext: allBookText,
+        fullBookContext: buildBookContext(book),
       });
 
       setAiBusy(true);
@@ -611,9 +778,11 @@ function App() {
           }
 
           const nextHtml = editor.getHTML();
+          const nextJson = editor.getJSON();
           const updatedChapter = {
             ...activeChapter,
             content: nextHtml,
+            contentJson: nextJson,
             updatedAt: getNowIso(),
           };
           const persistedChapter = await saveChapter(book.path, updatedChapter);
@@ -644,7 +813,7 @@ function App() {
         setAiBusy(false);
       }
     },
-    [book, activeChapter, orderedChapters, config],
+    [book, activeChapter, config],
   );
 
   const handleUndo = useCallback(async () => {
@@ -788,7 +957,7 @@ function App() {
     }
 
     if (mainView === 'settings') {
-      return <SettingsPanel config={config} onChange={setConfig} onSave={handleSaveSettings} />;
+      return <SettingsPanel config={config} bookPath={book?.path ?? null} onChange={setConfig} onSave={handleSaveSettings} />;
     }
 
     return (
@@ -804,6 +973,7 @@ function App() {
     );
   }, [
     activeChapter,
+    book?.path,
     config,
     coverSrc,
     flushChapterSave,
@@ -853,6 +1023,8 @@ function App() {
           canUndo={Boolean(book && activeChapter)}
           scope={chatScope}
           messages={currentMessages}
+          autoApplyChatChanges={config.autoApplyChatChanges}
+          chatApplyIterations={config.chatApplyIterations}
           onScopeChange={setChatScope}
           onRunAction={handleRunAction}
           onSendChat={handleSendChat}

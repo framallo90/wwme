@@ -16,6 +16,7 @@ export interface ChapterDocument {
   id: string;
   title: string;
   content: string;
+  contentJson?: unknown | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -54,6 +55,8 @@ export interface AppConfig {
   systemPrompt: string;
   temperature: number;
   autoVersioning: boolean;
+  autoApplyChatChanges: boolean;
+  chatApplyIterations: number;
   ollamaOptions: Record<string, number | string | boolean>;
   autosaveIntervalMs: number;
 }

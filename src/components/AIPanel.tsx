@@ -9,6 +9,8 @@ interface AIPanelProps {
   canUndo: boolean;
   scope: ChatScope;
   messages: ChatMessage[];
+  autoApplyChatChanges: boolean;
+  chatApplyIterations: number;
   onScopeChange: (scope: ChatScope) => void;
   onRunAction: (actionId: AiActionId) => void;
   onSendChat: (message: string, scope: ChatScope) => void;
@@ -64,6 +66,11 @@ function AIPanel(props: AIPanelProps) {
             <option value="book">Por libro</option>
           </select>
         </div>
+        <p className="muted">
+          {props.autoApplyChatChanges
+            ? `Auto-aplicar activo (${props.chatApplyIterations} iteracion/es).`
+            : 'Modo consulta (sin auto-aplicar).'}
+        </p>
 
         <div className="chat-history">
           {props.messages.length === 0 ? (
@@ -87,7 +94,7 @@ function AIPanel(props: AIPanelProps) {
             disabled={props.aiBusy}
           />
           <button onClick={handleSend} disabled={props.aiBusy}>
-            Enviar
+            {props.autoApplyChatChanges ? 'Enviar y aplicar' : 'Enviar'}
           </button>
         </div>
       </section>

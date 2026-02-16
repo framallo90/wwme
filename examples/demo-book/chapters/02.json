@@ -1,7 +1,8 @@
 {
-  "id": "02",
-  "title": "Capitulo 2 - El hilo",
-  "content": "<h2>Volver sobre la misma idea</h2><p>Escribir no resolvia todo, pero evitaba el caos. Cuando una frase quedaba en su lugar, otra se animaba a salir. El texto avanzaba como si encontrara un hilo que ya estaba ahi.</p><p>Ese hilo no prometia respuestas. Solo permitia sostener preguntas mejores.</p>",
-  "createdAt": "2026-02-16T00:00:00.000Z",
-  "updatedAt": "2026-02-16T00:00:00.000Z"
+    "id":  "02",
+    "title":  "Capitulo 2 - El hilo",
+    "content":  "\u003ch2\u003eVolver sobre la misma idea\u003c/h2\u003e\u003cp\u003eEscribir no resolvia todo, pero evitaba el caos. Cuando una frase quedaba en su lugar, otra se animaba a salir. El texto avanzaba como si encontrara un hilo que ya estaba ahi.\u003c/p\u003e\u003cp\u003eEse hilo no prometia respuestas. Solo permitia sostener preguntas mejores.\u003c/p\u003e",
+    "createdAt":  "2026-02-16T00:00:00.000Z",
+    "updatedAt":  "2026-02-16T00:00:00.000Z",
+    "contentJson":  null
 }

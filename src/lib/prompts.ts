@@ -111,3 +111,64 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
     target,
   ].join('\n');
 }
+
+interface BuildChatPromptInput {
+  scope: 'chapter' | 'book';
+  message: string;
+  bookTitle: string;
+  chapterTitle?: string;
+  chapterText: string;
+  fullBookText: string;
+  compactHistory: string;
+}
+
+interface BuildAutoRewritePromptInput {
+  userInstruction: string;
+  bookTitle: string;
+  chapterTitle: string;
+  chapterText: string;
+  fullBookText: string;
+  chapterIndex: number;
+  chapterTotal: number;
+  iteration: number;
+  totalIterations: number;
+}
+
+export function buildChatPrompt(input: BuildChatPromptInput): string {
+  return [
+    `Libro: ${input.bookTitle}`,
+    input.chapterTitle ? `Capitulo activo: ${input.chapterTitle}` : 'Sin capitulo activo',
+    '',
+    input.scope === 'book' ? 'Contexto global del libro:' : 'Contexto del capitulo:',
+    input.scope === 'book' ? input.fullBookText : input.chapterText,
+    '',
+    'Historial reciente:',
+    input.compactHistory || '(vacio)',
+    '',
+    'Mensaje actual del usuario:',
+    input.message,
+  ].join('\n');
+}
+
+export function buildAutoRewritePrompt(input: BuildAutoRewritePromptInput): string {
+  return [
+    'MODO: reescritura automatica sin pedir confirmaciones.',
+    `Libro: ${input.bookTitle}`,
+    `Capitulo: ${input.chapterTitle} (${input.chapterIndex}/${input.chapterTotal})`,
+    `Iteracion: ${input.iteration}/${input.totalIterations}`,
+    '',
+    'Instruccion del usuario:',
+    input.userInstruction,
+    '',
+    'Contexto del libro completo:',
+    input.fullBookText,
+    '',
+    'Texto actual del capitulo a modificar:',
+    input.chapterText,
+    '',
+    'Reglas de salida:',
+    '- Aplica los cambios directamente.',
+    '- No pidas confirmacion.',
+    '- Devuelve solo el texto final del capitulo.',
+  ].join('\n');
+}

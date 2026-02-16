@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle } from 'react';
+import type { JSONContent } from '@tiptap/core';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -12,12 +13,13 @@ export interface TiptapEditorHandle {
   replaceSelectionWithText: (value: string) => void;
   replaceDocumentWithText: (value: string) => void;
   getHTML: () => string;
+  getJSON: () => JSONContent | null;
   focus: () => void;
 }
 
 interface TiptapEditorProps {
   content: string;
-  onChange: (html: string) => void;
+  onChange: (payload: { html: string; json: JSONContent }) => void;
   onBlur?: () => void;
 }
 
@@ -38,7 +40,10 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
         },
       },
       onUpdate: ({ editor: instance }) => {
-        onChange(instance.getHTML());
+        onChange({
+          html: instance.getHTML(),
+          json: instance.getJSON(),
+        });
       },
       onBlur: () => {
         onBlur?.();
@@ -100,6 +105,7 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
         editor.commands.setContent(plainTextToHtml(value), { emitUpdate: true });
       },
       getHTML: () => editor?.getHTML() ?? '',
+      getJSON: () => editor?.getJSON() ?? null,
       focus: () => {
         editor?.chain().focus().run();
       },

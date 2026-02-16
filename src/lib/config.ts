@@ -6,6 +6,8 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   temperature: 0.6,
   autoVersioning: true,
+  autoApplyChatChanges: true,
+  chatApplyIterations: 1,
   autosaveIntervalMs: 5000,
   ollamaOptions: {
     top_p: 0.9,

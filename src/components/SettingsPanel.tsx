@@ -2,6 +2,7 @@ import type { AppConfig } from '../types/book';
 
 interface SettingsPanelProps {
   config: AppConfig;
+  bookPath: string | null;
   onChange: (next: AppConfig) => void;
   onSave: () => void;
 }
@@ -14,6 +15,11 @@ function SettingsPanel(props: SettingsPanelProps) {
       <header>
         <h2>Settings</h2>
         <p>Configuracion persistente local para IA y versionado.</p>
+        <p>
+          {props.bookPath
+            ? `Ruta: ${props.bookPath}/config.json`
+            : 'Abri un libro para guardar en mi-libro/config.json'}
+        </p>
       </header>
 
       <label>
@@ -66,6 +72,31 @@ function SettingsPanel(props: SettingsPanelProps) {
         Auto-versionado antes de aplicar IA
       </label>
 
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={config.autoApplyChatChanges}
+          onChange={(event) => props.onChange({ ...config, autoApplyChatChanges: event.target.checked })}
+        />
+        Chat aplica cambios automaticamente sin preguntar
+      </label>
+
+      <label>
+        Iteraciones automaticas del chat
+        <input
+          type="number"
+          min="1"
+          max="10"
+          value={config.chatApplyIterations}
+          onChange={(event) =>
+            props.onChange({
+              ...config,
+              chatApplyIterations: Math.max(1, Math.min(10, Number.parseInt(event.target.value || '1', 10))),
+            })
+          }
+        />
+      </label>
+
       <label>
         System prompt fijo
         <textarea
@@ -75,7 +106,9 @@ function SettingsPanel(props: SettingsPanelProps) {
         />
       </label>
 
-      <button onClick={props.onSave}>Guardar settings</button>
+      <button onClick={props.onSave} disabled={!props.bookPath}>
+        Guardar settings
+      </button>
     </section>
   );
 }

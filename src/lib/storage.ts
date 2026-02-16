@@ -1,4 +1,3 @@
-import { appConfigDir } from '@tauri-apps/api/path';
 import {
   copyFile,
   exists,
@@ -42,6 +41,10 @@ function bookFilePath(bookPath: string): string {
   return joinPath(bookPath, BOOK_FILE);
 }
 
+function configFilePath(bookPath: string): string {
+  return joinPath(bookPath, CONFIG_FILE);
+}
+
 function versionsDirPath(bookPath: string): string {
   return joinPath(bookPath, VERSIONS_DIR);
 }
@@ -54,6 +57,13 @@ function parseVersion(fileName: string, chapterId: string): number {
   const matcher = new RegExp(`^${chapterId}_v(\\d+)\\.json$`);
   const match = fileName.match(matcher);
   return match ? Number(match[1]) : 0;
+}
+
+function ensureChapterDocument(chapter: ChapterDocument): ChapterDocument {
+  return {
+    ...chapter,
+    contentJson: chapter.contentJson ?? null,
+  };
 }
 
 async function writeJson(path: string, data: unknown): Promise<void> {
@@ -85,18 +95,18 @@ function ensureBookMetadata(metadata: BookMetadata): BookMetadata {
   };
 }
 
-export async function loadAppConfig(): Promise<AppConfig> {
-  const configDirectory = normalizePath(await appConfigDir());
-  const configPath = joinPath(configDirectory, CONFIG_FILE);
+export async function loadAppConfig(bookPath: string): Promise<AppConfig> {
+  const normalizedBookPath = normalizePath(bookPath);
+  const targetConfigPath = configFilePath(normalizedBookPath);
 
-  await mkdir(configDirectory, { recursive: true });
+  await mkdir(normalizedBookPath, { recursive: true });
 
-  if (!(await exists(configPath))) {
-    await writeJson(configPath, DEFAULT_APP_CONFIG);
+  if (!(await exists(targetConfigPath))) {
+    await writeJson(targetConfigPath, DEFAULT_APP_CONFIG);
     return DEFAULT_APP_CONFIG;
   }
 
-  const loaded = await readJson<Partial<AppConfig>>(configPath);
+  const loaded = await readJson<Partial<AppConfig>>(targetConfigPath);
   return {
     ...DEFAULT_APP_CONFIG,
     ...loaded,
@@ -107,11 +117,10 @@ export async function loadAppConfig(): Promise<AppConfig> {
   };
 }
 
-export async function saveAppConfig(config: AppConfig): Promise<void> {
-  const configDirectory = normalizePath(await appConfigDir());
-  const configPath = joinPath(configDirectory, CONFIG_FILE);
-  await mkdir(configDirectory, { recursive: true });
-  await writeJson(configPath, config);
+export async function saveAppConfig(bookPath: string, config: AppConfig): Promise<void> {
+  const normalizedBookPath = normalizePath(bookPath);
+  await mkdir(normalizedBookPath, { recursive: true });
+  await writeJson(configFilePath(normalizedBookPath), config);
 }
 
 export async function createBookProject(
@@ -136,6 +145,7 @@ export async function createBookProject(
     id: '01',
     title: 'Capitulo 1',
     content: '<p>Escribe aqui...</p>',
+    contentJson: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -152,6 +162,7 @@ export async function createBookProject(
 
   await writeJson(bookFilePath(projectPath), metadata);
   await writeJson(chapterFilePath(projectPath, firstChapter.id), firstChapter);
+  await writeJson(configFilePath(projectPath), DEFAULT_APP_CONFIG);
 
   return {
     path: projectPath,
@@ -176,7 +187,7 @@ export async function loadBookProject(path: string): Promise<BookProject> {
   for (const chapterId of metadata.chapterOrder) {
     const chapterPath = chapterFilePath(projectPath, chapterId);
     if (await exists(chapterPath)) {
-      chapters[chapterId] = await readJson<ChapterDocument>(chapterPath);
+      chapters[chapterId] = ensureChapterDocument(await readJson<ChapterDocument>(chapterPath));
     }
   }
 
@@ -202,10 +213,10 @@ export async function saveBookMetadata(
 }
 
 export async function saveChapter(bookPath: string, chapter: ChapterDocument): Promise<ChapterDocument> {
-  const nextChapter: ChapterDocument = {
+  const nextChapter: ChapterDocument = ensureChapterDocument({
     ...chapter,
     updatedAt: getNowIso(),
-  };
+  });
 
   await writeJson(chapterFilePath(bookPath, chapter.id), nextChapter);
   return nextChapter;
@@ -223,6 +234,7 @@ export async function createChapter(
     id,
     title,
     content: '<p></p>',
+    contentJson: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -250,13 +262,13 @@ export async function duplicateChapter(
   const id = getNextChapterId(metadata.chapterOrder);
   const now = getNowIso();
 
-  const chapter: ChapterDocument = {
+  const chapter: ChapterDocument = ensureChapterDocument({
     ...sourceChapter,
     id,
     title: `${sourceChapter.title} copia`,
     createdAt: now,
     updatedAt: now,
-  };
+  });
 
   const nextMetadata: BookMetadata = {
     ...metadata,
@@ -278,11 +290,11 @@ export async function renameChapter(
   chapter: ChapterDocument,
   nextTitle: string,
 ): Promise<ChapterDocument> {
-  const nextChapter: ChapterDocument = {
+  const nextChapter: ChapterDocument = ensureChapterDocument({
     ...chapter,
     title: nextTitle,
     updatedAt: getNowIso(),
-  };
+  });
 
   await writeJson(chapterFilePath(bookPath, chapter.id), nextChapter);
   return nextChapter;
@@ -399,10 +411,10 @@ export async function restoreLastSnapshot(
   const latestFileName = versionFileNames[versionFileNames.length - 1];
   const snapshot = await readJson<ChapterSnapshot>(joinPath(versionsPath, latestFileName));
 
-  const restored: ChapterDocument = {
+  const restored: ChapterDocument = ensureChapterDocument({
     ...snapshot.chapter,
     updatedAt: getNowIso(),
-  };
+  });
 
   await saveChapter(bookPath, restored);
   return restored;
