@@ -1,0 +1,18 @@
+{
+  "title": "Libro Demo",
+  "author": "WriteWMe",
+  "chapterOrder": [
+    "01",
+    "02"
+  ],
+  "coverImage": "assets/cover.png",
+  "createdAt": "2026-02-16T00:00:00.000Z",
+  "updatedAt": "2026-02-16T00:00:00.000Z",
+  "chats": {
+    "book": [],
+    "chapters": {
+      "01": [],
+      "02": []
+    }
+  }
+}

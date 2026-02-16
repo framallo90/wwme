@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "chapterId": "01",
+  "reason": "Snapshot demo",
+  "createdAt": "2026-02-16T00:05:00.000Z",
+  "chapter": {
+    "id": "01",
+    "title": "Capitulo 1 - Apertura",
+    "content": "<p>Texto inicial del snapshot demo.</p>",
+    "createdAt": "2026-02-16T00:00:00.000Z",
+    "updatedAt": "2026-02-16T00:05:00.000Z"
+  }
+}
