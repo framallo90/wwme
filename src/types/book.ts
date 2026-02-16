@@ -69,6 +69,8 @@ export interface AppConfig {
   autoVersioning: boolean;
   autoApplyChatChanges: boolean;
   chatApplyIterations: number;
+  continuousAgentEnabled: boolean;
+  continuousAgentMaxRounds: number;
   ollamaOptions: Record<string, number | string | boolean>;
   autosaveIntervalMs: number;
 }

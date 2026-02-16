@@ -201,6 +201,18 @@ interface BuildAutoRewritePromptInput {
   totalIterations: number;
 }
 
+interface BuildContinuousChapterPromptInput {
+  userInstruction: string;
+  bookTitle: string;
+  foundation: BookFoundation;
+  chapterTitle: string;
+  chapterText: string;
+  fullBookText: string;
+  round: number;
+  maxRounds: number;
+  previousSummary?: string;
+}
+
 export function buildChatPrompt(input: BuildChatPromptInput): string {
   return [
     `Libro: ${input.bookTitle}`,
@@ -239,5 +251,33 @@ export function buildAutoRewritePrompt(input: BuildAutoRewritePromptInput): stri
     '- Aplica los cambios directamente.',
     '- No pidas confirmacion.',
     '- Devuelve solo el texto final del capitulo.',
+  ].join('\n');
+}
+
+export function buildContinuousChapterPrompt(input: BuildContinuousChapterPromptInput): string {
+  return [
+    'MODO: agente continuo para capitulo, sin pedir confirmaciones.',
+    `Libro: ${input.bookTitle}`,
+    buildFoundationBlock(input.foundation),
+    `Capitulo: ${input.chapterTitle}`,
+    `Ronda: ${input.round}/${input.maxRounds}`,
+    '',
+    'Instruccion del usuario:',
+    input.userInstruction,
+    '',
+    'Contexto del libro completo:',
+    input.fullBookText,
+    '',
+    'Texto actual del capitulo:',
+    input.chapterText,
+    '',
+    'Resumen previo (si existe):',
+    input.previousSummary ?? '(sin resumen previo)',
+    '',
+    'Salida obligatoria con este formato exacto:',
+    'ESTADO: DONE o CONTINUE',
+    'RESUMEN: breve',
+    'TEXTO:',
+    '<texto final del capitulo>',
   ].join('\n');
 }

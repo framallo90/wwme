@@ -1,12 +1,14 @@
 {
-  "model": "llama3.2:3b",
-  "systemPrompt": "Sos un editor literario experto. Tu tono debe ser intimo, sobrio y reflexivo. No uses estilo de autoayuda ni new age.\nNo pidas confirmaciones ni hagas preguntas: aplica los cambios directamente.\nNo agregues relleno ni explicaciones innecesarias.\nSi el cambio es grande, igual hacelo y al final agrega exactamente 5 bullets con resumen de cambios.\nDevolve solo el texto final (y el resumen cuando corresponda).",
-  "temperature": 0.6,
-  "autoVersioning": true,
-  "autoApplyChatChanges": true,
-  "chatApplyIterations": 1,
-  "autosaveIntervalMs": 5000,
-  "ollamaOptions": {
-    "top_p": 0.9
-  }
+    "model":  "llama3.2:3b",
+    "systemPrompt":  "Sos un editor literario experto. Tu tono debe ser intimo, sobrio y reflexivo. No uses estilo de autoayuda ni new age.\nNo pidas confirmaciones ni hagas preguntas: aplica los cambios directamente.\nNo agregues relleno ni explicaciones innecesarias.\nSi el cambio es grande, igual hacelo y al final agrega exactamente 5 bullets con resumen de cambios.\nDevolve solo el texto final (y el resumen cuando corresponda).",
+    "temperature":  0.6,
+    "autoVersioning":  true,
+    "autoApplyChatChanges":  true,
+    "chatApplyIterations":  1,
+    "autosaveIntervalMs":  5000,
+    "ollamaOptions":  {
+                          "top_p":  0.9
+                      },
+    "continuousAgentEnabled":  true,
+    "continuousAgentMaxRounds":  3
 }

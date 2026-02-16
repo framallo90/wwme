@@ -14,7 +14,13 @@ import type { TiptapEditorHandle } from './components/TiptapEditor';
 import { DEFAULT_APP_CONFIG } from './lib/config';
 import { exportBookMarkdownByChapter, exportBookMarkdownSingleFile, exportChapterMarkdown } from './lib/export';
 import { generateWithOllama } from './lib/ollamaClient';
-import { AI_ACTIONS, buildActionPrompt, buildAutoRewritePrompt, buildChatPrompt } from './lib/prompts';
+import {
+  AI_ACTIONS,
+  buildActionPrompt,
+  buildAutoRewritePrompt,
+  buildChatPrompt,
+  buildContinuousChapterPrompt,
+} from './lib/prompts';
 import {
   clearCoverImage,
   createBookProject,
@@ -51,6 +57,19 @@ function buildBookContext(book: BookProject, chaptersOverride?: BookProject['cha
     })
     .filter(Boolean)
     .join('\n\n');
+}
+
+function parseContinuousAgentOutput(raw: string): { status: 'DONE' | 'CONTINUE'; summary: string; text: string } {
+  const normalized = raw.trim();
+  const statusMatch = normalized.match(/ESTADO:\s*(DONE|CONTINUE)/i);
+  const summaryMatch = normalized.match(/RESUMEN:\s*(.*)/i);
+  const textMatch = normalized.match(/TEXTO:\s*([\s\S]*)$/i);
+
+  const status = (statusMatch?.[1]?.toUpperCase() as 'DONE' | 'CONTINUE' | undefined) ?? 'CONTINUE';
+  const summary = summaryMatch?.[1]?.trim() ?? '';
+  const text = textMatch?.[1]?.trim() || normalized;
+
+  return { status, summary, text };
 }
 
 function App() {
@@ -624,44 +643,95 @@ function App() {
 
           let lastResponse = '';
 
-          for (let iteration = 1; iteration <= iterations; iteration += 1) {
-            if (config.autoVersioning) {
-              await saveChapterSnapshot(book.path, chapter, `Chat auto-aplicar ${iteration}/${iterations}`);
+          if (config.continuousAgentEnabled) {
+            const maxRounds = Math.max(1, Math.min(12, config.continuousAgentMaxRounds));
+            let previousSummary = '';
+
+            for (let round = 1; round <= maxRounds; round += 1) {
+              if (config.autoVersioning) {
+                await saveChapterSnapshot(book.path, chapter, `Agente continuo ronda ${round}/${maxRounds}`);
+              }
+
+              const prompt = buildContinuousChapterPrompt({
+                userInstruction: message,
+                bookTitle: book.metadata.title,
+                foundation: book.metadata.foundation,
+                chapterTitle: chapter.title,
+                chapterText: stripHtml(chapter.content),
+                fullBookText: buildBookContext(book, workingChapters),
+                round,
+                maxRounds,
+                previousSummary,
+              });
+
+              const rawResponse = normalizeAiOutput(
+                await generateWithOllama({
+                  config,
+                  prompt,
+                }),
+              );
+              const parsed = parseContinuousAgentOutput(rawResponse);
+              lastResponse = parsed.text;
+              previousSummary = parsed.summary;
+
+              const chapterDraft = {
+                ...chapter,
+                content: plainTextToHtml(parsed.text),
+                contentJson: null,
+                updatedAt: getNowIso(),
+              };
+              chapter = await saveChapter(book.path, chapterDraft);
+              workingChapters = {
+                ...workingChapters,
+                [chapter.id]: chapter,
+              };
+
+              setStatus(`Agente continuo en capitulo (${round}/${maxRounds})...`);
+
+              if (parsed.status === 'DONE') {
+                break;
+              }
             }
+          } else {
+            for (let iteration = 1; iteration <= iterations; iteration += 1) {
+              if (config.autoVersioning) {
+                await saveChapterSnapshot(book.path, chapter, `Chat auto-aplicar ${iteration}/${iterations}`);
+              }
 
-            const prompt = buildAutoRewritePrompt({
-              userInstruction: message,
-              bookTitle: book.metadata.title,
-              foundation: book.metadata.foundation,
-              chapterTitle: chapter.title,
-              chapterText: stripHtml(chapter.content),
-              fullBookText: buildBookContext(book, workingChapters),
-              chapterIndex: book.metadata.chapterOrder.indexOf(chapter.id) + 1,
-              chapterTotal: book.metadata.chapterOrder.length,
-              iteration,
-              totalIterations: iterations,
-            });
+              const prompt = buildAutoRewritePrompt({
+                userInstruction: message,
+                bookTitle: book.metadata.title,
+                foundation: book.metadata.foundation,
+                chapterTitle: chapter.title,
+                chapterText: stripHtml(chapter.content),
+                fullBookText: buildBookContext(book, workingChapters),
+                chapterIndex: book.metadata.chapterOrder.indexOf(chapter.id) + 1,
+                chapterTotal: book.metadata.chapterOrder.length,
+                iteration,
+                totalIterations: iterations,
+              });
 
-            lastResponse = normalizeAiOutput(
-              await generateWithOllama({
-                config,
-                prompt,
-              }),
-            );
+              lastResponse = normalizeAiOutput(
+                await generateWithOllama({
+                  config,
+                  prompt,
+                }),
+              );
 
-            const chapterDraft = {
-              ...chapter,
-              content: plainTextToHtml(lastResponse),
-              contentJson: null,
-              updatedAt: getNowIso(),
-            };
-            chapter = await saveChapter(book.path, chapterDraft);
-            workingChapters = {
-              ...workingChapters,
-              [chapter.id]: chapter,
-            };
+              const chapterDraft = {
+                ...chapter,
+                content: plainTextToHtml(lastResponse),
+                contentJson: null,
+                updatedAt: getNowIso(),
+              };
+              chapter = await saveChapter(book.path, chapterDraft);
+              workingChapters = {
+                ...workingChapters,
+                [chapter.id]: chapter,
+              };
 
-            setStatus(`Aplicando cambios al capitulo (${iteration}/${iterations})...`);
+              setStatus(`Aplicando cambios al capitulo (${iteration}/${iterations})...`);
+            }
           }
 
           setBook((previous) => {
@@ -686,7 +756,11 @@ function App() {
           };
 
           await persistScopeMessages(scope, [...withUser, assistantMessage]);
-          setStatus('Chat aplicado automaticamente al capitulo.');
+          setStatus(
+            config.continuousAgentEnabled
+              ? 'Chat aplicado con agente continuo al capitulo.'
+              : 'Chat aplicado automaticamente al capitulo.',
+          );
           return;
         }
 
@@ -1100,6 +1174,8 @@ function App() {
           messages={currentMessages}
           autoApplyChatChanges={config.autoApplyChatChanges}
           chatApplyIterations={config.chatApplyIterations}
+          continuousAgentEnabled={config.continuousAgentEnabled}
+          continuousAgentMaxRounds={config.continuousAgentMaxRounds}
           onScopeChange={setChatScope}
           onRunAction={handleRunAction}
           onSendChat={handleSendChat}

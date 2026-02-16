@@ -68,6 +68,8 @@ npm run dev
 - `autoVersioning`
 - `autoApplyChatChanges`
 - `chatApplyIterations`
+- `continuousAgentEnabled`
+- `continuousAgentMaxRounds`
 - `autosaveIntervalMs`
 - `ollamaOptions`
 
@@ -90,6 +92,8 @@ Cada capitulo (`chapters/NN.json`) guarda:
   - devolucion de capitulo/libro
   - chat por capitulo o por libro
   - modo auto-aplicar sin preguntar (iterativo)
+  - agente continuo por rondas en chat de capitulo
+- Presets de trabajo en Settings (borrador, precision, revision final)
 - Snapshot antes de cambios IA + undo basico
 - Export Markdown:
   - capitulo individual

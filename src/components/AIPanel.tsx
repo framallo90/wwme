@@ -11,6 +11,8 @@ interface AIPanelProps {
   messages: ChatMessage[];
   autoApplyChatChanges: boolean;
   chatApplyIterations: number;
+  continuousAgentEnabled: boolean;
+  continuousAgentMaxRounds: number;
   onScopeChange: (scope: ChatScope) => void;
   onRunAction: (actionId: AiActionId) => void;
   onSendChat: (message: string, scope: ChatScope) => void;
@@ -71,6 +73,13 @@ function AIPanel(props: AIPanelProps) {
             ? `Auto-aplicar activo (${props.chatApplyIterations} iteracion/es).`
             : 'Modo consulta (sin auto-aplicar).'}
         </p>
+        {props.scope === 'chapter' && props.autoApplyChatChanges ? (
+          <p className="muted">
+            {props.continuousAgentEnabled
+              ? `Agente continuo activo (${props.continuousAgentMaxRounds} rondas max).`
+              : 'Agente continuo desactivado.'}
+          </p>
+        ) : null}
 
         <div className="chat-history">
           {props.messages.length === 0 ? (

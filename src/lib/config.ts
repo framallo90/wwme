@@ -8,6 +8,8 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   autoVersioning: true,
   autoApplyChatChanges: true,
   chatApplyIterations: 1,
+  continuousAgentEnabled: true,
+  continuousAgentMaxRounds: 3,
   autosaveIntervalMs: 5000,
   ollamaOptions: {
     top_p: 0.9,

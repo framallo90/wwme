@@ -97,6 +97,76 @@ function SettingsPanel(props: SettingsPanelProps) {
         />
       </label>
 
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={config.continuousAgentEnabled}
+          onChange={(event) => props.onChange({ ...config, continuousAgentEnabled: event.target.checked })}
+        />
+        Agente continuo por chat (capitulo)
+      </label>
+
+      <label>
+        Rondas maximas del agente continuo
+        <input
+          type="number"
+          min="1"
+          max="12"
+          value={config.continuousAgentMaxRounds}
+          onChange={(event) =>
+            props.onChange({
+              ...config,
+              continuousAgentMaxRounds: Math.max(1, Math.min(12, Number.parseInt(event.target.value || '3', 10))),
+            })
+          }
+        />
+      </label>
+
+      <div className="preset-row">
+        <button
+          type="button"
+          onClick={() =>
+            props.onChange({
+              ...config,
+              temperature: 0.75,
+              chatApplyIterations: 1,
+              continuousAgentEnabled: false,
+              continuousAgentMaxRounds: 2,
+            })
+          }
+        >
+          Preset borrador
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            props.onChange({
+              ...config,
+              temperature: 0.45,
+              chatApplyIterations: 2,
+              continuousAgentEnabled: true,
+              continuousAgentMaxRounds: 3,
+            })
+          }
+        >
+          Preset precision
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            props.onChange({
+              ...config,
+              temperature: 0.3,
+              chatApplyIterations: 2,
+              continuousAgentEnabled: true,
+              continuousAgentMaxRounds: 4,
+            })
+          }
+        >
+          Preset revision final
+        </button>
+      </div>
+
       <label>
         System prompt fijo
         <textarea
