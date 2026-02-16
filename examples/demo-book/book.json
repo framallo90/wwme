@@ -1,18 +1,34 @@
 {
-  "title": "Libro Demo",
-  "author": "WriteWMe",
-  "chapterOrder": [
-    "01",
-    "02"
-  ],
-  "coverImage": "assets/cover.png",
-  "createdAt": "2026-02-16T00:00:00.000Z",
-  "updatedAt": "2026-02-16T00:00:00.000Z",
-  "chats": {
-    "book": [],
-    "chapters": {
-      "01": [],
-      "02": []
-    }
-  }
+    "title":  "Libro Demo",
+    "author":  "WriteWMe",
+    "chapterOrder":  [
+                         "01",
+                         "02"
+                     ],
+    "coverImage":  "assets/cover.png",
+    "createdAt":  "2026-02-16T00:00:00.000Z",
+    "updatedAt":  "2026-02-16T00:00:00.000Z",
+    "chats":  {
+                  "book":  [
+
+                           ],
+                  "chapters":  {
+                                   "01":  [
+
+                                          ],
+                                   "02":  [
+
+                                          ]
+                               }
+              },
+    "foundation":  {
+                       "centralIdea":  "Explorar como la escritura ordena el pensamiento y la experiencia.",
+                       "promise":  "El lector termina con un metodo practico y sobrio para pensar mejor escribiendo.",
+                       "audience":  "Personas que escriben para pensar, crear o trabajar ideas complejas.",
+                       "narrativeVoice":  "Intimo, sobrio, reflexivo, sin grandilocuencia.",
+                       "styleRules":  "Frases claras, ejemplos concretos, cero relleno, evitar tono de autoayuda.",
+                       "structureNotes":  "Avanzar de lo personal a lo metodico, cerrando cada capitulo con idea accionable.",
+                       "glossaryPreferred":  "ritmo, foco, criterio, coherencia",
+                       "glossaryAvoid":  "manifestar, vibrar alto, energia universal"
+                   }
 }

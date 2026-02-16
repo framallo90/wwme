@@ -103,7 +103,7 @@ select {
 }
 
 .sidebar-view-actions {
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
 }
 
 .sidebar-view-actions .is-active {

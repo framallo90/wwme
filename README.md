@@ -58,6 +58,7 @@ npm run dev
 - titulo, autor
 - orden de capitulos (`chapterOrder`)
 - portada (`coverImage`)
+- base fija del libro (`foundation`)
 - historial de chat por libro y por capitulo
 
 `config.json` (persistente por libro):
@@ -81,10 +82,11 @@ Cada capitulo (`chapters/NN.json`) guarda:
 - Nuevo libro / abrir libro existente
 - CRUD de capitulos (crear, renombrar, duplicar, borrar, mover)
 - Vista general de libro
+- Vista y edicion de base fija del libro
 - Portada (ver/cambiar/quitar)
 - Editor TipTap + auto-guardado
 - Panel IA:
-  - acciones rapidas (pulir, reescribir, expandir, acortar, consistencia)
+  - acciones rapidas (escribir desde idea, pulir, reescribir, expandir, acortar, consistencia, transiciones, profundidad, alineacion con base)
   - devolucion de capitulo/libro
   - chat por capitulo o por libro
   - modo auto-aplicar sin preguntar (iterativo)

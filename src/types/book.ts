@@ -1,4 +1,4 @@
-export type MainView = 'editor' | 'outline' | 'cover' | 'settings';
+export type MainView = 'editor' | 'outline' | 'cover' | 'foundation' | 'settings';
 
 export type ChatScope = 'chapter' | 'book';
 
@@ -34,11 +34,23 @@ export interface BookChats {
   chapters: Record<string, ChatMessage[]>;
 }
 
+export interface BookFoundation {
+  centralIdea: string;
+  promise: string;
+  audience: string;
+  narrativeVoice: string;
+  styleRules: string;
+  structureNotes: string;
+  glossaryPreferred: string;
+  glossaryAvoid: string;
+}
+
 export interface BookMetadata {
   title: string;
   author: string;
   chapterOrder: string[];
   coverImage: string | null;
+  foundation: BookFoundation;
   createdAt: string;
   updatedAt: string;
   chats: BookChats;
@@ -62,11 +74,15 @@ export interface AppConfig {
 }
 
 export type AiActionId =
+  | 'draft-from-idea'
   | 'polish-style'
   | 'rewrite-tone'
   | 'expand-examples'
   | 'shorten-20'
   | 'consistency'
+  | 'improve-transitions'
+  | 'deepen-argument'
+  | 'align-with-foundation'
   | 'feedback-chapter'
   | 'feedback-book';
 

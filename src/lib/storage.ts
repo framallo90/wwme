@@ -13,6 +13,7 @@ import { getNowIso, joinPath, normalizePath, safeFileName, slugify } from './tex
 import type {
   AppConfig,
   BookChats,
+  BookFoundation,
   BookMetadata,
   BookProject,
   ChapterDocument,
@@ -30,6 +31,19 @@ function buildDefaultChats(): BookChats {
   return {
     book: [],
     chapters: {},
+  };
+}
+
+export function buildDefaultFoundation(): BookFoundation {
+  return {
+    centralIdea: '',
+    promise: '',
+    audience: '',
+    narrativeVoice: 'Intimo, sobrio, reflexivo.',
+    styleRules: 'Frases claras, sin relleno, evitar tono de autoayuda.',
+    structureNotes: '',
+    glossaryPreferred: '',
+    glossaryAvoid: '',
   };
 }
 
@@ -92,6 +106,7 @@ function ensureBookMetadata(metadata: BookMetadata): BookMetadata {
     ...metadata,
     chats: metadata.chats ?? buildDefaultChats(),
     coverImage: metadata.coverImage ?? null,
+    foundation: metadata.foundation ?? buildDefaultFoundation(),
   };
 }
 
@@ -155,6 +170,7 @@ export async function createBookProject(
     author,
     chapterOrder: [firstChapter.id],
     coverImage: null,
+    foundation: buildDefaultFoundation(),
     createdAt: now,
     updatedAt: now,
     chats: buildDefaultChats(),
@@ -206,6 +222,7 @@ export async function saveBookMetadata(
     ...metadata,
     updatedAt: getNowIso(),
     chats: metadata.chats ?? buildDefaultChats(),
+    foundation: metadata.foundation ?? buildDefaultFoundation(),
   };
 
   await writeJson(bookFilePath(bookPath), nextMetadata);

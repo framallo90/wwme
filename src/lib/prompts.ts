@@ -1,4 +1,4 @@
-import type { AiAction, AiActionId } from '../types/book';
+import type { AiAction, AiActionId, BookFoundation } from '../types/book';
 
 export const DEFAULT_SYSTEM_PROMPT = `Sos un editor literario experto. Tu tono debe ser intimo, sobrio y reflexivo. No uses estilo de autoayuda ni new age.
 No pidas confirmaciones ni hagas preguntas: aplica los cambios directamente.
@@ -7,6 +7,12 @@ Si el cambio es grande, igual hacelo y al final agrega exactamente 5 bullets con
 Devolve solo el texto final (y el resumen cuando corresponda).`;
 
 export const AI_ACTIONS: AiAction[] = [
+  {
+    id: 'draft-from-idea',
+    label: 'Escribir desde idea',
+    description: 'Crea o rehace un borrador guiado por la base del libro.',
+    modifiesText: true,
+  },
   {
     id: 'polish-style',
     label: 'Pulir estilo',
@@ -38,6 +44,24 @@ export const AI_ACTIONS: AiAction[] = [
     modifiesText: true,
   },
   {
+    id: 'improve-transitions',
+    label: 'Mejorar transiciones',
+    description: 'Ajusta continuidad y enlaces entre parrafos.',
+    modifiesText: true,
+  },
+  {
+    id: 'deepen-argument',
+    label: 'Profundizar argumento',
+    description: 'Aumenta densidad conceptual sin perder claridad.',
+    modifiesText: true,
+  },
+  {
+    id: 'align-with-foundation',
+    label: 'Alinear con base',
+    description: 'Ajusta el texto para respetar la base fija del libro.',
+    modifiesText: true,
+  },
+  {
     id: 'feedback-chapter',
     label: 'Devolucion capitulo',
     description: 'Feedback editorial detallado del capitulo.',
@@ -52,6 +76,8 @@ export const AI_ACTIONS: AiAction[] = [
 ];
 
 const ACTION_INSTRUCTIONS: Record<AiActionId, string> = {
+  'draft-from-idea':
+    'Escribir o reescribir el capitulo desde la idea base del libro, manteniendo tono y direccion narrativa.',
   'polish-style':
     'Pulir estilo manteniendo significado. Mejora claridad, ritmo y elimina repeticiones.',
   'rewrite-tone':
@@ -62,17 +88,38 @@ const ACTION_INSTRUCTIONS: Record<AiActionId, string> = {
     'Acortar aproximadamente un 20% manteniendo ideas principales y fluidez.',
   consistency:
     'Corregir inconsistencias de terminologia, metaforas y voz narrativa de forma uniforme.',
+  'improve-transitions':
+    'Mejorar transiciones entre ideas y parrafos para lograr lectura fluida y cohesion.',
+  'deepen-argument':
+    'Profundizar el argumento con matices y mayor precision conceptual sin extender innecesariamente.',
+  'align-with-foundation':
+    'Reescribir para alinear estrictamente con la base del libro: idea central, promesa, voz y reglas de estilo.',
   'feedback-chapter':
     'Dar devolucion editorial del capitulo: fortalezas, debilidades, coherencia y mejoras accionables.',
   'feedback-book':
     'Dar devolucion editorial del libro completo: estructura, arco narrativo, coherencia, ritmo y mejoras accionables.',
 };
 
+export function buildFoundationBlock(foundation: BookFoundation): string {
+  return [
+    'Base fija del libro:',
+    `- Idea central: ${foundation.centralIdea || '(sin definir)'}`,
+    `- Promesa: ${foundation.promise || '(sin definir)'}`,
+    `- Audiencia: ${foundation.audience || '(sin definir)'}`,
+    `- Voz narrativa: ${foundation.narrativeVoice || '(sin definir)'}`,
+    `- Reglas de estilo: ${foundation.styleRules || '(sin definir)'}`,
+    `- Notas de estructura: ${foundation.structureNotes || '(sin definir)'}`,
+    `- Glosario preferido: ${foundation.glossaryPreferred || '(sin definir)'}`,
+    `- Glosario a evitar: ${foundation.glossaryAvoid || '(sin definir)'}`,
+  ].join('\n');
+}
+
 interface BuildActionPromptInput {
   actionId: AiActionId;
   selectedText: string;
   chapterTitle: string;
   bookTitle: string;
+  foundation: BookFoundation;
   chapterContext?: string;
   fullBookContext?: string;
 }
@@ -80,10 +127,12 @@ interface BuildActionPromptInput {
 export function buildActionPrompt(input: BuildActionPromptInput): string {
   const instruction = ACTION_INSTRUCTIONS[input.actionId];
   const target = input.selectedText.trim();
+  const foundationBlock = buildFoundationBlock(input.foundation);
 
   if (input.actionId === 'feedback-book') {
     return [
       `Libro: ${input.bookTitle}`,
+      foundationBlock,
       `Accion: ${instruction}`,
       '',
       'Contenido del libro:',
@@ -95,6 +144,7 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
     return [
       `Libro: ${input.bookTitle}`,
       `Capitulo: ${input.chapterTitle}`,
+      foundationBlock,
       `Accion: ${instruction}`,
       '',
       'Contenido del capitulo:',
@@ -102,9 +152,24 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
     ].join('\n');
   }
 
+  if (input.actionId === 'draft-from-idea') {
+    return [
+      `Libro: ${input.bookTitle}`,
+      `Capitulo: ${input.chapterTitle}`,
+      foundationBlock,
+      `Accion: ${instruction}`,
+      '',
+      'Texto actual del capitulo (si existe):',
+      input.chapterContext ?? '(vacio)',
+      '',
+      'Si el texto actual esta vacio, generar un borrador completo. Si no esta vacio, rehacerlo y mejorarlo.',
+    ].join('\n');
+  }
+
   return [
     `Libro: ${input.bookTitle}`,
     `Capitulo: ${input.chapterTitle}`,
+    foundationBlock,
     `Accion: ${instruction}`,
     '',
     'Texto objetivo:',
@@ -116,6 +181,7 @@ interface BuildChatPromptInput {
   scope: 'chapter' | 'book';
   message: string;
   bookTitle: string;
+  foundation: BookFoundation;
   chapterTitle?: string;
   chapterText: string;
   fullBookText: string;
@@ -125,6 +191,7 @@ interface BuildChatPromptInput {
 interface BuildAutoRewritePromptInput {
   userInstruction: string;
   bookTitle: string;
+  foundation: BookFoundation;
   chapterTitle: string;
   chapterText: string;
   fullBookText: string;
@@ -137,6 +204,7 @@ interface BuildAutoRewritePromptInput {
 export function buildChatPrompt(input: BuildChatPromptInput): string {
   return [
     `Libro: ${input.bookTitle}`,
+    buildFoundationBlock(input.foundation),
     input.chapterTitle ? `Capitulo activo: ${input.chapterTitle}` : 'Sin capitulo activo',
     '',
     input.scope === 'book' ? 'Contexto global del libro:' : 'Contexto del capitulo:',
@@ -154,6 +222,7 @@ export function buildAutoRewritePrompt(input: BuildAutoRewritePromptInput): stri
   return [
     'MODO: reescritura automatica sin pedir confirmaciones.',
     `Libro: ${input.bookTitle}`,
+    buildFoundationBlock(input.foundation),
     `Capitulo: ${input.chapterTitle} (${input.chapterIndex}/${input.chapterTotal})`,
     `Iteracion: ${input.iteration}/${input.totalIterations}`,
     '',

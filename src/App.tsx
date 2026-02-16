@@ -4,6 +4,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 
 import AppShell from './app/AppShell';
 import AIPanel from './components/AIPanel';
+import BookFoundationPanel from './components/BookFoundationPanel';
 import CoverView from './components/CoverView';
 import EditorPane from './components/EditorPane';
 import OutlineView from './components/OutlineView';
@@ -27,6 +28,7 @@ import {
   renameChapter,
   restoreLastSnapshot,
   saveAppConfig,
+  saveBookMetadata,
   saveChapter,
   saveChapterSnapshot,
   setCoverImage,
@@ -292,6 +294,52 @@ function App() {
     }
   }, [book, config]);
 
+  const handleFoundationChange = useCallback(
+    (foundation: BookProject['metadata']['foundation']) => {
+      if (!book) {
+        return;
+      }
+
+      setBook((previous) => {
+        if (!previous || previous.path !== book.path) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          metadata: {
+            ...previous.metadata,
+            foundation,
+          },
+        };
+      });
+    },
+    [book],
+  );
+
+  const handleSaveFoundation = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    try {
+      const savedMetadata = await saveBookMetadata(book.path, book.metadata);
+      setBook((previous) => {
+        if (!previous || previous.path !== book.path) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          metadata: savedMetadata,
+        };
+      });
+      setStatus('Base del libro guardada.');
+    } catch (error) {
+      setStatus(`No se pudo guardar la base: ${(error as Error).message}`);
+    }
+  }, [book]);
+
   const handleCreateChapter = useCallback(async () => {
     if (!book) {
       return;
@@ -533,6 +581,7 @@ function App() {
             scope,
             message,
             bookTitle: book.metadata.title,
+            foundation: book.metadata.foundation,
             chapterTitle: activeChapter?.title,
             chapterText,
             fullBookText: buildBookContext(book),
@@ -583,6 +632,7 @@ function App() {
             const prompt = buildAutoRewritePrompt({
               userInstruction: message,
               bookTitle: book.metadata.title,
+              foundation: book.metadata.foundation,
               chapterTitle: chapter.title,
               chapterText: stripHtml(chapter.content),
               fullBookText: buildBookContext(book, workingChapters),
@@ -661,6 +711,7 @@ function App() {
             const prompt = buildAutoRewritePrompt({
               userInstruction: message,
               bookTitle: book.metadata.title,
+              foundation: book.metadata.foundation,
               chapterTitle: chapter.title,
               chapterText: stripHtml(chapter.content),
               fullBookText: buildBookContext(book, workingChapters),
@@ -738,9 +789,10 @@ function App() {
         return;
       }
 
+      const allowEmptyTargetActions = new Set(['feedback-book', 'feedback-chapter', 'draft-from-idea']);
       const hasSelection = editor.hasSelection();
       const selectedText = hasSelection ? editor.getSelectionText() : editor.getDocumentText();
-      if (!selectedText.trim() && actionId !== 'feedback-book') {
+      if (!selectedText.trim() && !allowEmptyTargetActions.has(actionId)) {
         setStatus('No hay texto para procesar.');
         return;
       }
@@ -750,6 +802,7 @@ function App() {
         selectedText,
         chapterTitle: activeChapter.title,
         bookTitle: book.metadata.title,
+        foundation: book.metadata.foundation,
         chapterContext: stripHtml(activeChapter.content),
         fullBookContext: buildBookContext(book),
       });
@@ -956,6 +1009,25 @@ function App() {
       return <CoverView coverSrc={coverSrc} onPickCover={handlePickCover} onClearCover={handleClearCover} />;
     }
 
+    if (mainView === 'foundation') {
+      return (
+        <BookFoundationPanel
+          foundation={book?.metadata.foundation ?? {
+            centralIdea: '',
+            promise: '',
+            audience: '',
+            narrativeVoice: '',
+            styleRules: '',
+            structureNotes: '',
+            glossaryPreferred: '',
+            glossaryAvoid: '',
+          }}
+          onChange={handleFoundationChange}
+          onSave={handleSaveFoundation}
+        />
+      );
+    }
+
     if (mainView === 'settings') {
       return <SettingsPanel config={config} bookPath={book?.path ?? null} onChange={setConfig} onSave={handleSaveSettings} />;
     }
@@ -973,12 +1045,14 @@ function App() {
     );
   }, [
     activeChapter,
-    book?.path,
+    book,
     config,
     coverSrc,
     flushChapterSave,
     handleClearCover,
     handleEditorChange,
+    handleFoundationChange,
+    handleSaveFoundation,
     handlePickCover,
     handleSaveSettings,
     mainView,
@@ -1008,6 +1082,7 @@ function App() {
           onShowEditor={() => setMainView('editor')}
           onShowOutline={() => setMainView('outline')}
           onShowCover={() => setMainView('cover')}
+          onShowFoundation={() => setMainView('foundation')}
           onShowSettings={() => setMainView('settings')}
           onExportChapter={handleExportChapter}
           onExportBookSingle={handleExportBookSingle}

@@ -17,6 +17,7 @@ interface SidebarProps {
   onShowEditor: () => void;
   onShowOutline: () => void;
   onShowCover: () => void;
+  onShowFoundation: () => void;
   onShowSettings: () => void;
   onExportChapter: () => void;
   onExportBookSingle: () => void;
@@ -58,6 +59,13 @@ function Sidebar(props: SidebarProps) {
           disabled={!props.hasBook}
         >
           Portada
+        </button>
+        <button
+          className={props.currentView === 'foundation' ? 'is-active' : ''}
+          onClick={props.onShowFoundation}
+          disabled={!props.hasBook}
+        >
+          Base
         </button>
       </div>
 
