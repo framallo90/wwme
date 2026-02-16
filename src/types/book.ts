@@ -1,4 +1,4 @@
-export type MainView = 'editor' | 'outline' | 'cover' | 'foundation' | 'settings';
+export type MainView = 'editor' | 'outline' | 'cover' | 'foundation' | 'amazon' | 'settings';
 
 export type ChatScope = 'chapter' | 'book';
 
@@ -45,12 +45,32 @@ export interface BookFoundation {
   glossaryAvoid: string;
 }
 
+export type AmazonPresetType = 'non-fiction-reflexive' | 'practical-essay' | 'intimate-narrative';
+
+export interface AmazonKdpData {
+  presetType: AmazonPresetType;
+  marketplace: string;
+  language: string;
+  kdpTitle: string;
+  subtitle: string;
+  penName: string;
+  seriesName: string;
+  edition: string;
+  keywords: string[];
+  categories: string[];
+  backCoverText: string;
+  longDescription: string;
+  authorBio: string;
+  kdpNotes: string;
+}
+
 export interface BookMetadata {
   title: string;
   author: string;
   chapterOrder: string[];
   coverImage: string | null;
   foundation: BookFoundation;
+  amazon: AmazonKdpData;
   createdAt: string;
   updatedAt: string;
   chats: BookChats;

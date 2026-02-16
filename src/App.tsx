@@ -4,6 +4,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 
 import AppShell from './app/AppShell';
 import AIPanel from './components/AIPanel';
+import AmazonPanel from './components/AmazonPanel';
 import BookFoundationPanel from './components/BookFoundationPanel';
 import CoverView from './components/CoverView';
 import EditorPane from './components/EditorPane';
@@ -356,6 +357,49 @@ function App() {
       setStatus('Base del libro guardada.');
     } catch (error) {
       setStatus(`No se pudo guardar la base: ${(error as Error).message}`);
+    }
+  }, [book]);
+
+  const handleAmazonMetadataChange = useCallback(
+    (nextMetadata: BookProject['metadata']) => {
+      if (!book) {
+        return;
+      }
+
+      setBook((previous) => {
+        if (!previous || previous.path !== book.path) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          metadata: nextMetadata,
+        };
+      });
+    },
+    [book],
+  );
+
+  const handleSaveAmazon = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    try {
+      const savedMetadata = await saveBookMetadata(book.path, book.metadata);
+      setBook((previous) => {
+        if (!previous || previous.path !== book.path) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          metadata: savedMetadata,
+        };
+      });
+      setStatus('Seccion Amazon guardada.');
+    } catch (error) {
+      setStatus(`No se pudo guardar Amazon: ${(error as Error).message}`);
     }
   }, [book]);
 
@@ -1102,6 +1146,17 @@ function App() {
       );
     }
 
+    if (mainView === 'amazon' && book) {
+      return (
+        <AmazonPanel
+          metadata={book.metadata}
+          chapters={orderedChapters}
+          onChangeMetadata={handleAmazonMetadataChange}
+          onSave={handleSaveAmazon}
+        />
+      );
+    }
+
     if (mainView === 'settings') {
       return <SettingsPanel config={config} bookPath={book?.path ?? null} onChange={setConfig} onSave={handleSaveSettings} />;
     }
@@ -1125,6 +1180,8 @@ function App() {
     flushChapterSave,
     handleClearCover,
     handleEditorChange,
+    handleAmazonMetadataChange,
+    handleSaveAmazon,
     handleFoundationChange,
     handleSaveFoundation,
     handlePickCover,
@@ -1157,6 +1214,7 @@ function App() {
           onShowOutline={() => setMainView('outline')}
           onShowCover={() => setMainView('cover')}
           onShowFoundation={() => setMainView('foundation')}
+          onShowAmazon={() => setMainView('amazon')}
           onShowSettings={() => setMainView('settings')}
           onExportChapter={handleExportChapter}
           onExportBookSingle={handleExportBookSingle}

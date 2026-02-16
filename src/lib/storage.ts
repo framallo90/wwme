@@ -12,6 +12,7 @@ import { DEFAULT_APP_CONFIG } from './config';
 import { getNowIso, joinPath, normalizePath, safeFileName, slugify } from './text';
 import type {
   AppConfig,
+  AmazonKdpData,
   BookChats,
   BookFoundation,
   BookMetadata,
@@ -44,6 +45,29 @@ export function buildDefaultFoundation(): BookFoundation {
     structureNotes: '',
     glossaryPreferred: '',
     glossaryAvoid: '',
+  };
+}
+
+export function buildDefaultAmazon(bookTitle: string, author: string): AmazonKdpData {
+  return {
+    presetType: 'non-fiction-reflexive',
+    marketplace: 'Amazon.com',
+    language: 'Spanish',
+    kdpTitle: bookTitle,
+    subtitle: '',
+    penName: author,
+    seriesName: '',
+    edition: '1',
+    keywords: ['', '', '', '', '', '', ''],
+    categories: [
+      'Libros > Literatura y ficcion > Ensayos',
+      'Libros > Salud familia y desarrollo personal > Escritura',
+      'Libros > Negocios y dinero > Productividad',
+    ],
+    backCoverText: '',
+    longDescription: '',
+    authorBio: '',
+    kdpNotes: '',
   };
 }
 
@@ -107,6 +131,7 @@ function ensureBookMetadata(metadata: BookMetadata): BookMetadata {
     chats: metadata.chats ?? buildDefaultChats(),
     coverImage: metadata.coverImage ?? null,
     foundation: metadata.foundation ?? buildDefaultFoundation(),
+    amazon: metadata.amazon ?? buildDefaultAmazon(metadata.title, metadata.author),
   };
 }
 
@@ -171,6 +196,7 @@ export async function createBookProject(
     chapterOrder: [firstChapter.id],
     coverImage: null,
     foundation: buildDefaultFoundation(),
+    amazon: buildDefaultAmazon(title, author),
     createdAt: now,
     updatedAt: now,
     chats: buildDefaultChats(),
@@ -223,6 +249,7 @@ export async function saveBookMetadata(
     updatedAt: getNowIso(),
     chats: metadata.chats ?? buildDefaultChats(),
     foundation: metadata.foundation ?? buildDefaultFoundation(),
+    amazon: metadata.amazon ?? buildDefaultAmazon(metadata.title, metadata.author),
   };
 
   await writeJson(bookFilePath(bookPath), nextMetadata);

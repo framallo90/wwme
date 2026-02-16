@@ -30,5 +30,33 @@
                        "structureNotes":  "Avanzar de lo personal a lo metodico, cerrando cada capitulo con idea accionable.",
                        "glossaryPreferred":  "ritmo, foco, criterio, coherencia",
                        "glossaryAvoid":  "manifestar, vibrar alto, energia universal"
-                   }
+                   },
+    "amazon":  {
+                   "presetType":  "non-fiction-reflexive",
+                   "marketplace":  "Amazon.com",
+                   "language":  "Spanish",
+                   "kdpTitle":  "Libro Demo",
+                   "subtitle":  "",
+                   "penName":  "WriteWMe",
+                   "seriesName":  "",
+                   "edition":  "1",
+                   "keywords":  [
+                                    "escritura reflexiva",
+                                    "claridad mental",
+                                    "pensar escribiendo",
+                                    "",
+                                    "",
+                                    "",
+                                    ""
+                                ],
+                   "categories":  [
+                                      "Libros \u003e Literatura y ficcion \u003e Ensayos",
+                                      "Libros \u003e Salud familia y desarrollo personal \u003e Escritura",
+                                      "Libros \u003e Negocios y dinero \u003e Productividad"
+                                  ],
+                   "backCoverText":  "",
+                   "longDescription":  "",
+                   "authorBio":  "",
+                   "kdpNotes":  "Pegar estos campos en KDP y revisar portada."
+               }
 }

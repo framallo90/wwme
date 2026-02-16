@@ -59,6 +59,7 @@ npm run dev
 - orden de capitulos (`chapterOrder`)
 - portada (`coverImage`)
 - base fija del libro (`foundation`)
+- seccion Amazon/KDP (`amazon`)
 - historial de chat por libro y por capitulo
 
 `config.json` (persistente por libro):
@@ -86,6 +87,7 @@ Cada capitulo (`chapters/NN.json`) guarda:
 - Vista general de libro
 - Vista y edicion de base fija del libro
 - Portada (ver/cambiar/quitar)
+- Seccion Amazon/KDP con presets listos para copiar y pegar
 - Editor TipTap + auto-guardado
 - Panel IA:
   - acciones rapidas (escribir desde idea, pulir, reescribir, expandir, acortar, consistencia, transiciones, profundidad, alineacion con base)
@@ -94,6 +96,7 @@ Cada capitulo (`chapters/NN.json`) guarda:
   - modo auto-aplicar sin preguntar (iterativo)
   - agente continuo por rondas en chat de capitulo
 - Presets de trabajo en Settings (borrador, precision, revision final)
+- Presets Amazon (no ficcion reflexiva, ensayo practico, narrativa intima)
 - Snapshot antes de cambios IA + undo basico
 - Export Markdown:
   - capitulo individual

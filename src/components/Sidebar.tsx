@@ -18,6 +18,7 @@ interface SidebarProps {
   onShowOutline: () => void;
   onShowCover: () => void;
   onShowFoundation: () => void;
+  onShowAmazon: () => void;
   onShowSettings: () => void;
   onExportChapter: () => void;
   onExportBookSingle: () => void;
@@ -66,6 +67,13 @@ function Sidebar(props: SidebarProps) {
           disabled={!props.hasBook}
         >
           Base
+        </button>
+        <button
+          className={props.currentView === 'amazon' ? 'is-active' : ''}
+          onClick={props.onShowAmazon}
+          disabled={!props.hasBook}
+        >
+          Amazon
         </button>
       </div>
 

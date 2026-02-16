@@ -294,6 +294,33 @@ select {
   overflow-y: auto;
 }
 
+.amazon-view {
+  overflow-y: auto;
+}
+
+.amazon-toolbar {
+  display: grid;
+  grid-template-columns: 1.2fr repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  align-items: end;
+}
+
+.amazon-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.amazon-section {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.amazon-lines {
+  display: grid;
+  gap: 0.35rem;
+}
+
 .settings-view header h2 {
   margin: 0;
 }
@@ -442,6 +469,14 @@ select {
   }
 
   .preset-row {
+    grid-template-columns: 1fr;
+  }
+
+  .amazon-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .amazon-grid {
     grid-template-columns: 1fr;
   }
 }
