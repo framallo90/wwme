@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { confirm, open } from '@tauri-apps/plugin-dialog';
 
 import AppShell from './app/AppShell';
 import AIPanel from './components/AIPanel';
@@ -43,6 +43,7 @@ import {
   resolveBookDirectory,
   moveChapter,
   renameChapter,
+  removeBookFromLibrary,
   restoreLastSnapshot,
   saveAppConfig,
   saveBookMetadata,
@@ -1417,6 +1418,51 @@ function App() {
     [loadProject],
   );
 
+  const handleDeleteLibraryBook = useCallback(
+    async (bookPath: string) => {
+      const libraryEntry = libraryIndex.books.find((entry) => entry.path === bookPath);
+      const title = libraryEntry?.title ?? 'este libro';
+      const accepted = await confirm(
+        `Vas a quitar "${title}" de la biblioteca.\nLos archivos del libro NO se borran del disco.`,
+        {
+          title: 'Eliminar de biblioteca',
+          kind: 'warning',
+          okLabel: 'Quitar',
+          cancelLabel: 'Cancelar',
+        },
+      );
+
+      if (!accepted) {
+        return;
+      }
+
+      try {
+        const nextIndex = await removeBookFromLibrary(bookPath);
+        setLibraryIndex(nextIndex);
+
+        if (book && book.path === bookPath) {
+          try {
+            await flushChapterSave();
+          } catch {
+            // Sigue el cierre aunque falle un guardado tardio.
+          }
+          setBook(null);
+          setActiveChapterId(null);
+          setMainView('editor');
+          setFeedback('');
+          setChatScope('chapter');
+          refreshCovers(null);
+          dirtyRef.current = false;
+        }
+
+        setStatus(`Libro quitado de biblioteca: ${title}`);
+      } catch (error) {
+        setStatus(`No se pudo quitar el libro: ${(error as Error).message}`);
+      }
+    },
+    [book, flushChapterSave, libraryIndex.books, refreshCovers],
+  );
+
   const handleSetBookPublished = useCallback(
     async (bookPath: string, published: boolean) => {
       try {
@@ -1573,6 +1619,7 @@ function App() {
             onOpenLibraryBook={handleOpenLibraryBook}
             onOpenLibraryBookChat={handleOpenLibraryBookChat}
             onOpenLibraryBookAmazon={handleOpenLibraryBookAmazon}
+            onDeleteLibraryBook={handleDeleteLibraryBook}
             onSetBookPublished={handleSetBookPublished}
             onCreateBook={handleCreateBook}
             onOpenBook={handleOpenBook}

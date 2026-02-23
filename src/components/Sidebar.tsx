@@ -24,6 +24,7 @@ interface SidebarProps {
   onOpenLibraryBook: (bookPath: string) => void;
   onOpenLibraryBookChat: (bookPath: string) => void;
   onOpenLibraryBookAmazon: (bookPath: string) => void;
+  onDeleteLibraryBook: (bookPath: string) => void;
   onSetBookPublished: (bookPath: string, published: boolean) => void;
   onCreateBook: () => void;
   onOpenBook: () => void;
@@ -83,6 +84,7 @@ function Sidebar(props: SidebarProps) {
                   <button onClick={() => props.onOpenLibraryBook(entry.path)}>Abrir</button>
                   <button onClick={() => props.onOpenLibraryBookChat(entry.path)}>Chat</button>
                   <button onClick={() => props.onOpenLibraryBookAmazon(entry.path)}>Amazon</button>
+                  <button onClick={() => props.onDeleteLibraryBook(entry.path)}>Eliminar</button>
                   <button
                     onClick={() => props.onSetBookPublished(entry.path, entry.status !== 'publicado')}
                   >

@@ -224,7 +224,7 @@ async function collectNestedBookCandidates(
         continue;
       }
 
-      if (await exists(bookFilePath(childPath))) {
+      if ((await exists(bookFilePath(childPath))) || (await isBookScaffoldDirectory(childPath))) {
         found.add(childPath);
       }
 
@@ -292,6 +292,171 @@ function ensureChapterDocument(chapter: ChapterDocument): ChapterDocument {
     ...chapter,
     contentJson: chapter.contentJson ?? null,
   };
+}
+
+function inferTitleFromBookPath(bookPath: string): string {
+  const parts = normalizeFolderPath(bookPath).split('/').filter(Boolean);
+  const folder = parts[parts.length - 1] ?? 'mi-libro';
+  const title = folder.replace(/[-_]+/g, ' ').trim();
+  return title || 'Mi libro';
+}
+
+function chapterSortValue(chapterId: string): number {
+  const numeric = Number.parseInt(chapterId, 10);
+  return Number.isFinite(numeric) ? numeric : Number.MAX_SAFE_INTEGER;
+}
+
+function sortChapterIds(chapterIds: string[]): string[] {
+  return chapterIds.sort((a, b) => {
+    const aValue = chapterSortValue(a);
+    const bValue = chapterSortValue(b);
+    if (aValue !== bValue) {
+      return aValue - bValue;
+    }
+    return a.localeCompare(b);
+  });
+}
+
+function chapterDisplayTitle(chapterId: string, index: number): string {
+  const numeric = Number.parseInt(chapterId, 10);
+  return Number.isFinite(numeric) ? `Capitulo ${numeric}` : `Capitulo ${index + 1}`;
+}
+
+function buildDefaultChapterDocument(chapterId: string, index: number, now: string): ChapterDocument {
+  return {
+    id: chapterId,
+    title: chapterDisplayTitle(chapterId, index),
+    content: '<p>Escribe aqui...</p>',
+    contentJson: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function buildInitialBookMetadata(
+  title: string,
+  author: string,
+  chapterOrder: string[],
+  now: string,
+): BookMetadata {
+  return {
+    title,
+    author,
+    chapterOrder,
+    coverImage: null,
+    backCoverImage: null,
+    spineText: title,
+    foundation: buildDefaultFoundation(),
+    amazon: buildDefaultAmazon(title, author),
+    interiorFormat: buildDefaultInteriorFormat(),
+    isPublished: false,
+    publishedAt: null,
+    createdAt: now,
+    updatedAt: now,
+    chats: buildDefaultChats(),
+  };
+}
+
+async function inferChapterIdsFromDisk(bookPath: string): Promise<string[]> {
+  const chaptersPath = joinPath(bookPath, CHAPTERS_DIR);
+  if (!(await exists(chaptersPath))) {
+    return [];
+  }
+
+  const entries = await readDir(chaptersPath);
+  const chapterIds = entries
+    .filter((entry) => !entry.isDirectory && entry.name.toLowerCase().endsWith('.json'))
+    .map((entry) => entry.name.replace(/\.json$/i, '').trim())
+    .filter(Boolean);
+
+  return sortChapterIds(Array.from(new Set(chapterIds)));
+}
+
+async function ensureBookProjectFiles(
+  bookPath: string,
+  defaults?: { title?: string; author?: string },
+): Promise<{ metadata: BookMetadata; chapters: Record<string, ChapterDocument> }> {
+  const normalizedBookPath = normalizeFolderPath(sanitizeIncomingPath(bookPath));
+  const now = getNowIso();
+
+  await mkdir(normalizedBookPath, { recursive: true });
+  await mkdir(joinPath(normalizedBookPath, CHAPTERS_DIR), { recursive: true });
+  await mkdir(joinPath(normalizedBookPath, ASSETS_DIR), { recursive: true });
+  await mkdir(joinPath(normalizedBookPath, VERSIONS_DIR), { recursive: true });
+
+  const chapterIdsFromDisk = await inferChapterIdsFromDisk(normalizedBookPath);
+  const titleFromPath = inferTitleFromBookPath(normalizedBookPath);
+  const defaultTitle = defaults?.title?.trim() || titleFromPath;
+  const defaultAuthor = defaults?.author?.trim() || 'Autor';
+
+  let metadata: BookMetadata;
+  if (await exists(bookFilePath(normalizedBookPath))) {
+    try {
+      metadata = ensureBookMetadata(await readJson<BookMetadata>(bookFilePath(normalizedBookPath)));
+    } catch {
+      const fallbackOrder = chapterIdsFromDisk.length > 0 ? chapterIdsFromDisk : ['01'];
+      metadata = buildInitialBookMetadata(defaultTitle, defaultAuthor, fallbackOrder, now);
+    }
+  } else {
+    const initialOrder = chapterIdsFromDisk.length > 0 ? chapterIdsFromDisk : ['01'];
+    metadata = buildInitialBookMetadata(defaultTitle, defaultAuthor, initialOrder, now);
+  }
+
+  const mergedOrder = metadata.chapterOrder.length > 0 ? metadata.chapterOrder : chapterIdsFromDisk;
+  const normalizedOrder = sortChapterIds(Array.from(new Set(mergedOrder.length > 0 ? mergedOrder : ['01'])));
+  const normalizedTitle = metadata.title?.trim() || defaultTitle;
+  const normalizedAuthor = metadata.author?.trim() || defaultAuthor;
+
+  metadata = ensureBookMetadata({
+    ...metadata,
+    title: normalizedTitle,
+    author: normalizedAuthor,
+    chapterOrder: normalizedOrder,
+    spineText: metadata.spineText?.trim() || normalizedTitle,
+  });
+
+  const chapters: Record<string, ChapterDocument> = {};
+  for (const [index, chapterId] of metadata.chapterOrder.entries()) {
+    const chapterPath = chapterFilePath(normalizedBookPath, chapterId);
+    let chapter: ChapterDocument;
+
+    if (await exists(chapterPath)) {
+      try {
+        const loaded = ensureChapterDocument(await readJson<ChapterDocument>(chapterPath));
+        chapter = {
+          ...loaded,
+          id: loaded.id?.trim() || chapterId,
+          title: loaded.title?.trim() || chapterDisplayTitle(chapterId, index),
+          content: loaded.content ?? '<p>Escribe aqui...</p>',
+          createdAt: loaded.createdAt ?? now,
+          updatedAt: loaded.updatedAt ?? loaded.createdAt ?? now,
+          contentJson: loaded.contentJson ?? null,
+        };
+      } catch {
+        chapter = buildDefaultChapterDocument(chapterId, index, now);
+      }
+    } else {
+      chapter = buildDefaultChapterDocument(chapterId, index, now);
+    }
+
+    chapters[chapterId] = chapter;
+    await writeJson(chapterPath, chapter);
+  }
+
+  await writeJson(bookFilePath(normalizedBookPath), metadata);
+  if (!(await exists(configFilePath(normalizedBookPath)))) {
+    await writeJson(configFilePath(normalizedBookPath), DEFAULT_APP_CONFIG);
+  }
+
+  return { metadata, chapters };
+}
+
+async function isBookScaffoldDirectory(path: string): Promise<boolean> {
+  const normalized = normalizeFolderPath(path);
+  const hasChapters = await exists(joinPath(normalized, CHAPTERS_DIR));
+  const hasAssets = await exists(joinPath(normalized, ASSETS_DIR));
+  const hasVersions = await exists(joinPath(normalized, VERSIONS_DIR));
+  return hasChapters && hasAssets && hasVersions;
 }
 
 async function writeJson(path: string, data: unknown): Promise<void> {
@@ -363,8 +528,9 @@ export async function createBookProject(
   title: string,
   author: string,
 ): Promise<BookProject> {
-  const now = getNowIso();
-  const folderName = slugify(title) || `book-${Date.now()}`;
+  const normalizedTitle = title.trim() || 'Mi libro';
+  const normalizedAuthor = author.trim() || 'Autor';
+  const folderName = slugify(normalizedTitle) || `book-${Date.now()}`;
   const parentPath = normalizeFolderPath(sanitizeIncomingPath(parentDirectory));
   const projectPath = joinPath(parentPath, folderName);
 
@@ -373,46 +539,15 @@ export async function createBookProject(
   }
 
   await mkdir(projectPath, { recursive: true });
-  await mkdir(joinPath(projectPath, CHAPTERS_DIR), { recursive: true });
-  await mkdir(joinPath(projectPath, ASSETS_DIR), { recursive: true });
-  await mkdir(joinPath(projectPath, VERSIONS_DIR), { recursive: true });
-
-  const firstChapter: ChapterDocument = {
-    id: '01',
-    title: 'Capitulo 1',
-    content: '<p>Escribe aqui...</p>',
-    contentJson: null,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  const metadata: BookMetadata = {
-    title,
-    author,
-    chapterOrder: [firstChapter.id],
-    coverImage: null,
-    backCoverImage: null,
-    spineText: title,
-    foundation: buildDefaultFoundation(),
-    amazon: buildDefaultAmazon(title, author),
-    interiorFormat: buildDefaultInteriorFormat(),
-    isPublished: false,
-    publishedAt: null,
-    createdAt: now,
-    updatedAt: now,
-    chats: buildDefaultChats(),
-  };
-
-  await writeJson(bookFilePath(projectPath), metadata);
-  await writeJson(chapterFilePath(projectPath, firstChapter.id), firstChapter);
-  await writeJson(configFilePath(projectPath), DEFAULT_APP_CONFIG);
+  const ensured = await ensureBookProjectFiles(projectPath, {
+    title: normalizedTitle,
+    author: normalizedAuthor,
+  });
 
   return {
     path: projectPath,
-    metadata,
-    chapters: {
-      [firstChapter.id]: firstChapter,
-    },
+    metadata: ensured.metadata,
+    chapters: ensured.chapters,
   };
 }
 
@@ -421,7 +556,7 @@ export async function resolveBookDirectory(path: string): Promise<string> {
   const candidateBooks = new Set<string>();
 
   for (const candidatePath of pathCandidates) {
-    if (await exists(bookFilePath(candidatePath))) {
+    if ((await exists(bookFilePath(candidatePath))) || (await isBookScaffoldDirectory(candidatePath))) {
       return candidatePath;
     }
   }
@@ -440,7 +575,7 @@ export async function resolveBookDirectory(path: string): Promise<string> {
       }
 
       const nestedPath = normalizeFolderPath(joinPath(candidatePath, entry.name));
-      if (await exists(bookFilePath(nestedPath))) {
+      if ((await exists(bookFilePath(nestedPath))) || (await isBookScaffoldDirectory(nestedPath))) {
         candidateBooks.add(nestedPath);
       }
     }
@@ -483,26 +618,12 @@ export async function resolveBookDirectory(path: string): Promise<string> {
 
 export async function loadBookProject(path: string): Promise<BookProject> {
   const projectPath = await resolveBookDirectory(path);
-  const bookPath = bookFilePath(projectPath);
-
-  if (!(await exists(bookPath))) {
-    throw new Error('No se encontro book.json en la carpeta seleccionada.');
-  }
-
-  const metadata = ensureBookMetadata(await readJson<BookMetadata>(bookPath));
-  const chapters: Record<string, ChapterDocument> = {};
-
-  for (const chapterId of metadata.chapterOrder) {
-    const chapterPath = chapterFilePath(projectPath, chapterId);
-    if (await exists(chapterPath)) {
-      chapters[chapterId] = ensureChapterDocument(await readJson<ChapterDocument>(chapterPath));
-    }
-  }
+  const ensured = await ensureBookProjectFiles(projectPath);
 
   return {
     path: projectPath,
-    metadata,
-    chapters,
+    metadata: ensured.metadata,
+    chapters: ensured.chapters,
   };
 }
 
