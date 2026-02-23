@@ -322,7 +322,24 @@ export async function resolveBookDirectory(path: string): Promise<string> {
   }
 
   if (candidateBooks.length > 1) {
-    throw new Error('La carpeta contiene varios libros. Selecciona la carpeta exacta del libro.');
+    const withDate: Array<{ path: string; updatedAt: string }> = [];
+    for (const candidate of candidateBooks) {
+      try {
+        const metadata = await readJson<Partial<BookMetadata>>(bookFilePath(candidate));
+        withDate.push({
+          path: candidate,
+          updatedAt: metadata.updatedAt ?? metadata.createdAt ?? '',
+        });
+      } catch {
+        withDate.push({
+          path: candidate,
+          updatedAt: '',
+        });
+      }
+    }
+
+    withDate.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return withDate[0].path;
   }
 
   throw new Error('No se encontro book.json en la carpeta seleccionada.');

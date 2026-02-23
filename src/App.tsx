@@ -289,7 +289,18 @@ function App() {
               }
 
               const created = await createBookProject(selectedDirectory, title, author);
-              await loadProject(created.path);
+              try {
+                await loadProject(created.path);
+              } catch {
+                const loadedConfig = await loadAppConfig(created.path);
+                setBook(created);
+                setConfig(loadedConfig);
+                setActiveChapterId(created.metadata.chapterOrder[0] ?? null);
+                setMainView('editor');
+                setFeedback('');
+                refreshCovers(created);
+                await syncBookToLibrary(created, { markOpened: true });
+              }
               setStatus(`Libro creado y abierto: ${created.metadata.title}`);
             } catch (error) {
               setStatus(`No se pudo crear el libro: ${(error as Error).message}`);
@@ -298,7 +309,7 @@ function App() {
         });
       },
     });
-  }, [loadProject]);
+  }, [loadProject, refreshCovers, syncBookToLibrary]);
 
   const handleOpenBook = useCallback(async () => {
     try {
