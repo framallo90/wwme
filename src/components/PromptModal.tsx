@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import './PromptModal.css';
 
 interface PromptModalProps {
@@ -12,10 +12,6 @@ interface PromptModalProps {
 
 function PromptModal(props: PromptModalProps) {
   const [value, setValue] = useState(props.defaultValue ?? '');
-
-  useEffect(() => {
-    setValue(props.defaultValue ?? '');
-  }, [props.defaultValue, props.isOpen]);
 
   if (!props.isOpen) {
     return null;

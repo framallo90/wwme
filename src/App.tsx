@@ -35,18 +35,16 @@ import {
   loadBookProject,
   moveChapter,
   renameChapter,
-  removeBookFromLibrary,
   restoreLastSnapshot,
   saveAppConfig,
   saveBookMetadata,
   saveChapter,
   saveChapterSnapshot,
   setCoverImage,
-  upsertBookInLibrary,
   updateBookChats,
 } from './lib/storage';
 import { getNowIso, normalizeAiOutput, plainTextToHtml, randomId, stripHtml } from './lib/text';
-import type { AppConfig, BookProject, ChatMessage, ChatScope, LibraryIndex, MainView } from './types/book';
+import type { AppConfig, BookProject, ChatMessage, ChatScope, MainView } from './types/book';
 
 import './App.css';
 
@@ -84,14 +82,6 @@ function App() {
 
   const [config, setConfig] = useState<AppConfig>(DEFAULT_APP_CONFIG);
   const [book, setBook] = useState<BookProject | null>(null);
-  const [libraryIndex, setLibraryIndex] = useState<LibraryIndex>({
-    books: [],
-    statusRules: {
-      advancedChapterThreshold: 6,
-    },
-    updatedAt: '',
-  });
-  const [libraryExpanded, setLibraryExpanded] = useState(true);
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [mainView, setMainView] = useState<MainView>('editor');
   const [status, setStatus] = useState('Listo.');
@@ -157,11 +147,6 @@ function App() {
 
   const refreshLibrary = useCallback(async () => {
     const index = await loadLibraryIndex();
-    setLibraryIndex(index);
-  }, []);
-
-  const syncBookToLibrary = useCallback(async (project: BookProject, markOpened = false) => {
-    const index = await upsertBookInLibrary(project, { markOpened });
     setLibraryIndex(index);
   }, []);
 
@@ -1264,16 +1249,15 @@ function App() {
               setMainView('editor');
             }}
             onShowEditor={() => setMainView('editor')}
-            onShowOutline={() => setMainView('outline')}
-            onShowCover={() => setMainView('cover')}
-            onShowFoundation={() => setMainView('foundation')}
-            onShowAmazon={() => setMainViev('amazon')}
-            onShowSettings={() => setMainView('settings')}
-            onExportChapter={handleExportChapter}
-            onExportBookSingle={handleExportBookSingle}
-            onExportBookSplit={handleExportBookSplit}
-          />
-        }
+                      onShowOutline={() => setMainView('outline')}
+                      onShowCover={() => setMainView('cover')}
+                      onShowFoundation={() => setMainView('foundation')}
+                      onShowAmazon={() => setMainView('amazon')}
+                      onShowSettings={() => setMainView('settings')}
+                      onExportChapter={handleExportChapter}
+                      onExportBookSingle={handleExportBookSingle}
+                      onExportBookSplit={handleExportBookSplit}
+                    />        }
         center={centerView}
         right={
           <AIPanel
