@@ -1,0 +1,101 @@
+{
+    "title":  "El faro y la niebla",
+    "author":  "Demo WriteWMe",
+    "chapterOrder":  [
+                         "01",
+                         "02",
+                         "03",
+                         "04",
+                         "05",
+                         "06",
+                         "07",
+                         "08"
+                     ],
+    "coverImage":  null,
+    "backCoverImage":  null,
+    "spineText":  "El faro y la niebla",
+    "foundation":  {
+                       "centralIdea":  "Una mujer vuelve al puerto de su infancia para desarmar una red de silencios y recuperar su voz.",
+                       "promise":  "Narrativa íntima, ritmo sostenido y cierre abierto con transformación concreta.",
+                       "audience":  "Lectores de novela contemporánea con tono sobrio y realista.",
+                       "narrativeVoice":  "Intimo, sobrio, reflexivo.",
+                       "styleRules":  "Prosa clara, frases precisas, sin relleno ni autoayuda.",
+                       "structureNotes":  "8 capitulos con avance de investigación y conflicto social.",
+                       "glossaryPreferred":  "puerto, niebla, dique, faro, archivo",
+                       "glossaryAvoid":  "new age, milagro, destino magico"
+                   },
+    "amazon":  {
+                   "presetType":  "intimate-narrative",
+                   "marketplace":  "Amazon.com",
+                   "language":  "Spanish",
+                   "kdpTitle":  "El faro y la niebla",
+                   "subtitle":  "Una novela de puerto, memoria y verdad",
+                   "penName":  "Demo WriteWMe",
+                   "seriesName":  "",
+                   "edition":  "1",
+                   "keywords":  [
+                                    "novela contemporanea",
+                                    "misterio literario",
+                                    "puerto",
+                                    "thriller intimista",
+                                    "memoria",
+                                    "corrupcion",
+                                    "voz femenina"
+                                ],
+                   "categories":  [
+                                      "Libros \u003e Literatura y ficcion \u003e Misterio",
+                                      "Libros \u003e Literatura y ficcion \u003e Ficcion contemporanea",
+                                      "Libros \u003e Literatura y ficcion \u003e Drama"
+                                  ],
+                   "backCoverText":  "Cuando Lena vuelve al puerto para vender una casa vacía, descubre que su pasado sigue respirando entre niebla, archivos y deudas no pagadas.",
+                   "longDescription":  "Una novela sobria e intensa sobre memoria, poder y pertenencia. En ocho capítulos, Lena atraviesa una investigación que la obliga a elegir entre sobrevivir en silencio o encender una luz que incomoda a todos.",
+                   "authorBio":  "Demo WriteWMe escribe ficción contemporánea centrada en personajes, atmósferas y conflictos morales.",
+                   "kdpNotes":  "Demo de carga KDP: revisar portada final y metadatos antes de publicar."
+               },
+    "interiorFormat":  {
+                           "trimSize":  "6x9",
+                           "pageWidthIn":  6,
+                           "pageHeightIn":  9,
+                           "marginTopMm":  18,
+                           "marginBottomMm":  18,
+                           "marginInsideMm":  20,
+                           "marginOutsideMm":  16,
+                           "paragraphIndentEm":  1.4,
+                           "lineHeight":  1.55
+                       },
+    "isPublished":  false,
+    "publishedAt":  null,
+    "createdAt":  "2026-02-23T07:05:17.9844572Z",
+    "updatedAt":  "2026-02-23T07:05:17.9844572Z",
+    "chats":  {
+                  "book":  [
+
+                           ],
+                  "chapters":  {
+                                   "02":  [
+
+                                          ],
+                                   "06":  [
+
+                                          ],
+                                   "08":  [
+
+                                          ],
+                                   "05":  [
+
+                                          ],
+                                   "07":  [
+
+                                          ],
+                                   "04":  [
+
+                                          ],
+                                   "01":  [
+
+                                          ],
+                                   "03":  [
+
+                                          ]
+                               }
+              }
+}
