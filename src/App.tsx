@@ -248,21 +248,48 @@ function App() {
     };
   }, [book, activeChapterId, config.autosaveIntervalMs, flushChapterSave]);
 
-  const loadProject = useCallback(
-    async (projectPath: string) => {
-      const loaded = await loadBookProject(projectPath);
-      const loadedConfig = await loadAppConfig(loaded.path);
-      setBook(loaded);
+  const applyOpenedProjectState = useCallback(
+    (project: BookProject, loadedConfig: AppConfig) => {
+      setBook(project);
       setConfig(loadedConfig);
-      setActiveChapterId(loaded.metadata.chapterOrder[0] ?? null);
+      setActiveChapterId(project.metadata.chapterOrder[0] ?? null);
       setMainView('editor');
       setChatScope('chapter');
       setFeedback('');
-      setStatus(`Libro abierto: ${loaded.metadata.title}`);
-      refreshCovers(loaded);
-      await syncBookToLibrary(loaded, { markOpened: true });
+      refreshCovers(project);
+      dirtyRef.current = false;
     },
-    [refreshCovers, syncBookToLibrary],
+    [refreshCovers],
+  );
+
+  const loadProject = useCallback(
+    async (projectPath: string) => {
+      const loaded = await loadBookProject(projectPath);
+      let loadedConfig: AppConfig = DEFAULT_APP_CONFIG;
+
+      try {
+        loadedConfig = await loadAppConfig(loaded.path);
+      } catch (error) {
+        try {
+          await saveAppConfig(loaded.path, DEFAULT_APP_CONFIG);
+        } catch {
+          // Continua con defaults aunque no se pueda reescribir config.
+        }
+        setStatus(`Config dañada, se aplicaron defaults: ${(error as Error).message}`);
+      }
+
+      applyOpenedProjectState(loaded, loadedConfig);
+
+      try {
+        await syncBookToLibrary(loaded, { markOpened: true });
+      } catch (error) {
+        setStatus(`Libro abierto: ${loaded.metadata.title} (no se pudo actualizar biblioteca: ${(error as Error).message})`);
+        return;
+      }
+
+      setStatus(`Libro abierto: ${loaded.metadata.title}`);
+    },
+    [applyOpenedProjectState, syncBookToLibrary],
   );
 
   const handleCreateBook = useCallback(async () => {
@@ -289,19 +316,28 @@ function App() {
                 return;
               }
 
+              setStatus('Creando estructura del libro...');
               const created = await createBookProject(selectedDirectory, title, author);
+
+              let loadedConfig: AppConfig = DEFAULT_APP_CONFIG;
               try {
-                await loadProject(created.path);
+                loadedConfig = await loadAppConfig(created.path);
               } catch {
-                const loadedConfig = await loadAppConfig(created.path);
-                setBook(created);
-                setConfig(loadedConfig);
-                setActiveChapterId(created.metadata.chapterOrder[0] ?? null);
-                setMainView('editor');
-                setFeedback('');
-                refreshCovers(created);
-                await syncBookToLibrary(created, { markOpened: true });
+                try {
+                  await saveAppConfig(created.path, DEFAULT_APP_CONFIG);
+                } catch {
+                  // Continua con defaults aunque falle la escritura.
+                }
               }
+
+              applyOpenedProjectState(created, loadedConfig);
+              try {
+                await syncBookToLibrary(created, { markOpened: true });
+              } catch (error) {
+                setStatus(`Libro creado: ${created.metadata.title} (sin actualizar biblioteca: ${(error as Error).message})`);
+                return;
+              }
+
               setStatus(`Libro creado y abierto: ${created.metadata.title}`);
             } catch (error) {
               setStatus(`No se pudo crear el libro: ${(error as Error).message}`);
@@ -310,7 +346,7 @@ function App() {
         });
       },
     });
-  }, [loadProject, refreshCovers, syncBookToLibrary]);
+  }, [applyOpenedProjectState, syncBookToLibrary]);
 
   const handleOpenBook = useCallback(async () => {
     try {

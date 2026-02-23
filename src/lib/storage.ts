@@ -459,6 +459,26 @@ async function isBookScaffoldDirectory(path: string): Promise<boolean> {
   return hasChapters && hasAssets && hasVersions;
 }
 
+async function resolveCreationPath(parentPath: string, baseFolderName: string): Promise<{ path: string; reused: boolean }> {
+  const preferredPath = joinPath(parentPath, baseFolderName);
+  if (!(await exists(preferredPath))) {
+    return { path: preferredPath, reused: false };
+  }
+
+  if ((await exists(bookFilePath(preferredPath))) || (await isBookScaffoldDirectory(preferredPath))) {
+    return { path: preferredPath, reused: true };
+  }
+
+  let suffix = 2;
+  let candidatePath = joinPath(parentPath, `${baseFolderName}-${suffix}`);
+  while (await exists(candidatePath)) {
+    suffix += 1;
+    candidatePath = joinPath(parentPath, `${baseFolderName}-${suffix}`);
+  }
+
+  return { path: candidatePath, reused: false };
+}
+
 async function writeJson(path: string, data: unknown): Promise<void> {
   await writeTextFile(path, JSON.stringify(data, null, 2));
 }
@@ -532,12 +552,7 @@ export async function createBookProject(
   const normalizedAuthor = author.trim() || 'Autor';
   const folderName = slugify(normalizedTitle) || `book-${Date.now()}`;
   const parentPath = normalizeFolderPath(sanitizeIncomingPath(parentDirectory));
-  const projectPath = joinPath(parentPath, folderName);
-
-  if (await exists(projectPath)) {
-    throw new Error('La carpeta de destino ya existe.');
-  }
-
+  const { path: projectPath } = await resolveCreationPath(parentPath, folderName);
   await mkdir(projectPath, { recursive: true });
   const ensured = await ensureBookProjectFiles(projectPath, {
     title: normalizedTitle,
