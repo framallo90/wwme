@@ -22,6 +22,7 @@ import {
   buildChatPrompt,
   buildContinuousChapterPrompt,
 } from './lib/prompts';
+import PromptModal from './components/PromptModal';
 import {
   clearCoverImage,
   createBookProject,
@@ -98,6 +99,12 @@ function App() {
   const [feedback, setFeedback] = useState('');
   const [chatScope, setChatScope] = useState<ChatScope>('chapter');
   const [coverSrc, setCoverSrc] = useState<string | null>(null);
+  const [promptModal, setPromptModal] = useState<{
+    title: string;
+    label: string;
+    defaultValue?: string;
+    onConfirm: (value: string) => void;
+  } | null>(null);
 
   const orderedChapters = useMemo(() => {
     if (!book) {
@@ -238,37 +245,45 @@ function App() {
   );
 
   const handleCreateBook = useCallback(async () => {
-    const title = window.prompt('Titulo del libro', 'Mi libro')?.trim();
-    if (!title) {
-      return;
-    }
+    setPromptModal({
+      title: 'Crear nuevo libro',
+      label: 'Titulo del libro',
+      defaultValue: 'Mi libro',
+      onConfirm: async (title) => {
+        setPromptModal({
+          title: 'Crear nuevo libro',
+          label: 'Autor',
+          defaultValue: 'Autor',
+          onConfirm: async (author) => {
+            setPromptModal(null);
+            try {
+              const selectedDirectory = await open({
+                directory: true,
+                multiple: false,
+                recursive: true,
+                title: 'Selecciona carpeta padre del libro',
+              });
 
-    const author = window.prompt('Autor', 'Autor')?.trim() || 'Autor';
+              if (!selectedDirectory || Array.isArray(selectedDirectory)) {
+                return;
+              }
 
-    try {
-      const selectedDirectory = await open({
-        directory: true,
-        multiple: false,
-        recursive: true,
-        title: 'Selecciona carpeta padre del libro',
-      });
-
-      if (!selectedDirectory || Array.isArray(selectedDirectory)) {
-        return;
-      }
-
-      const created = await createBookProject(selectedDirectory, title, author);
-      const loadedConfig = await loadAppConfig(created.path);
-      setBook(created);
-      setConfig(loadedConfig);
-      setActiveChapterId(created.metadata.chapterOrder[0] ?? null);
-      setMainView('editor');
-      setFeedback('');
-      refreshCover(created);
-      setStatus(`Libro creado en ${created.path}`);
-    } catch (error) {
-      setStatus(`No se pudo crear el libro: ${(error as Error).message}`);
-    }
+              const created = await createBookProject(selectedDirectory, title, author);
+              const loadedConfig = await loadAppConfig(created.path);
+              setBook(created);
+              setConfig(loadedConfig);
+              setActiveChapterId(created.metadata.chapterOrder[0] ?? null);
+              setMainView('editor');
+              setFeedback('');
+              refreshCover(created);
+              setStatus(`Libro creado en ${created.path}`);
+            } catch (error) {
+              setStatus(`No se pudo crear el libro: ${(error as Error).message}`);
+            }
+          },
+        });
+      },
+    });
   }, [refreshCover]);
 
   const handleOpenBook = useCallback(async () => {
@@ -1215,58 +1230,70 @@ function App() {
     orderedChapters,
   ]);
 
-  return (
-    <AppShell
-      sidebar={
-        <Sidebar
-          hasBook={Boolean(book)}
-          bookTitle={book?.metadata.title ?? 'Sin libro'}
-          chapters={orderedChapters}
-          activeChapterId={activeChapterId}
-          currentView={mainView}
-          onCreateBook={handleCreateBook}
-          onOpenBook={handleOpenBook}
-          onCreateChapter={handleCreateChapter}
-          onRenameChapter={handleRenameChapter}
-          onDuplicateChapter={handleDuplicateChapter}
-          onDeleteChapter={handleDeleteChapter}
-          onMoveChapter={handleMoveChapter}
-          onSelectChapter={(chapterId) => {
-            setActiveChapterId(chapterId);
-            setMainView('editor');
-          }}
-          onShowEditor={() => setMainView('editor')}
-          onShowOutline={() => setMainView('outline')}
-          onShowCover={() => setMainView('cover')}
-          onShowFoundation={() => setMainView('foundation')}
-          onShowAmazon={() => setMainView('amazon')}
-          onShowSettings={() => setMainView('settings')}
-          onExportChapter={handleExportChapter}
-          onExportBookSingle={handleExportBookSingle}
-          onExportBookSplit={handleExportBookSplit}
+    return (
+    <>
+      <AppShell
+        sidebar={
+          <Sidebar
+            hasBook={Boolean(book)}
+            bookTitle={book?.metadata.title ?? 'Sin libro'}
+            chapters={orderedChapters}
+            activeChapterId={activeChapterId}
+            currentView={mainView}
+            onCreateBook={handleCreateBook}
+            onOpenBook={handleOpenBook}
+            onCreateChapter={handleCreateChapter}
+            onRenameChapter={handleRenameChapter}
+            onDuplicateChapter={handleDuplicateChapter}
+            onDeleteChapter={handleDeleteChapter}
+            onMoveChapter={handleMoveChapter}
+            onSelectChapter={(chapterId) => {
+              setActiveChapterId(chapterId);
+              setMainView('editor');
+            }}
+            onShowEditor={() => setMainView('editor')}
+            onShowOutline={() => setMainView('outline')}
+            onShowCover={() => setMainView('cover')}
+            onShowFoundation={() => setMainView('foundation')}
+            onShowAmazon={() => setMainViev('amazon')}
+            onShowSettings={() => setMainView('settings')}
+            onExportChapter={handleExportChapter}
+            onExportBookSingle={handleExportBookSingle}
+            onExportBookSplit={handleExportBookSplit}
+          />
+        }
+        center={centerView}
+        right={
+          <AIPanel
+            actions={AI_ACTIONS}
+            aiBusy={aiBusy}
+            feedback={feedback}
+            canUndo={Boolean(book && activeChapter)}
+            scope={chatScope}
+            messages={currentMessages}
+            autoApplyChatChanges={config.autoApplyChatChanges}
+            chatApplyIterations={config.chatApplyIterations}
+            continuousAgentEnabled={config.continuousAgentEnabled}
+            continuousAgentMaxRounds={config.continuousAgentMaxRounds}
+            onScopeChange={setChatScope}
+            onRunAction={handleRunAction}
+            onSendChat={handleSendChat}
+            onUndo={handleUndo}
+          />
+        }
+        status={status}
+      />
+      {promptModal && (
+        <PromptModal
+          isOpen
+          title={promptModal.title}
+          label={promptModal.label}
+          defaultValue={promptModal.defaultValue}
+          onConfirm={promptModal.onConfirm}
+          onClose={() => setPromptModal(null)}
         />
-      }
-      center={centerView}
-      right={
-        <AIPanel
-          actions={AI_ACTIONS}
-          aiBusy={aiBusy}
-          feedback={feedback}
-          canUndo={Boolean(book && activeChapter)}
-          scope={chatScope}
-          messages={currentMessages}
-          autoApplyChatChanges={config.autoApplyChatChanges}
-          chatApplyIterations={config.chatApplyIterations}
-          continuousAgentEnabled={config.continuousAgentEnabled}
-          continuousAgentMaxRounds={config.continuousAgentMaxRounds}
-          onScopeChange={setChatScope}
-          onRunAction={handleRunAction}
-          onSendChat={handleSendChat}
-          onUndo={handleUndo}
-        />
-      }
-      status={status}
-    />
+      )}
+    </>
   );
 }
 
