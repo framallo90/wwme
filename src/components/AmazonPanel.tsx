@@ -7,6 +7,7 @@ import {
   generateAmazonCopy,
   keywordsAsLines,
 } from '../lib/amazon';
+import { buildInteriorCss } from '../lib/export';
 import type { AmazonPresetType, BookMetadata, ChapterDocument } from '../types/book';
 
 interface AmazonPanelProps {
@@ -14,6 +15,7 @@ interface AmazonPanelProps {
   chapters: ChapterDocument[];
   onChangeMetadata: (next: BookMetadata) => void;
   onSave: () => void;
+  onExportAmazonBundle: () => void;
 }
 
 const PRESET_OPTIONS: Array<{ id: AmazonPresetType; label: string }> = [
@@ -44,12 +46,24 @@ function AmazonPanel(props: AmazonPanelProps) {
 
   const amazon = props.metadata.amazon;
   const copyPack = useMemo(() => buildAmazonCopyPack(props.metadata), [props.metadata]);
+  const interior = props.metadata.interiorFormat;
+  const interiorCss = useMemo(() => buildInteriorCss(props.metadata), [props.metadata]);
 
   const updateAmazon = (patch: Partial<BookMetadata['amazon']>) => {
     props.onChangeMetadata({
       ...props.metadata,
       amazon: {
         ...props.metadata.amazon,
+        ...patch,
+      },
+    });
+  };
+
+  const updateInterior = (patch: Partial<BookMetadata['interiorFormat']>) => {
+    props.onChangeMetadata({
+      ...props.metadata,
+      interiorFormat: {
+        ...props.metadata.interiorFormat,
         ...patch,
       },
     });
@@ -85,6 +99,26 @@ function AmazonPanel(props: AmazonPanelProps) {
     updateAmazon(next);
   };
 
+  const handleTrimPreset = (trim: BookMetadata['interiorFormat']['trimSize']) => {
+    if (trim === '5x8') {
+      updateInterior({ trimSize: trim, pageWidthIn: 5, pageHeightIn: 8 });
+      return;
+    }
+    if (trim === '5.5x8.5') {
+      updateInterior({ trimSize: trim, pageWidthIn: 5.5, pageHeightIn: 8.5 });
+      return;
+    }
+    if (trim === 'a5') {
+      updateInterior({ trimSize: trim, pageWidthIn: 5.83, pageHeightIn: 8.27 });
+      return;
+    }
+    if (trim === '6x9') {
+      updateInterior({ trimSize: trim, pageWidthIn: 6, pageHeightIn: 9 });
+      return;
+    }
+    updateInterior({ trimSize: 'custom' });
+  };
+
   const kdpChecklist = [
     '1) KDP > Kindle eBook Details: pegar Titulo, Subtitulo, Descripcion, Keywords y Categorias.',
     '2) KDP > Content: subir manuscrito (MD/HTML convertido) y portada final.',
@@ -114,6 +148,7 @@ function AmazonPanel(props: AmazonPanelProps) {
         </label>
         <button onClick={applyPreset}>Aplicar preset</button>
         <button onClick={autoGenerate}>Auto-completar textos</button>
+        <button onClick={props.onExportAmazonBundle}>Export pack Amazon</button>
         <button onClick={() => props.onSave()}>Guardar Amazon</button>
       </div>
 
@@ -226,6 +261,116 @@ function AmazonPanel(props: AmazonPanelProps) {
           <button onClick={() => handleCopy('Notas KDP', amazon.kdpNotes)}>Copiar</button>
         </div>
         <textarea rows={4} value={amazon.kdpNotes} onChange={(event) => updateAmazon({ kdpNotes: event.target.value })} />
+      </section>
+
+      <section className="amazon-section">
+        <div className="section-title-row">
+          <h3>Formato interior (Amazon Print)</h3>
+        </div>
+        <div className="amazon-grid">
+          <label>
+            Trim size
+            <select value={interior.trimSize} onChange={(event) => handleTrimPreset(event.target.value as BookMetadata['interiorFormat']['trimSize'])}>
+              <option value="5x8">5 x 8 in</option>
+              <option value="5.5x8.5">5.5 x 8.5 in</option>
+              <option value="6x9">6 x 9 in</option>
+              <option value="a5">A5</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label>
+            Ancho (in)
+            <input
+              type="number"
+              step="0.01"
+              min="4"
+              max="8.5"
+              value={interior.pageWidthIn}
+              onChange={(event) => updateInterior({ pageWidthIn: Number.parseFloat(event.target.value || '6'), trimSize: 'custom' })}
+            />
+          </label>
+          <label>
+            Alto (in)
+            <input
+              type="number"
+              step="0.01"
+              min="6"
+              max="11"
+              value={interior.pageHeightIn}
+              onChange={(event) => updateInterior({ pageHeightIn: Number.parseFloat(event.target.value || '9'), trimSize: 'custom' })}
+            />
+          </label>
+          <label>
+            Margen superior (mm)
+            <input
+              type="number"
+              step="0.5"
+              min="8"
+              max="35"
+              value={interior.marginTopMm}
+              onChange={(event) => updateInterior({ marginTopMm: Number.parseFloat(event.target.value || '18') })}
+            />
+          </label>
+          <label>
+            Margen inferior (mm)
+            <input
+              type="number"
+              step="0.5"
+              min="8"
+              max="35"
+              value={interior.marginBottomMm}
+              onChange={(event) => updateInterior({ marginBottomMm: Number.parseFloat(event.target.value || '18') })}
+            />
+          </label>
+          <label>
+            Margen interior (mm)
+            <input
+              type="number"
+              step="0.5"
+              min="8"
+              max="40"
+              value={interior.marginInsideMm}
+              onChange={(event) => updateInterior({ marginInsideMm: Number.parseFloat(event.target.value || '20') })}
+            />
+          </label>
+          <label>
+            Margen exterior (mm)
+            <input
+              type="number"
+              step="0.5"
+              min="8"
+              max="30"
+              value={interior.marginOutsideMm}
+              onChange={(event) => updateInterior({ marginOutsideMm: Number.parseFloat(event.target.value || '16') })}
+            />
+          </label>
+          <label>
+            Sangria parrafo (em)
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              max="3"
+              value={interior.paragraphIndentEm}
+              onChange={(event) => updateInterior({ paragraphIndentEm: Number.parseFloat(event.target.value || '1.4') })}
+            />
+          </label>
+          <label>
+            Interlineado
+            <input
+              type="number"
+              step="0.05"
+              min="1.1"
+              max="2"
+              value={interior.lineHeight}
+              onChange={(event) => updateInterior({ lineHeight: Number.parseFloat(event.target.value || '1.55') })}
+            />
+          </label>
+        </div>
+        <details>
+          <summary>Ver CSS de maquetado</summary>
+          <pre className="feedback-box">{interiorCss}</pre>
+        </details>
       </section>
 
       <section className="amazon-section">

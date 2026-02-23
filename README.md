@@ -1,6 +1,6 @@
 # WriteWMe
 
-Procesador de libro offline para crear, escribir, reescribir, revisar y modificar texto + portada con IA local (Ollama).
+Procesador de libro offline para crear, escribir, reescribir, revisar y modificar texto + portada/contraportada con IA local (Ollama).
 
 Stack:
 - Tauri + React + TypeScript + Vite
@@ -48,19 +48,30 @@ npm run dev
     02.json
   assets/
     cover.png
+    back-cover.png
   versions/
     01_v1.json
   exports/
     01-capitulo-1.md
+    libro-demo-amazon-pack.txt
+    libro-demo-interior-kdp.html
 ```
 
 `book.json`:
 - titulo, autor
 - orden de capitulos (`chapterOrder`)
 - portada (`coverImage`)
+- contraportada (`backCoverImage`)
+- texto de lomo (`spineText`)
 - base fija del libro (`foundation`)
 - seccion Amazon/KDP (`amazon`)
+- formato interior para maquetado (`interiorFormat`)
+- estado de publicacion (`isPublished`, `publishedAt`)
 - historial de chat por libro y por capitulo
+
+Biblioteca global:
+- Se guarda en `%APPDATA%/library.json` (vía `appDataDir()` de Tauri).
+- Mantiene lista de libros, ultimo acceso y estado: `recien_creado`, `avanzado`, `publicado`.
 
 `config.json` (persistente por libro):
 - `model` (default `llama3.2:3b`)
@@ -83,11 +94,13 @@ Cada capitulo (`chapters/NN.json`) guarda:
 ## Funciones implementadas
 
 - Nuevo libro / abrir libro existente
+- Biblioteca de libros expandible con estados y accesos rapidos (Abrir, Chat, Amazon, Publicar)
 - CRUD de capitulos (crear, renombrar, duplicar, borrar, mover)
 - Vista general de libro
 - Vista y edicion de base fija del libro
-- Portada (ver/cambiar/quitar)
+- Portada y contraportada (ver/cambiar/quitar) + texto de lomo
 - Seccion Amazon/KDP con presets listos para copiar y pegar
+- Formato interior editable (trim size, margenes, sangria, interlineado)
 - Editor TipTap + auto-guardado
 - Panel IA:
   - acciones rapidas (escribir desde idea, pulir, reescribir, expandir, acortar, consistencia, transiciones, profundidad, alineacion con base)
@@ -102,6 +115,10 @@ Cada capitulo (`chapters/NN.json`) guarda:
   - capitulo individual
   - libro en archivo unico
   - libro en archivos por capitulo
+- Export Amazon:
+  - pack copy/paste (`.txt`)
+  - interior maquetado para KDP (`.html`)
+  - markdown completo del libro (`.md`)
 
 ## Chat auto-aplicar (sin confirmaciones)
 

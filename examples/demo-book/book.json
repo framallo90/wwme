@@ -6,6 +6,8 @@
                          "02"
                      ],
     "coverImage":  "assets/cover.png",
+    "backCoverImage":  null,
+    "spineText":  "Libro Demo",
     "createdAt":  "2026-02-16T00:00:00.000Z",
     "updatedAt":  "2026-02-16T00:00:00.000Z",
     "chats":  {
@@ -58,5 +60,18 @@
                    "longDescription":  "",
                    "authorBio":  "",
                    "kdpNotes":  "Pegar estos campos en KDP y revisar portada."
-               }
+               },
+    "interiorFormat":  {
+                           "trimSize":  "6x9",
+                           "pageWidthIn":  6,
+                           "pageHeightIn":  9,
+                           "marginTopMm":  18,
+                           "marginBottomMm":  18,
+                           "marginInsideMm":  20,
+                           "marginOutsideMm":  16,
+                           "paragraphIndentEm":  1.4,
+                           "lineHeight":  1.55
+                       },
+    "isPublished":  false,
+    "publishedAt":  null
 }

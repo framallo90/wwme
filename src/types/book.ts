@@ -65,13 +65,28 @@ export interface AmazonKdpData {
   kdpNotes: string;
 }
 
+export interface InteriorFormat {
+  trimSize: '5x8' | '5.5x8.5' | '6x9' | 'a5' | 'custom';
+  pageWidthIn: number;
+  pageHeightIn: number;
+  marginTopMm: number;
+  marginBottomMm: number;
+  marginInsideMm: number;
+  marginOutsideMm: number;
+  paragraphIndentEm: number;
+  lineHeight: number;
+}
+
 export interface BookMetadata {
   title: string;
   author: string;
   chapterOrder: string[];
   coverImage: string | null;
+  backCoverImage: string | null;
+  spineText: string;
   foundation: BookFoundation;
   amazon: AmazonKdpData;
+  interiorFormat: InteriorFormat;
   isPublished: boolean;
   publishedAt: string | null;
   createdAt: string;

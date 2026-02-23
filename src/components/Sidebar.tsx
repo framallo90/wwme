@@ -41,6 +41,7 @@ interface SidebarProps {
   onExportChapter: () => void;
   onExportBookSingle: () => void;
   onExportBookSplit: () => void;
+  onExportAmazonBundle: () => void;
 }
 
 function Sidebar(props: SidebarProps) {
@@ -75,9 +76,7 @@ function Sidebar(props: SidebarProps) {
                   <span className={`status-pill status-${entry.status}`}>{statusLabel[entry.status]}</span>
                 </div>
                 <p>{entry.author}</p>
-                <p>
-                  {entry.chapterCount} caps · {entry.wordCount} palabras
-                </p>
+                <p>{`${entry.chapterCount} caps - ${entry.wordCount} palabras`}</p>
                 <div className="library-actions">
                   <button onClick={() => props.onOpenLibraryBook(entry.path)}>Abrir</button>
                   <button onClick={() => props.onOpenLibraryBookChat(entry.path)}>Chat</button>
@@ -206,6 +205,9 @@ function Sidebar(props: SidebarProps) {
         </button>
         <button onClick={props.onExportBookSingle} disabled={!props.hasBook}>
           Libro archivo unico
+        </button>
+        <button onClick={props.onExportAmazonBundle} disabled={!props.hasBook}>
+          Pack Amazon (TXT + HTML)
         </button>
       </section>
     </aside>

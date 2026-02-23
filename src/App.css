@@ -310,12 +310,12 @@ select {
 .editor-content {
   outline: none;
   min-height: 100%;
-  line-height: 1.6;
+  line-height: var(--editor-line-height, 1.6);
 }
 
 .editor-content p {
   margin: 0 0 0.2rem;
-  text-indent: 1.5em;
+  text-indent: var(--editor-indent, 1.5em);
 }
 
 .outline-list {
@@ -368,6 +368,24 @@ select {
   gap: 0.5rem;
 }
 
+.cover-layout-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  min-height: 280px;
+}
+
+.cover-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-height: 0;
+}
+
+.cover-slot h3 {
+  margin: 0;
+}
+
 .settings-view {
   overflow-y: auto;
 }
@@ -378,7 +396,7 @@ select {
 
 .amazon-toolbar {
   display: grid;
-  grid-template-columns: 1.2fr repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1.2fr repeat(4, minmax(0, 1fr));
   gap: 0.45rem;
   align-items: end;
 }
@@ -392,6 +410,11 @@ select {
 .amazon-section {
   display: grid;
   gap: 0.35rem;
+}
+
+.amazon-section details summary {
+  cursor: pointer;
+  color: #405067;
 }
 
 .amazon-lines {
@@ -563,5 +586,10 @@ select {
 
   .amazon-grid {
     grid-template-columns: 1fr;
+  }
+
+  .cover-layout-grid {
+    grid-template-columns: 1fr;
+    min-height: auto;
   }
 }

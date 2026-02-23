@@ -1,11 +1,12 @@
 import { forwardRef } from 'react';
 import type { JSONContent } from '@tiptap/core';
 
-import type { ChapterDocument } from '../types/book';
+import type { ChapterDocument, InteriorFormat } from '../types/book';
 import TiptapEditor, { type TiptapEditorHandle } from './TiptapEditor';
 
 interface EditorPaneProps {
   chapter: ChapterDocument | null;
+  interiorFormat: InteriorFormat;
   autosaveIntervalMs: number;
   onContentChange: (payload: { html: string; json: JSONContent }) => void;
   onBlur: () => void;
@@ -34,6 +35,7 @@ const EditorPane = forwardRef<TiptapEditorHandle, EditorPaneProps>((props, ref) 
       <TiptapEditor
         ref={ref}
         content={props.chapter.content}
+        interiorFormat={props.interiorFormat}
         onChange={props.onContentChange}
         onBlur={props.onBlur}
       />

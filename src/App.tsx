@@ -13,7 +13,12 @@ import SettingsPanel from './components/SettingsPanel';
 import Sidebar from './components/Sidebar';
 import type { TiptapEditorHandle } from './components/TiptapEditor';
 import { DEFAULT_APP_CONFIG } from './lib/config';
-import { exportBookMarkdownByChapter, exportBookMarkdownSingleFile, exportChapterMarkdown } from './lib/export';
+import {
+  exportBookAmazonBundle,
+  exportBookMarkdownByChapter,
+  exportBookMarkdownSingleFile,
+  exportChapterMarkdown,
+} from './lib/export';
 import { generateWithOllama } from './lib/ollamaClient';
 import {
   AI_ACTIONS,
@@ -24,11 +29,13 @@ import {
 } from './lib/prompts';
 import PromptModal from './components/PromptModal';
 import {
+  clearBackCoverImage,
   clearCoverImage,
   createBookProject,
   createChapter,
   deleteChapter,
   duplicateChapter,
+  getBackCoverAbsolutePath,
   getCoverAbsolutePath,
   loadAppConfig,
   loadLibraryIndex,
@@ -40,11 +47,13 @@ import {
   saveBookMetadata,
   saveChapter,
   saveChapterSnapshot,
+  setBackCoverImage,
   setCoverImage,
+  upsertBookInLibrary,
   updateBookChats,
 } from './lib/storage';
 import { getNowIso, normalizeAiOutput, plainTextToHtml, randomId, stripHtml } from './lib/text';
-import type { AppConfig, BookProject, ChatMessage, ChatScope, MainView } from './types/book';
+import type { AppConfig, BookProject, ChatMessage, ChatScope, LibraryIndex, MainView } from './types/book';
 
 import './App.css';
 
@@ -89,6 +98,15 @@ function App() {
   const [feedback, setFeedback] = useState('');
   const [chatScope, setChatScope] = useState<ChatScope>('chapter');
   const [coverSrc, setCoverSrc] = useState<string | null>(null);
+  const [backCoverSrc, setBackCoverSrc] = useState<string | null>(null);
+  const [libraryIndex, setLibraryIndex] = useState<LibraryIndex>({
+    books: [],
+    statusRules: {
+      advancedChapterThreshold: 6,
+    },
+    updatedAt: getNowIso(),
+  });
+  const [libraryExpanded, setLibraryExpanded] = useState(true);
   const [promptModal, setPromptModal] = useState<{
     title: string;
     label: string;
@@ -130,25 +148,32 @@ function App() {
     return book.metadata.chats.chapters[activeChapterId] ?? [];
   }, [book, chatScope, activeChapterId]);
 
-  const refreshCover = useCallback((project: BookProject | null) => {
+  const refreshCovers = useCallback((project: BookProject | null) => {
     if (!project) {
       setCoverSrc(null);
+      setBackCoverSrc(null);
       return;
     }
 
-    const absolutePath = getCoverAbsolutePath(project.path, project.metadata);
-    if (!absolutePath) {
-      setCoverSrc(null);
-      return;
-    }
-
-    setCoverSrc(`${convertFileSrc(absolutePath)}?v=${Date.now()}`);
+    const timestamp = Date.now();
+    const absoluteFrontPath = getCoverAbsolutePath(project.path, project.metadata);
+    const absoluteBackPath = getBackCoverAbsolutePath(project.path, project.metadata);
+    setCoverSrc(absoluteFrontPath ? `${convertFileSrc(absoluteFrontPath)}?v=${timestamp}` : null);
+    setBackCoverSrc(absoluteBackPath ? `${convertFileSrc(absoluteBackPath)}?v=${timestamp}` : null);
   }, []);
 
   const refreshLibrary = useCallback(async () => {
     const index = await loadLibraryIndex();
     setLibraryIndex(index);
   }, []);
+
+  const syncBookToLibrary = useCallback(
+    async (project: BookProject, options?: { markOpened?: boolean }) => {
+      const nextIndex = await upsertBookInLibrary(project, options);
+      setLibraryIndex(nextIndex);
+    },
+    [],
+  );
 
   useEffect(() => {
     void refreshLibrary();
@@ -193,12 +218,19 @@ function App() {
       });
       dirtyRef.current = false;
       setStatus(`Guardado automatico ${new Date().toLocaleTimeString()}`);
+      await syncBookToLibrary({
+        ...book,
+        chapters: {
+          ...book.chapters,
+          [saved.id]: saved,
+        },
+      });
     } catch (error) {
       setStatus(`Error al guardar: ${(error as Error).message}`);
     } finally {
       saveInFlightRef.current = false;
     }
-  }, [book, activeChapterId]);
+  }, [book, activeChapterId, syncBookToLibrary]);
 
   useEffect(() => {
     if (!book || !activeChapterId) {
@@ -224,9 +256,10 @@ function App() {
       setMainView('editor');
       setFeedback('');
       setStatus(`Libro abierto: ${loaded.metadata.title}`);
-      refreshCover(loaded);
+      refreshCovers(loaded);
+      await syncBookToLibrary(loaded, { markOpened: true });
     },
-    [refreshCover],
+    [refreshCovers, syncBookToLibrary],
   );
 
   const handleCreateBook = useCallback(async () => {
@@ -260,7 +293,8 @@ function App() {
               setActiveChapterId(created.metadata.chapterOrder[0] ?? null);
               setMainView('editor');
               setFeedback('');
-              refreshCover(created);
+              refreshCovers(created);
+              await syncBookToLibrary(created, { markOpened: true });
               setStatus(`Libro creado en ${created.path}`);
             } catch (error) {
               setStatus(`No se pudo crear el libro: ${(error as Error).message}`);
@@ -269,7 +303,7 @@ function App() {
         });
       },
     });
-  }, [refreshCover]);
+  }, [refreshCovers, syncBookToLibrary]);
 
   const handleOpenBook = useCallback(async () => {
     try {
@@ -379,11 +413,15 @@ function App() {
           metadata: savedMetadata,
         };
       });
+      await syncBookToLibrary({
+        ...book,
+        metadata: savedMetadata,
+      });
       setStatus('Base del libro guardada.');
     } catch (error) {
       setStatus(`No se pudo guardar la base: ${(error as Error).message}`);
     }
-  }, [book]);
+  }, [book, syncBookToLibrary]);
 
   const handleAmazonMetadataChange = useCallback(
     (nextMetadata: BookProject['metadata']) => {
@@ -422,11 +460,15 @@ function App() {
           metadata: savedMetadata,
         };
       });
+      await syncBookToLibrary({
+        ...book,
+        metadata: savedMetadata,
+      });
       setStatus('Seccion Amazon guardada.');
     } catch (error) {
       setStatus(`No se pudo guardar Amazon: ${(error as Error).message}`);
     }
-  }, [book]);
+  }, [book, syncBookToLibrary]);
 
   const handleCreateChapter = useCallback(async () => {
     if (!book) {
@@ -457,6 +499,14 @@ function App() {
               },
             };
           });
+          await syncBookToLibrary({
+            ...book,
+            metadata: result.metadata,
+            chapters: {
+              ...book.chapters,
+              [result.chapter.id]: result.chapter,
+            },
+          });
 
           setActiveChapterId(result.chapter.id);
           setMainView('editor');
@@ -466,7 +516,7 @@ function App() {
         }
       },
     });
-  }, [book]);
+  }, [book, syncBookToLibrary]);
 
   const handleRenameChapter = useCallback(
     async (chapterId: string) => {
@@ -499,9 +549,16 @@ function App() {
                   ...previous.chapters,
                   [chapterId]: updated,
                 },
-              };
-            });
+                };
+              });
 
+            await syncBookToLibrary({
+              ...book,
+              chapters: {
+                ...book.chapters,
+                [chapterId]: updated,
+              },
+            });
             setStatus('Capitulo renombrado.');
           } catch (error) {
             setStatus(`No se pudo renombrar: ${(error as Error).message}`);
@@ -509,7 +566,7 @@ function App() {
         },
       });
     },
-    [book],
+    [book, syncBookToLibrary],
   );
 
   const handleDuplicateChapter = useCallback(
@@ -539,12 +596,20 @@ function App() {
             },
           };
         });
+        await syncBookToLibrary({
+          ...book,
+          metadata: result.metadata,
+          chapters: {
+            ...book.chapters,
+            [result.chapter.id]: result.chapter,
+          },
+        });
         setStatus('Capitulo duplicado.');
       } catch (error) {
         setStatus(`No se pudo duplicar: ${(error as Error).message}`);
       }
     },
-    [book],
+    [book, syncBookToLibrary],
   );
 
   const handleDeleteChapter = useCallback(
@@ -574,6 +639,13 @@ function App() {
             chapters: nextChapters,
           };
         });
+        const nextChapters = { ...book.chapters };
+        delete nextChapters[chapterId];
+        await syncBookToLibrary({
+          ...book,
+          metadata,
+          chapters: nextChapters,
+        });
 
         if (activeChapterId === chapterId) {
           setActiveChapterId(metadata.chapterOrder[0] ?? null);
@@ -584,7 +656,7 @@ function App() {
         setStatus(`No se pudo eliminar: ${(error as Error).message}`);
       }
     },
-    [book, activeChapterId],
+    [book, activeChapterId, syncBookToLibrary],
   );
 
   const handleMoveChapter = useCallback(
@@ -605,11 +677,15 @@ function App() {
             metadata,
           };
         });
+        await syncBookToLibrary({
+          ...book,
+          metadata,
+        });
       } catch (error) {
         setStatus(`No se pudo mover: ${(error as Error).message}`);
       }
     },
-    [book],
+    [book, syncBookToLibrary],
   );
 
   const persistScopeMessages = useCallback(
@@ -825,6 +901,10 @@ function App() {
               chapters: workingChapters,
             };
           });
+          await syncBookToLibrary({
+            ...book,
+            chapters: workingChapters,
+          });
 
           dirtyRef.current = false;
 
@@ -911,6 +991,10 @@ function App() {
             chapters: workingChapters,
           };
         });
+        await syncBookToLibrary({
+          ...book,
+          chapters: workingChapters,
+        });
 
         dirtyRef.current = false;
 
@@ -930,7 +1014,7 @@ function App() {
         setAiBusy(false);
       }
     },
-    [book, activeChapter, activeChapterId, config, persistScopeMessages],
+    [book, activeChapter, activeChapterId, config, persistScopeMessages, syncBookToLibrary],
   );
 
   const handleRunAction = useCallback(
@@ -1009,6 +1093,13 @@ function App() {
               },
             };
           });
+          await syncBookToLibrary({
+            ...book,
+            chapters: {
+              ...book.chapters,
+              [activeChapter.id]: persistedChapter,
+            },
+          });
 
           setStatus(`Accion aplicada: ${action?.label ?? actionId}`);
         } else {
@@ -1021,7 +1112,7 @@ function App() {
         setAiBusy(false);
       }
     },
-    [book, activeChapter, config],
+    [book, activeChapter, config, syncBookToLibrary],
   );
 
   const handleUndo = useCallback(async () => {
@@ -1049,13 +1140,20 @@ function App() {
           },
         };
       });
+      await syncBookToLibrary({
+        ...book,
+        chapters: {
+          ...book.chapters,
+          [restored.id]: restored,
+        },
+      });
 
       dirtyRef.current = false;
       setStatus('Undo aplicado desde snapshot.');
     } catch (error) {
       setStatus(`No se pudo restaurar snapshot: ${(error as Error).message}`);
     }
-  }, [book, activeChapter]);
+  }, [book, activeChapter, syncBookToLibrary]);
 
   const handlePickCover = useCallback(async () => {
     if (!book) {
@@ -1085,12 +1183,13 @@ function App() {
       };
 
       setBook(updated);
-      refreshCover(updated);
+      refreshCovers(updated);
+      await syncBookToLibrary(updated);
       setStatus('Portada actualizada.');
     } catch (error) {
       setStatus(`No se pudo actualizar portada: ${(error as Error).message}`);
     }
-  }, [book, refreshCover]);
+  }, [book, refreshCovers, syncBookToLibrary]);
 
   const handleClearCover = useCallback(async () => {
     if (!book) {
@@ -1101,12 +1200,108 @@ function App() {
       const metadata = await clearCoverImage(book.path, book.metadata);
       const updated = { ...book, metadata };
       setBook(updated);
-      refreshCover(updated);
+      refreshCovers(updated);
+      await syncBookToLibrary(updated);
       setStatus('Portada eliminada.');
     } catch (error) {
       setStatus(`No se pudo quitar portada: ${(error as Error).message}`);
     }
-  }, [book, refreshCover]);
+  }, [book, refreshCovers, syncBookToLibrary]);
+
+  const handlePickBackCover = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    try {
+      const selected = await open({
+        multiple: false,
+        title: 'Selecciona contraportada',
+        filters: [
+          {
+            name: 'Imagenes',
+            extensions: ['png', 'jpg', 'jpeg', 'webp'],
+          },
+        ],
+      });
+
+      if (!selected || Array.isArray(selected)) {
+        return;
+      }
+
+      const metadata = await setBackCoverImage(book.path, book.metadata, selected);
+      const updated: BookProject = {
+        ...book,
+        metadata,
+      };
+
+      setBook(updated);
+      refreshCovers(updated);
+      await syncBookToLibrary(updated);
+      setStatus('Contraportada actualizada.');
+    } catch (error) {
+      setStatus(`No se pudo actualizar contraportada: ${(error as Error).message}`);
+    }
+  }, [book, refreshCovers, syncBookToLibrary]);
+
+  const handleClearBackCover = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    try {
+      const metadata = await clearBackCoverImage(book.path, book.metadata);
+      const updated = { ...book, metadata };
+      setBook(updated);
+      refreshCovers(updated);
+      await syncBookToLibrary(updated);
+      setStatus('Contraportada eliminada.');
+    } catch (error) {
+      setStatus(`No se pudo quitar contraportada: ${(error as Error).message}`);
+    }
+  }, [book, refreshCovers, syncBookToLibrary]);
+
+  const handleSpineTextChange = useCallback(
+    (value: string) => {
+      if (!book) {
+        return;
+      }
+
+      setBook((previous) => {
+        if (!previous || previous.path !== book.path) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          metadata: {
+            ...previous.metadata,
+            spineText: value,
+          },
+        };
+      });
+    },
+    [book],
+  );
+
+  const handleSaveCoverData = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    try {
+      const savedMetadata = await saveBookMetadata(book.path, book.metadata);
+      const updated = {
+        ...book,
+        metadata: savedMetadata,
+      };
+      setBook(updated);
+      await syncBookToLibrary(updated);
+      setStatus('Datos de portada guardados.');
+    } catch (error) {
+      setStatus(`No se pudieron guardar los datos de portada: ${(error as Error).message}`);
+    }
+  }, [book, syncBookToLibrary]);
 
   const handleExportChapter = useCallback(async () => {
     if (!book || !activeChapter) {
@@ -1147,6 +1342,84 @@ function App() {
     }
   }, [book, orderedChapters]);
 
+  const handleExportAmazonBundle = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    try {
+      const files = await exportBookAmazonBundle(book.path, book.metadata, orderedChapters);
+      setStatus(`Pack Amazon exportado (${files.length} archivos).`);
+    } catch (error) {
+      setStatus(`No se pudo exportar pack Amazon: ${(error as Error).message}`);
+    }
+  }, [book, orderedChapters]);
+
+  const handleOpenLibraryBook = useCallback(
+    async (bookPath: string) => {
+      try {
+        await loadProject(bookPath);
+        setMainView('editor');
+      } catch (error) {
+        setStatus(`No se pudo abrir libro desde biblioteca: ${(error as Error).message}`);
+      }
+    },
+    [loadProject],
+  );
+
+  const handleOpenLibraryBookChat = useCallback(
+    async (bookPath: string) => {
+      try {
+        await loadProject(bookPath);
+        setChatScope('book');
+        setMainView('editor');
+        setStatus('Libro abierto en modo chat de libro.');
+      } catch (error) {
+        setStatus(`No se pudo abrir chat del libro: ${(error as Error).message}`);
+      }
+    },
+    [loadProject],
+  );
+
+  const handleOpenLibraryBookAmazon = useCallback(
+    async (bookPath: string) => {
+      try {
+        await loadProject(bookPath);
+        setMainView('amazon');
+      } catch (error) {
+        setStatus(`No se pudo abrir seccion Amazon del libro: ${(error as Error).message}`);
+      }
+    },
+    [loadProject],
+  );
+
+  const handleSetBookPublished = useCallback(
+    async (bookPath: string, published: boolean) => {
+      try {
+        const project = book && book.path === bookPath ? book : await loadBookProject(bookPath);
+        const nextMetadata = await saveBookMetadata(project.path, {
+          ...project.metadata,
+          isPublished: published,
+          publishedAt: published ? getNowIso() : null,
+        });
+        const updatedProject: BookProject = {
+          ...project,
+          metadata: nextMetadata,
+        };
+
+        if (book && book.path === bookPath) {
+          setBook(updatedProject);
+        }
+
+        await syncBookToLibrary(updatedProject);
+        setStatus(published ? 'Libro marcado como publicado.' : 'Libro marcado como no publicado.');
+      } catch (error) {
+        setStatus(`No se pudo actualizar estado de publicacion: ${(error as Error).message}`);
+      }
+    },
+    [book, syncBookToLibrary],
+  );
+
   const centerView = useMemo(() => {
     if (mainView === 'outline') {
       return (
@@ -1161,7 +1434,19 @@ function App() {
     }
 
     if (mainView === 'cover') {
-      return <CoverView coverSrc={coverSrc} onPickCover={handlePickCover} onClearCover={handleClearCover} />;
+      return (
+        <CoverView
+          coverSrc={coverSrc}
+          backCoverSrc={backCoverSrc}
+          spineText={book?.metadata.spineText ?? ''}
+          onPickCover={handlePickCover}
+          onClearCover={handleClearCover}
+          onPickBackCover={handlePickBackCover}
+          onClearBackCover={handleClearBackCover}
+          onSpineTextChange={handleSpineTextChange}
+          onSaveSpineText={handleSaveCoverData}
+        />
+      );
     }
 
     if (mainView === 'foundation') {
@@ -1190,6 +1475,7 @@ function App() {
           chapters={orderedChapters}
           onChangeMetadata={handleAmazonMetadataChange}
           onSave={handleSaveAmazon}
+          onExportAmazonBundle={handleExportAmazonBundle}
         />
       );
     }
@@ -1202,6 +1488,19 @@ function App() {
       <EditorPane
         ref={editorRef}
         chapter={activeChapter}
+        interiorFormat={
+          book?.metadata.interiorFormat ?? {
+            trimSize: '6x9',
+            pageWidthIn: 6,
+            pageHeightIn: 9,
+            marginTopMm: 18,
+            marginBottomMm: 18,
+            marginInsideMm: 20,
+            marginOutsideMm: 16,
+            paragraphIndentEm: 1.4,
+            lineHeight: 1.55,
+          }
+        }
         autosaveIntervalMs={config.autosaveIntervalMs}
         onContentChange={handleEditorChange}
         onBlur={() => {
@@ -1214,29 +1513,43 @@ function App() {
     book,
     config,
     coverSrc,
+    backCoverSrc,
     flushChapterSave,
+    handleClearBackCover,
     handleClearCover,
     handleEditorChange,
     handleAmazonMetadataChange,
+    handleExportAmazonBundle,
     handleSaveAmazon,
+    handlePickBackCover,
     handleFoundationChange,
     handleSaveFoundation,
     handlePickCover,
+    handleSaveCoverData,
     handleSaveSettings,
+    handleSpineTextChange,
     mainView,
     orderedChapters,
   ]);
 
-    return (
+  return (
     <>
       <AppShell
         sidebar={
           <Sidebar
             hasBook={Boolean(book)}
+            activeBookPath={book?.path ?? null}
             bookTitle={book?.metadata.title ?? 'Sin libro'}
             chapters={orderedChapters}
+            libraryBooks={libraryIndex.books}
+            libraryExpanded={libraryExpanded}
             activeChapterId={activeChapterId}
             currentView={mainView}
+            onToggleLibrary={() => setLibraryExpanded((previous) => !previous)}
+            onOpenLibraryBook={handleOpenLibraryBook}
+            onOpenLibraryBookChat={handleOpenLibraryBookChat}
+            onOpenLibraryBookAmazon={handleOpenLibraryBookAmazon}
+            onSetBookPublished={handleSetBookPublished}
             onCreateBook={handleCreateBook}
             onOpenBook={handleOpenBook}
             onCreateChapter={handleCreateChapter}
@@ -1249,15 +1562,17 @@ function App() {
               setMainView('editor');
             }}
             onShowEditor={() => setMainView('editor')}
-                      onShowOutline={() => setMainView('outline')}
-                      onShowCover={() => setMainView('cover')}
-                      onShowFoundation={() => setMainView('foundation')}
-                      onShowAmazon={() => setMainView('amazon')}
-                      onShowSettings={() => setMainView('settings')}
-                      onExportChapter={handleExportChapter}
-                      onExportBookSingle={handleExportBookSingle}
-                      onExportBookSplit={handleExportBookSplit}
-                    />        }
+            onShowOutline={() => setMainView('outline')}
+            onShowCover={() => setMainView('cover')}
+            onShowFoundation={() => setMainView('foundation')}
+            onShowAmazon={() => setMainView('amazon')}
+            onShowSettings={() => setMainView('settings')}
+            onExportChapter={handleExportChapter}
+            onExportBookSingle={handleExportBookSingle}
+            onExportBookSplit={handleExportBookSplit}
+            onExportAmazonBundle={handleExportAmazonBundle}
+          />
+        }
         center={centerView}
         right={
           <AIPanel

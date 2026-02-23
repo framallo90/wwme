@@ -5,6 +5,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 
 import { plainTextToHtml } from '../lib/text';
+import type { InteriorFormat } from '../types/book';
 
 export interface TiptapEditorHandle {
   hasSelection: () => boolean;
@@ -19,12 +20,13 @@ export interface TiptapEditorHandle {
 
 interface TiptapEditorProps {
   content: string;
+  interiorFormat: InteriorFormat;
   onChange: (payload: { html: string; json: JSONContent }) => void;
   onBlur?: () => void;
 }
 
 const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
-  ({ content, onChange, onBlur }, ref) => {
+  ({ content, interiorFormat, onChange, onBlur }, ref) => {
     const editor = useEditor({
       extensions: [
         StarterKit,
@@ -111,7 +113,16 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
       },
     }), [editor]);
 
-    return <EditorContent editor={editor} className="tiptap-wrapper" />;
+    return (
+      <EditorContent
+        editor={editor}
+        className="tiptap-wrapper"
+        style={{
+          ['--editor-line-height' as string]: `${interiorFormat.lineHeight}`,
+          ['--editor-indent' as string]: `${interiorFormat.paragraphIndentEm}em`,
+        }}
+      />
+    );
   },
 );
 

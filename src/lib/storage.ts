@@ -17,6 +17,7 @@ import type {
   BookStatus,
   BookChats,
   BookFoundation,
+  InteriorFormat,
   LibraryBookEntry,
   LibraryIndex,
   BookMetadata,
@@ -73,6 +74,20 @@ export function buildDefaultAmazon(bookTitle: string, author: string): AmazonKdp
     longDescription: '',
     authorBio: '',
     kdpNotes: '',
+  };
+}
+
+export function buildDefaultInteriorFormat(): InteriorFormat {
+  return {
+    trimSize: '6x9',
+    pageWidthIn: 6,
+    pageHeightIn: 9,
+    marginTopMm: 18,
+    marginBottomMm: 18,
+    marginInsideMm: 20,
+    marginOutsideMm: 16,
+    paragraphIndentEm: 1.4,
+    lineHeight: 1.55,
   };
 }
 
@@ -181,8 +196,11 @@ function ensureBookMetadata(metadata: BookMetadata): BookMetadata {
     ...metadata,
     chats: metadata.chats ?? buildDefaultChats(),
     coverImage: metadata.coverImage ?? null,
+    backCoverImage: metadata.backCoverImage ?? null,
+    spineText: metadata.spineText ?? metadata.title ?? '',
     foundation: metadata.foundation ?? buildDefaultFoundation(),
     amazon: metadata.amazon ?? buildDefaultAmazon(metadata.title, metadata.author),
+    interiorFormat: metadata.interiorFormat ?? buildDefaultInteriorFormat(),
     isPublished: metadata.isPublished ?? false,
     publishedAt: metadata.publishedAt ?? null,
   };
@@ -248,8 +266,11 @@ export async function createBookProject(
     author,
     chapterOrder: [firstChapter.id],
     coverImage: null,
+    backCoverImage: null,
+    spineText: title,
     foundation: buildDefaultFoundation(),
     amazon: buildDefaultAmazon(title, author),
+    interiorFormat: buildDefaultInteriorFormat(),
     isPublished: false,
     publishedAt: null,
     createdAt: now,
@@ -305,6 +326,9 @@ export async function saveBookMetadata(
     chats: metadata.chats ?? buildDefaultChats(),
     foundation: metadata.foundation ?? buildDefaultFoundation(),
     amazon: metadata.amazon ?? buildDefaultAmazon(metadata.title, metadata.author),
+    backCoverImage: metadata.backCoverImage ?? null,
+    spineText: metadata.spineText ?? metadata.title,
+    interiorFormat: metadata.interiorFormat ?? buildDefaultInteriorFormat(),
     isPublished: metadata.isPublished ?? false,
     publishedAt: metadata.publishedAt ?? null,
   };
@@ -521,16 +545,18 @@ export async function restoreLastSnapshot(
   return restored;
 }
 
-export async function setCoverImage(
+async function setBookImage(
   bookPath: string,
   metadata: BookMetadata,
   sourceImagePath: string,
+  targetName: 'cover' | 'back-cover',
+  field: 'coverImage' | 'backCoverImage',
 ): Promise<BookMetadata> {
   const extensionMatch = sourceImagePath.match(/\.([a-zA-Z0-9]+)$/);
   const extension = extensionMatch ? extensionMatch[1].toLowerCase() : 'png';
   const safeExtension = safeFileName(extension) || 'png';
 
-  const relativeTarget = joinPath(ASSETS_DIR, `cover.${safeExtension}`);
+  const relativeTarget = joinPath(ASSETS_DIR, `${targetName}.${safeExtension}`);
   const absoluteTarget = joinPath(bookPath, relativeTarget);
 
   await mkdir(joinPath(bookPath, ASSETS_DIR), { recursive: true });
@@ -538,7 +564,7 @@ export async function setCoverImage(
 
   const nextMetadata: BookMetadata = {
     ...metadata,
-    coverImage: relativeTarget,
+    [field]: relativeTarget,
     updatedAt: getNowIso(),
   };
 
@@ -546,9 +572,14 @@ export async function setCoverImage(
   return nextMetadata;
 }
 
-export async function clearCoverImage(bookPath: string, metadata: BookMetadata): Promise<BookMetadata> {
-  if (metadata.coverImage) {
-    const absolute = joinPath(bookPath, metadata.coverImage);
+async function clearBookImage(
+  bookPath: string,
+  metadata: BookMetadata,
+  field: 'coverImage' | 'backCoverImage',
+): Promise<BookMetadata> {
+  const value = metadata[field];
+  if (value) {
+    const absolute = joinPath(bookPath, value);
     if (await exists(absolute)) {
       await remove(absolute);
     }
@@ -556,12 +587,36 @@ export async function clearCoverImage(bookPath: string, metadata: BookMetadata):
 
   const nextMetadata: BookMetadata = {
     ...metadata,
-    coverImage: null,
+    [field]: null,
     updatedAt: getNowIso(),
   };
 
   await saveBookMetadata(bookPath, nextMetadata);
   return nextMetadata;
+}
+
+export async function setCoverImage(
+  bookPath: string,
+  metadata: BookMetadata,
+  sourceImagePath: string,
+): Promise<BookMetadata> {
+  return setBookImage(bookPath, metadata, sourceImagePath, 'cover', 'coverImage');
+}
+
+export async function setBackCoverImage(
+  bookPath: string,
+  metadata: BookMetadata,
+  sourceImagePath: string,
+): Promise<BookMetadata> {
+  return setBookImage(bookPath, metadata, sourceImagePath, 'back-cover', 'backCoverImage');
+}
+
+export async function clearCoverImage(bookPath: string, metadata: BookMetadata): Promise<BookMetadata> {
+  return clearBookImage(bookPath, metadata, 'coverImage');
+}
+
+export async function clearBackCoverImage(bookPath: string, metadata: BookMetadata): Promise<BookMetadata> {
+  return clearBookImage(bookPath, metadata, 'backCoverImage');
 }
 
 export function getCoverAbsolutePath(bookPath: string, metadata: BookMetadata): string | null {
@@ -570,6 +625,14 @@ export function getCoverAbsolutePath(bookPath: string, metadata: BookMetadata): 
   }
 
   return joinPath(bookPath, metadata.coverImage);
+}
+
+export function getBackCoverAbsolutePath(bookPath: string, metadata: BookMetadata): string | null {
+  if (!metadata.backCoverImage) {
+    return null;
+  }
+
+  return joinPath(bookPath, metadata.backCoverImage);
 }
 
 export async function updateBookChats(
@@ -587,18 +650,39 @@ export async function updateBookChats(
   return nextMetadata;
 }
 
+function sanitizeExportFileName(fileName: string, fallbackExtension: string): string {
+  const trimmed = fileName.trim();
+  const extensionMatch = trimmed.match(/\.([a-zA-Z0-9]+)$/);
+  const extension = extensionMatch?.[1] ? extensionMatch[1].toLowerCase() : fallbackExtension;
+  const nameWithoutExtension = extensionMatch
+    ? trimmed.slice(0, trimmed.length - extensionMatch[0].length)
+    : trimmed;
+  const safeBase = safeFileName(nameWithoutExtension) || 'export';
+  const safeExtension = safeFileName(extension) || fallbackExtension;
+  return `${safeBase}.${safeExtension}`;
+}
+
+export async function writeTextExport(
+  bookPath: string,
+  fileName: string,
+  content: string,
+  fallbackExtension = 'txt',
+): Promise<string> {
+  const exportPath = exportsDirPath(bookPath);
+  await mkdir(exportPath, { recursive: true });
+
+  const safeName = sanitizeExportFileName(fileName, fallbackExtension);
+  const absolutePath = joinPath(exportPath, safeName);
+  await writeTextFile(absolutePath, content);
+  return absolutePath;
+}
+
 export async function writeMarkdownExport(
   bookPath: string,
   fileName: string,
   content: string,
 ): Promise<string> {
-  const exportPath = exportsDirPath(bookPath);
-  await mkdir(exportPath, { recursive: true });
-
-  const safeName = safeFileName(fileName) || 'export.md';
-  const absolutePath = joinPath(exportPath, safeName.endsWith('.md') ? safeName : `${safeName}.md`);
-  await writeTextFile(absolutePath, content);
-  return absolutePath;
+  return writeTextExport(bookPath, fileName, content, 'md');
 }
 
 export async function loadLibraryIndex(): Promise<LibraryIndex> {

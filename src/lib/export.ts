@@ -1,6 +1,91 @@
 import type { BookMetadata, ChapterDocument } from '../types/book';
 import { htmlToMarkdown, safeFileName, stripHtml } from './text';
-import { writeMarkdownExport } from './storage';
+import { buildAmazonCopyPack } from './amazon';
+import { writeMarkdownExport, writeTextExport } from './storage';
+
+function resolveTrimSize(metadata: BookMetadata): { width: number; height: number } {
+  const trim = metadata.interiorFormat.trimSize;
+  if (trim === '5x8') {
+    return { width: 5, height: 8 };
+  }
+  if (trim === '5.5x8.5') {
+    return { width: 5.5, height: 8.5 };
+  }
+  if (trim === 'a5') {
+    return { width: 5.83, height: 8.27 };
+  }
+  if (trim === 'custom') {
+    return {
+      width: metadata.interiorFormat.pageWidthIn,
+      height: metadata.interiorFormat.pageHeightIn,
+    };
+  }
+
+  return { width: 6, height: 9 };
+}
+
+export function buildInteriorCss(metadata: BookMetadata): string {
+  const trim = resolveTrimSize(metadata);
+  const interior = metadata.interiorFormat;
+  return `@page {
+  size: ${trim.width}in ${trim.height}in;
+  margin-top: ${interior.marginTopMm}mm;
+  margin-right: ${interior.marginOutsideMm}mm;
+  margin-bottom: ${interior.marginBottomMm}mm;
+  margin-left: ${interior.marginInsideMm}mm;
+}
+body {
+  margin: 0;
+  font-family: "Book Antiqua", "Georgia", serif;
+  line-height: ${interior.lineHeight};
+  color: #111111;
+}
+.title-page {
+  break-after: page;
+  text-align: center;
+  padding-top: 30%;
+}
+.title-page p {
+  text-indent: 0;
+}
+.chapter {
+  break-before: page;
+}
+.chapter h2 {
+  text-align: center;
+  margin-bottom: 1.2em;
+}
+p {
+  margin: 0 0 0.5em 0;
+  text-indent: ${interior.paragraphIndentEm}em;
+}`;
+}
+
+function buildBookInteriorHtml(metadata: BookMetadata, orderedChapters: ChapterDocument[]): string {
+  const chaptersHtml = orderedChapters
+    .map(
+      (chapter, index) =>
+        `<section class="chapter"><h2>${index + 1}. ${chapter.title}</h2>${chapter.content}</section>`,
+    )
+    .join('\n');
+
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>${metadata.title}</title>
+  <style>${buildInteriorCss(metadata)}</style>
+</head>
+<body>
+  <section class="title-page">
+    <h1>${metadata.title}</h1>
+    <p>${metadata.author}</p>
+    <p>${metadata.spineText || metadata.title}</p>
+  </section>
+  ${chaptersHtml}
+</body>
+</html>`;
+}
 
 export async function exportChapterMarkdown(
   bookPath: string,
@@ -35,6 +120,35 @@ export async function exportBookMarkdownByChapter(
     results.push(path);
   }
   return results;
+}
+
+export async function exportBookAmazonBundle(
+  bookPath: string,
+  metadata: BookMetadata,
+  orderedChapters: ChapterDocument[],
+): Promise<string[]> {
+  const markdownPath = await exportBookMarkdownSingleFile(bookPath, metadata, orderedChapters);
+  const interiorPath = await writeTextExport(
+    bookPath,
+    `${safeFileName(metadata.title)}-interior-kdp.html`,
+    buildBookInteriorHtml(metadata, orderedChapters),
+    'html',
+  );
+
+  const trim = resolveTrimSize(metadata);
+  const amazonPack = [
+    buildAmazonCopyPack(metadata),
+    '',
+    '----',
+    `Spine text: ${metadata.spineText || metadata.title}`,
+    `Trim: ${trim.width} x ${trim.height} in`,
+    `Margins (mm) top:${metadata.interiorFormat.marginTopMm} bottom:${metadata.interiorFormat.marginBottomMm} inside:${metadata.interiorFormat.marginInsideMm} outside:${metadata.interiorFormat.marginOutsideMm}`,
+    `Paragraph indent (em): ${metadata.interiorFormat.paragraphIndentEm}`,
+    `Line height: ${metadata.interiorFormat.lineHeight}`,
+  ].join('\n');
+  const packPath = await writeTextExport(bookPath, `${safeFileName(metadata.title)}-amazon-pack.txt`, amazonPack, 'txt');
+
+  return [markdownPath, interiorPath, packPath];
 }
 
 export function getChapterWordCount(chapter: ChapterDocument): number {
