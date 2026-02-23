@@ -1,3 +1,4 @@
+import type { MouseEvent } from 'react';
 import type { ChapterDocument, LibraryBookEntry, MainView } from '../types/book';
 import {
   BookPlus,
@@ -54,6 +55,12 @@ function Sidebar(props: SidebarProps) {
     publicado: 'Publicado',
   };
 
+  const runLibraryAction = (event: MouseEvent<HTMLButtonElement>, action: () => void): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    action();
+  };
+
   return (
     <aside className="left-sidebar">
       <header className="sidebar-header">
@@ -64,7 +71,9 @@ function Sidebar(props: SidebarProps) {
       <section className="library-section">
         <div className="section-title-row">
           <h2>Biblioteca</h2>
-          <button onClick={props.onToggleLibrary}>{props.libraryExpanded ? '-' : '+'}</button>
+          <button type="button" onClick={props.onToggleLibrary}>
+            {props.libraryExpanded ? '-' : '+'}
+          </button>
         </div>
         {props.libraryExpanded ? (
           <div className="library-list">
@@ -73,6 +82,7 @@ function Sidebar(props: SidebarProps) {
               <article
                 key={entry.id}
                 className={`library-item ${props.activeBookPath === entry.path ? 'is-active' : ''}`}
+                onClick={() => props.onOpenLibraryBook(entry.path)}
               >
                 <div className="library-head">
                   <h3>{entry.title}</h3>
@@ -81,12 +91,32 @@ function Sidebar(props: SidebarProps) {
                 <p>{entry.author}</p>
                 <p>{`${entry.chapterCount} caps - ${entry.wordCount} palabras`}</p>
                 <div className="library-actions">
-                  <button onClick={() => props.onOpenLibraryBook(entry.path)}>Abrir</button>
-                  <button onClick={() => props.onOpenLibraryBookChat(entry.path)}>Chat</button>
-                  <button onClick={() => props.onOpenLibraryBookAmazon(entry.path)}>Amazon</button>
-                  <button onClick={() => props.onDeleteLibraryBook(entry.path)}>Eliminar</button>
+                  <button type="button" onClick={(event) => runLibraryAction(event, () => props.onOpenLibraryBook(entry.path))}>
+                    Abrir
+                  </button>
                   <button
-                    onClick={() => props.onSetBookPublished(entry.path, entry.status !== 'publicado')}
+                    type="button"
+                    onClick={(event) => runLibraryAction(event, () => props.onOpenLibraryBookChat(entry.path))}
+                  >
+                    Chat
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => runLibraryAction(event, () => props.onOpenLibraryBookAmazon(entry.path))}
+                  >
+                    Amazon
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => runLibraryAction(event, () => props.onDeleteLibraryBook(entry.path))}
+                  >
+                    Eliminar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) =>
+                      runLibraryAction(event, () => props.onSetBookPublished(entry.path, entry.status !== 'publicado'))
+                    }
                   >
                     {entry.status === 'publicado' ? 'Despublicar' : 'Publicar'}
                   </button>
@@ -98,19 +128,19 @@ function Sidebar(props: SidebarProps) {
       </section>
 
       <div className="sidebar-actions">
-        <button className="icon-button" onClick={props.onCreateBook}>
+        <button type="button" className="icon-button" onClick={props.onCreateBook}>
           <BookPlus size={16} />
           <span>Nuevo libro</span>
         </button>
-        <button className="icon-button" onClick={props.onOpenBook}>
+        <button type="button" className="icon-button" onClick={props.onOpenBook}>
           <FolderOpen size={16} />
           <span>Abrir libro</span>
         </button>
-        <button className="icon-button" onClick={props.onCloseBook} disabled={!props.hasBook}>
+        <button type="button" className="icon-button" onClick={props.onCloseBook} disabled={!props.hasBook}>
           <BookX size={16} />
           <span>Cerrar libro</span>
         </button>
-        <button className="icon-button" onClick={props.onShowSettings}>
+        <button type="button" className="icon-button" onClick={props.onShowSettings}>
           <Settings size={16} />
           <span>Settings</span>
         </button>
@@ -119,6 +149,7 @@ function Sidebar(props: SidebarProps) {
       <div className="sidebar-view-actions">
         <button
           className={`icon-button ${props.currentView === 'editor' ? 'is-active' : ''}`}
+          type="button"
           onClick={props.onShowEditor}
           disabled={!props.hasBook}
         >
@@ -127,6 +158,7 @@ function Sidebar(props: SidebarProps) {
         </button>
         <button
           className={`icon-button ${props.currentView === 'outline' ? 'is-active' : ''}`}
+          type="button"
           onClick={props.onShowOutline}
           disabled={!props.hasBook}
         >
@@ -135,6 +167,7 @@ function Sidebar(props: SidebarProps) {
         </button>
         <button
           className={`icon-button ${props.currentView === 'cover' ? 'is-active' : ''}`}
+          type="button"
           onClick={props.onShowCover}
           disabled={!props.hasBook}
         >
@@ -143,6 +176,7 @@ function Sidebar(props: SidebarProps) {
         </button>
         <button
           className={`icon-button ${props.currentView === 'foundation' ? 'is-active' : ''}`}
+          type="button"
           onClick={props.onShowFoundation}
           disabled={!props.hasBook}
         >
@@ -151,6 +185,7 @@ function Sidebar(props: SidebarProps) {
         </button>
         <button
           className={`icon-button ${props.currentView === 'amazon' ? 'is-active' : ''}`}
+          type="button"
           onClick={props.onShowAmazon}
           disabled={!props.hasBook}
         >
@@ -162,7 +197,7 @@ function Sidebar(props: SidebarProps) {
       <section className="chapter-section">
         <div className="section-title-row">
           <h2>Capitulos</h2>
-          <button onClick={props.onCreateChapter} disabled={!props.hasBook}>
+          <button type="button" onClick={props.onCreateChapter} disabled={!props.hasBook}>
             +
           </button>
         </div>
@@ -175,26 +210,27 @@ function Sidebar(props: SidebarProps) {
             >
               <button
                 className="chapter-main"
-                onClick={() => props.onSelectChapter(chapter.id)}
-                disabled={!props.hasBook}
-              >
+                  type="button"
+                  onClick={() => props.onSelectChapter(chapter.id)}
+                  disabled={!props.hasBook}
+                >
                 <span className="chapter-id">{chapter.id}</span>
                 <span className="chapter-title">{chapter.title}</span>
               </button>
               <div className="chapter-controls">
-                <button onClick={() => props.onMoveChapter(chapter.id, 'up')} title="Subir">
+                <button type="button" onClick={() => props.onMoveChapter(chapter.id, 'up')} title="Subir">
                   ^
                 </button>
-                <button onClick={() => props.onMoveChapter(chapter.id, 'down')} title="Bajar">
+                <button type="button" onClick={() => props.onMoveChapter(chapter.id, 'down')} title="Bajar">
                   v
                 </button>
-                <button onClick={() => props.onRenameChapter(chapter.id)} title="Renombrar">
+                <button type="button" onClick={() => props.onRenameChapter(chapter.id)} title="Renombrar">
                   R
                 </button>
-                <button onClick={() => props.onDuplicateChapter(chapter.id)} title="Duplicar">
+                <button type="button" onClick={() => props.onDuplicateChapter(chapter.id)} title="Duplicar">
                   D
                 </button>
-                <button onClick={() => props.onDeleteChapter(chapter.id)} title="Borrar">
+                <button type="button" onClick={() => props.onDeleteChapter(chapter.id)} title="Borrar">
                   X
                 </button>
               </div>
@@ -205,16 +241,16 @@ function Sidebar(props: SidebarProps) {
 
       <section className="export-section">
         <h2>Exportar</h2>
-        <button onClick={props.onExportChapter} disabled={!props.hasBook || !props.activeChapterId}>
+        <button type="button" onClick={props.onExportChapter} disabled={!props.hasBook || !props.activeChapterId}>
           Capitulo a Markdown
         </button>
-        <button onClick={props.onExportBookSplit} disabled={!props.hasBook}>
+        <button type="button" onClick={props.onExportBookSplit} disabled={!props.hasBook}>
           Libro por capitulos
         </button>
-        <button onClick={props.onExportBookSingle} disabled={!props.hasBook}>
+        <button type="button" onClick={props.onExportBookSingle} disabled={!props.hasBook}>
           Libro archivo unico
         </button>
-        <button onClick={props.onExportAmazonBundle} disabled={!props.hasBook}>
+        <button type="button" onClick={props.onExportAmazonBundle} disabled={!props.hasBook}>
           Pack Amazon (TXT + HTML)
         </button>
       </section>

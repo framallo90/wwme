@@ -1382,6 +1382,8 @@ function App() {
 
   const handleOpenLibraryBook = useCallback(
     async (bookPath: string) => {
+      const entry = libraryIndex.books.find((item) => item.path === bookPath);
+      setStatus(`Abriendo libro: ${entry?.title ?? bookPath}`);
       try {
         await loadProject(bookPath);
         setMainView('editor');
@@ -1389,11 +1391,13 @@ function App() {
         setStatus(`No se pudo abrir libro desde biblioteca: ${(error as Error).message}`);
       }
     },
-    [loadProject],
+    [libraryIndex.books, loadProject],
   );
 
   const handleOpenLibraryBookChat = useCallback(
     async (bookPath: string) => {
+      const entry = libraryIndex.books.find((item) => item.path === bookPath);
+      setStatus(`Abriendo chat de libro: ${entry?.title ?? bookPath}`);
       try {
         await loadProject(bookPath);
         setChatScope('book');
@@ -1403,11 +1407,13 @@ function App() {
         setStatus(`No se pudo abrir chat del libro: ${(error as Error).message}`);
       }
     },
-    [loadProject],
+    [libraryIndex.books, loadProject],
   );
 
   const handleOpenLibraryBookAmazon = useCallback(
     async (bookPath: string) => {
+      const entry = libraryIndex.books.find((item) => item.path === bookPath);
+      setStatus(`Abriendo seccion Amazon: ${entry?.title ?? bookPath}`);
       try {
         await loadProject(bookPath);
         setMainView('amazon');
@@ -1415,7 +1421,7 @@ function App() {
         setStatus(`No se pudo abrir seccion Amazon del libro: ${(error as Error).message}`);
       }
     },
-    [loadProject],
+    [libraryIndex.books, loadProject],
   );
 
   const handleDeleteLibraryBook = useCallback(
@@ -1464,6 +1470,12 @@ function App() {
 
   const handleSetBookPublished = useCallback(
     async (bookPath: string, published: boolean) => {
+      const entry = libraryIndex.books.find((item) => item.path === bookPath);
+      setStatus(
+        published
+          ? `Marcando como publicado: ${entry?.title ?? bookPath}`
+          : `Marcando como no publicado: ${entry?.title ?? bookPath}`,
+      );
       try {
         const project = book && book.path === bookPath ? book : await loadBookProject(bookPath);
         const nextMetadata = await saveBookMetadata(project.path, {
@@ -1486,7 +1498,7 @@ function App() {
         setStatus(`No se pudo actualizar estado de publicacion: ${(error as Error).message}`);
       }
     },
-    [book, syncBookToLibrary],
+    [book, libraryIndex.books, syncBookToLibrary],
   );
 
   const centerView = useMemo(() => {
