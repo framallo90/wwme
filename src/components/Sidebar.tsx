@@ -1,4 +1,14 @@
 import type { ChapterDocument, LibraryBookEntry, MainView } from '../types/book';
+import {
+  BookPlus,
+  FolderOpen,
+  Settings,
+  FileText,
+  ListTree,
+  BookImage,
+  Database,
+  ShoppingCart,
+} from 'lucide-react';
 
 interface SidebarProps {
   hasBook: boolean;
@@ -85,46 +95,60 @@ function Sidebar(props: SidebarProps) {
       </section>
 
       <div className="sidebar-actions">
-        <button onClick={props.onCreateBook}>Nuevo libro</button>
-        <button onClick={props.onOpenBook}>Abrir libro</button>
-        <button onClick={props.onShowSettings}>Settings</button>
+        <button className="icon-button" onClick={props.onCreateBook}>
+          <BookPlus size={16} />
+          <span>Nuevo libro</span>
+        </button>
+        <button className="icon-button" onClick={props.onOpenBook}>
+          <FolderOpen size={16} />
+          <span>Abrir libro</span>
+        </button>
+        <button className="icon-button" onClick={props.onShowSettings}>
+          <Settings size={16} />
+          <span>Settings</span>
+        </button>
       </div>
 
       <div className="sidebar-view-actions">
         <button
-          className={props.currentView === 'editor' ? 'is-active' : ''}
+          className={`icon-button ${props.currentView === 'editor' ? 'is-active' : ''}`}
           onClick={props.onShowEditor}
           disabled={!props.hasBook}
         >
-          Editor
+          <FileText size={16} />
+          <span>Editor</span>
         </button>
         <button
-          className={props.currentView === 'outline' ? 'is-active' : ''}
+          className={`icon-button ${props.currentView === 'outline' ? 'is-active' : ''}`}
           onClick={props.onShowOutline}
           disabled={!props.hasBook}
         >
-          Vista general
+          <ListTree size={16} />
+          <span>Vista general</span>
         </button>
         <button
-          className={props.currentView === 'cover' ? 'is-active' : ''}
+          className={`icon-button ${props.currentView === 'cover' ? 'is-active' : ''}`}
           onClick={props.onShowCover}
           disabled={!props.hasBook}
         >
-          Portada
+          <BookImage size={16} />
+          <span>Portada</span>
         </button>
         <button
-          className={props.currentView === 'foundation' ? 'is-active' : ''}
+          className={`icon-button ${props.currentView === 'foundation' ? 'is-active' : ''}`}
           onClick={props.onShowFoundation}
           disabled={!props.hasBook}
         >
-          Base
+          <Database size={16} />
+          <span>Base</span>
         </button>
         <button
-          className={props.currentView === 'amazon' ? 'is-active' : ''}
+          className={`icon-button ${props.currentView === 'amazon' ? 'is-active' : ''}`}
           onClick={props.onShowAmazon}
           disabled={!props.hasBook}
         >
-          Amazon
+          <ShoppingCart size={16} />
+          <span>Amazon</span>
         </button>
       </div>
 
