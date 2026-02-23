@@ -7,14 +7,18 @@ import {
   remove,
   writeTextFile,
 } from '@tauri-apps/plugin-fs';
+import { appDataDir } from '@tauri-apps/api/path';
 
 import { DEFAULT_APP_CONFIG } from './config';
-import { getNowIso, joinPath, normalizePath, safeFileName, slugify } from './text';
+import { getNowIso, joinPath, normalizePath, randomId, safeFileName, slugify } from './text';
 import type {
   AppConfig,
   AmazonKdpData,
+  BookStatus,
   BookChats,
   BookFoundation,
+  LibraryBookEntry,
+  LibraryIndex,
   BookMetadata,
   BookProject,
   ChapterDocument,
@@ -27,6 +31,7 @@ const ASSETS_DIR = 'assets';
 const VERSIONS_DIR = 'versions';
 const EXPORTS_DIR = 'exports';
 const CONFIG_FILE = 'config.json';
+const LIBRARY_FILE = 'library.json';
 
 function buildDefaultChats(): BookChats {
   return {
@@ -71,6 +76,16 @@ export function buildDefaultAmazon(bookTitle: string, author: string): AmazonKdp
   };
 }
 
+export function buildDefaultLibraryIndex(): LibraryIndex {
+  return {
+    books: [],
+    statusRules: {
+      advancedChapterThreshold: 6,
+    },
+    updatedAt: getNowIso(),
+  };
+}
+
 function chapterFilePath(bookPath: string, chapterId: string): string {
   return joinPath(bookPath, CHAPTERS_DIR, `${chapterId}.json`);
 }
@@ -81,6 +96,12 @@ function bookFilePath(bookPath: string): string {
 
 function configFilePath(bookPath: string): string {
   return joinPath(bookPath, CONFIG_FILE);
+}
+
+async function libraryFilePath(): Promise<string> {
+  const libraryRoot = normalizePath(await appDataDir());
+  await mkdir(libraryRoot, { recursive: true });
+  return joinPath(libraryRoot, LIBRARY_FILE);
 }
 
 function versionsDirPath(bookPath: string): string {
@@ -95,6 +116,36 @@ function parseVersion(fileName: string, chapterId: string): number {
   const matcher = new RegExp(`^${chapterId}_v(\\d+)\\.json$`);
   const match = fileName.match(matcher);
   return match ? Number(match[1]) : 0;
+}
+
+function stripHtmlForMetrics(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function countWords(html: string): number {
+  const plain = stripHtmlForMetrics(html);
+  if (!plain) {
+    return 0;
+  }
+  return plain.split(/\s+/).filter(Boolean).length;
+}
+
+function deriveBookStatus(
+  metadata: BookMetadata,
+  chapterCount: number,
+  statusRules: LibraryIndex['statusRules'],
+): BookStatus {
+  if (metadata.isPublished) {
+    return 'publicado';
+  }
+
+  return chapterCount >= statusRules.advancedChapterThreshold ? 'avanzado' : 'recien_creado';
 }
 
 function ensureChapterDocument(chapter: ChapterDocument): ChapterDocument {
@@ -132,6 +183,8 @@ function ensureBookMetadata(metadata: BookMetadata): BookMetadata {
     coverImage: metadata.coverImage ?? null,
     foundation: metadata.foundation ?? buildDefaultFoundation(),
     amazon: metadata.amazon ?? buildDefaultAmazon(metadata.title, metadata.author),
+    isPublished: metadata.isPublished ?? false,
+    publishedAt: metadata.publishedAt ?? null,
   };
 }
 
@@ -197,6 +250,8 @@ export async function createBookProject(
     coverImage: null,
     foundation: buildDefaultFoundation(),
     amazon: buildDefaultAmazon(title, author),
+    isPublished: false,
+    publishedAt: null,
     createdAt: now,
     updatedAt: now,
     chats: buildDefaultChats(),
@@ -250,6 +305,8 @@ export async function saveBookMetadata(
     chats: metadata.chats ?? buildDefaultChats(),
     foundation: metadata.foundation ?? buildDefaultFoundation(),
     amazon: metadata.amazon ?? buildDefaultAmazon(metadata.title, metadata.author),
+    isPublished: metadata.isPublished ?? false,
+    publishedAt: metadata.publishedAt ?? null,
   };
 
   await writeJson(bookFilePath(bookPath), nextMetadata);
@@ -542,4 +599,87 @@ export async function writeMarkdownExport(
   const absolutePath = joinPath(exportPath, safeName.endsWith('.md') ? safeName : `${safeName}.md`);
   await writeTextFile(absolutePath, content);
   return absolutePath;
+}
+
+export async function loadLibraryIndex(): Promise<LibraryIndex> {
+  const path = await libraryFilePath();
+  if (!(await exists(path))) {
+    const defaults = buildDefaultLibraryIndex();
+    await writeJson(path, defaults);
+    return defaults;
+  }
+
+  const loaded = await readJson<Partial<LibraryIndex>>(path);
+  return {
+    ...buildDefaultLibraryIndex(),
+    ...loaded,
+    books: loaded.books ?? [],
+    statusRules: {
+      ...buildDefaultLibraryIndex().statusRules,
+      ...(loaded.statusRules ?? {}),
+    },
+  };
+}
+
+export async function saveLibraryIndex(index: LibraryIndex): Promise<void> {
+  const path = await libraryFilePath();
+  const next: LibraryIndex = {
+    ...index,
+    updatedAt: getNowIso(),
+  };
+  await writeJson(path, next);
+}
+
+export async function upsertBookInLibrary(
+  project: BookProject,
+  options?: { markOpened?: boolean },
+): Promise<LibraryIndex> {
+  const index = await loadLibraryIndex();
+  const chapterCount = project.metadata.chapterOrder.length;
+  const wordCount = project.metadata.chapterOrder.reduce((total, chapterId) => {
+    const chapter = project.chapters[chapterId];
+    if (!chapter) {
+      return total;
+    }
+    return total + countWords(chapter.content);
+  }, 0);
+  const status = deriveBookStatus(project.metadata, chapterCount, index.statusRules);
+  const now = getNowIso();
+
+  const existing = index.books.find((entry) => entry.path === project.path);
+  const nextEntry: LibraryBookEntry = {
+    id: existing?.id ?? randomId('book'),
+    path: project.path,
+    title: project.metadata.title,
+    author: project.metadata.author,
+    status,
+    chapterCount,
+    wordCount,
+    coverImage: project.metadata.coverImage,
+    publishedAt: project.metadata.publishedAt,
+    lastOpenedAt: options?.markOpened ? now : existing?.lastOpenedAt ?? now,
+    updatedAt: now,
+  };
+
+  const nextBooks = [...index.books.filter((entry) => entry.path !== project.path), nextEntry].sort((a, b) =>
+    b.lastOpenedAt.localeCompare(a.lastOpenedAt),
+  );
+  const nextIndex: LibraryIndex = {
+    ...index,
+    books: nextBooks,
+    updatedAt: now,
+  };
+  await saveLibraryIndex(nextIndex);
+  return nextIndex;
+}
+
+export async function removeBookFromLibrary(bookPath: string): Promise<LibraryIndex> {
+  const index = await loadLibraryIndex();
+  const nextIndex: LibraryIndex = {
+    ...index,
+    books: index.books.filter((entry) => entry.path !== bookPath),
+    updatedAt: getNowIso(),
+  };
+  await saveLibraryIndex(nextIndex);
+  return nextIndex;
 }

@@ -1,11 +1,19 @@
-import type { ChapterDocument, MainView } from '../types/book';
+import type { ChapterDocument, LibraryBookEntry, MainView } from '../types/book';
 
 interface SidebarProps {
   hasBook: boolean;
+  activeBookPath: string | null;
   bookTitle: string;
   chapters: ChapterDocument[];
+  libraryBooks: LibraryBookEntry[];
+  libraryExpanded: boolean;
   activeChapterId: string | null;
   currentView: MainView;
+  onToggleLibrary: () => void;
+  onOpenLibraryBook: (bookPath: string) => void;
+  onOpenLibraryBookChat: (bookPath: string) => void;
+  onOpenLibraryBookAmazon: (bookPath: string) => void;
+  onSetBookPublished: (bookPath: string, published: boolean) => void;
   onCreateBook: () => void;
   onOpenBook: () => void;
   onCreateChapter: () => void;
@@ -26,12 +34,55 @@ interface SidebarProps {
 }
 
 function Sidebar(props: SidebarProps) {
+  const statusLabel: Record<LibraryBookEntry['status'], string> = {
+    recien_creado: 'Recien creado',
+    avanzado: 'Avanzado',
+    publicado: 'Publicado',
+  };
+
   return (
     <aside className="left-sidebar">
       <header className="sidebar-header">
         <h1>WriteWMe</h1>
         <p>{props.hasBook ? props.bookTitle : 'Sin libro abierto'}</p>
       </header>
+
+      <section className="library-section">
+        <div className="section-title-row">
+          <h2>Biblioteca</h2>
+          <button onClick={props.onToggleLibrary}>{props.libraryExpanded ? '-' : '+'}</button>
+        </div>
+        {props.libraryExpanded ? (
+          <div className="library-list">
+            {props.libraryBooks.length === 0 ? <p className="muted">Sin libros registrados.</p> : null}
+            {props.libraryBooks.map((entry) => (
+              <article
+                key={entry.id}
+                className={`library-item ${props.activeBookPath === entry.path ? 'is-active' : ''}`}
+              >
+                <div className="library-head">
+                  <h3>{entry.title}</h3>
+                  <span className={`status-pill status-${entry.status}`}>{statusLabel[entry.status]}</span>
+                </div>
+                <p>{entry.author}</p>
+                <p>
+                  {entry.chapterCount} caps · {entry.wordCount} palabras
+                </p>
+                <div className="library-actions">
+                  <button onClick={() => props.onOpenLibraryBook(entry.path)}>Abrir</button>
+                  <button onClick={() => props.onOpenLibraryBookChat(entry.path)}>Chat</button>
+                  <button onClick={() => props.onOpenLibraryBookAmazon(entry.path)}>Amazon</button>
+                  <button
+                    onClick={() => props.onSetBookPublished(entry.path, entry.status !== 'publicado')}
+                  >
+                    {entry.status === 'publicado' ? 'Despublicar' : 'Publicar'}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : null}
+      </section>
 
       <div className="sidebar-actions">
         <button onClick={props.onCreateBook}>Nuevo libro</button>

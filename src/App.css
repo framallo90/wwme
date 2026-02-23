@@ -118,6 +118,83 @@ select {
   min-height: 0;
 }
 
+.library-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 0;
+}
+
+.library-list {
+  display: grid;
+  gap: 0.45rem;
+  overflow-y: auto;
+  max-height: 210px;
+}
+
+.library-item {
+  border: 1px solid #cad1db;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 0.45rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.library-item.is-active {
+  border-color: #5e7ba8;
+  background: #ebf1fb;
+}
+
+.library-item p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #4d5a71;
+}
+
+.library-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.library-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-pill {
+  font-size: 0.72rem;
+  border-radius: 999px;
+  padding: 0.08rem 0.45rem;
+  border: 1px solid #9ca6b5;
+  background: #f4f7fb;
+}
+
+.status-recien_creado {
+  border-color: #7d8fa9;
+}
+
+.status-avanzado {
+  border-color: #4c7f76;
+  background: #e8f4f1;
+}
+
+.status-publicado {
+  border-color: #8a6f2d;
+  background: #f8f2df;
+}
+
+.library-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
 .section-title-row {
   display: flex;
   align-items: center;
@@ -237,7 +314,8 @@ select {
 }
 
 .editor-content p {
-  margin: 0 0 0.8rem;
+  margin: 0 0 0.2rem;
+  text-indent: 1.5em;
 }
 
 .outline-list {

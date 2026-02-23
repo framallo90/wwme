@@ -1,6 +1,7 @@
 export type MainView = 'editor' | 'outline' | 'cover' | 'foundation' | 'amazon' | 'settings';
 
 export type ChatScope = 'chapter' | 'book';
+export type BookStatus = 'recien_creado' | 'avanzado' | 'publicado';
 
 export type ChatRole = 'user' | 'assistant';
 
@@ -71,6 +72,8 @@ export interface BookMetadata {
   coverImage: string | null;
   foundation: BookFoundation;
   amazon: AmazonKdpData;
+  isPublished: boolean;
+  publishedAt: string | null;
   createdAt: string;
   updatedAt: string;
   chats: BookChats;
@@ -80,6 +83,30 @@ export interface BookProject {
   path: string;
   metadata: BookMetadata;
   chapters: Record<string, ChapterDocument>;
+}
+
+export interface LibraryStatusRules {
+  advancedChapterThreshold: number;
+}
+
+export interface LibraryBookEntry {
+  id: string;
+  path: string;
+  title: string;
+  author: string;
+  status: BookStatus;
+  chapterCount: number;
+  wordCount: number;
+  coverImage: string | null;
+  publishedAt: string | null;
+  lastOpenedAt: string;
+  updatedAt: string;
+}
+
+export interface LibraryIndex {
+  books: LibraryBookEntry[];
+  statusRules: LibraryStatusRules;
+  updatedAt: string;
 }
 
 export interface AppConfig {
