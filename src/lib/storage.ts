@@ -1068,11 +1068,26 @@ export async function upsertBookInLibrary(
   return nextIndex;
 }
 
-export async function removeBookFromLibrary(bookPath: string): Promise<LibraryIndex> {
+export async function removeBookFromLibrary(
+  bookPath: string,
+  options?: { deleteFiles?: boolean },
+): Promise<LibraryIndex> {
+  const normalizedBookPath = normalizeFolderPath(sanitizeIncomingPath(bookPath));
+
+  if (options?.deleteFiles && (await exists(normalizedBookPath))) {
+    const hasBookJson = await exists(bookFilePath(normalizedBookPath));
+    const hasScaffold = await isBookScaffoldDirectory(normalizedBookPath);
+    if (!hasBookJson && !hasScaffold) {
+      throw new Error('La carpeta no parece un proyecto de libro valido. Se cancelo el borrado por seguridad.');
+    }
+
+    await remove(normalizedBookPath, { recursive: true });
+  }
+
   const index = await loadLibraryIndex();
   const nextIndex: LibraryIndex = {
     ...index,
-    books: index.books.filter((entry) => entry.path !== bookPath),
+    books: index.books.filter((entry) => normalizeFolderPath(entry.path) !== normalizedBookPath),
     updatedAt: getNowIso(),
   };
   await saveLibraryIndex(nextIndex);

@@ -1423,11 +1423,11 @@ function App() {
       const libraryEntry = libraryIndex.books.find((entry) => entry.path === bookPath);
       const title = libraryEntry?.title ?? 'este libro';
       const accepted = await confirm(
-        `Vas a quitar "${title}" de la biblioteca.\nLos archivos del libro NO se borran del disco.`,
+        `Vas a eliminar "${title}" de la biblioteca y tambien su carpeta en disco.\nEsta accion es permanente.`,
         {
-          title: 'Eliminar de biblioteca',
+          title: 'Eliminar libro',
           kind: 'warning',
-          okLabel: 'Quitar',
+          okLabel: 'Eliminar',
           cancelLabel: 'Cancelar',
         },
       );
@@ -1437,9 +1437,6 @@ function App() {
       }
 
       try {
-        const nextIndex = await removeBookFromLibrary(bookPath);
-        setLibraryIndex(nextIndex);
-
         if (book && book.path === bookPath) {
           try {
             await flushChapterSave();
@@ -1455,9 +1452,11 @@ function App() {
           dirtyRef.current = false;
         }
 
-        setStatus(`Libro quitado de biblioteca: ${title}`);
+        const nextIndex = await removeBookFromLibrary(bookPath, { deleteFiles: true });
+        setLibraryIndex(nextIndex);
+        setStatus(`Libro eliminado: ${title}`);
       } catch (error) {
-        setStatus(`No se pudo quitar el libro: ${(error as Error).message}`);
+        setStatus(`No se pudo eliminar el libro: ${(error as Error).message}`);
       }
     },
     [book, flushChapterSave, libraryIndex.books, refreshCovers],
