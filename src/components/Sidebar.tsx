@@ -2,6 +2,7 @@ import type { ChapterDocument, LibraryBookEntry, MainView } from '../types/book'
 import {
   BookPlus,
   FolderOpen,
+  BookX,
   Settings,
   FileText,
   ListTree,
@@ -26,6 +27,7 @@ interface SidebarProps {
   onSetBookPublished: (bookPath: string, published: boolean) => void;
   onCreateBook: () => void;
   onOpenBook: () => void;
+  onCloseBook: () => void;
   onCreateChapter: () => void;
   onRenameChapter: (chapterId: string) => void;
   onDuplicateChapter: (chapterId: string) => void;
@@ -101,6 +103,10 @@ function Sidebar(props: SidebarProps) {
         <button className="icon-button" onClick={props.onOpenBook}>
           <FolderOpen size={16} />
           <span>Abrir libro</span>
+        </button>
+        <button className="icon-button" onClick={props.onCloseBook} disabled={!props.hasBook}>
+          <BookX size={16} />
+          <span>Cerrar libro</span>
         </button>
         <button className="icon-button" onClick={props.onShowSettings}>
           <Settings size={16} />

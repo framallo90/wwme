@@ -255,6 +255,7 @@ function App() {
       setConfig(loadedConfig);
       setActiveChapterId(loaded.metadata.chapterOrder[0] ?? null);
       setMainView('editor');
+      setChatScope('chapter');
       setFeedback('');
       setStatus(`Libro abierto: ${loaded.metadata.title}`);
       refreshCovers(loaded);
@@ -279,7 +280,6 @@ function App() {
               const selectedDirectory = await open({
                 directory: true,
                 multiple: false,
-                recursive: true,
                 title: 'Selecciona carpeta padre del libro',
               });
 
@@ -316,7 +316,6 @@ function App() {
       const selectedDirectory = await open({
         directory: true,
         multiple: false,
-        recursive: true,
         title: 'Selecciona carpeta del libro',
       });
 
@@ -331,6 +330,23 @@ function App() {
       setStatus(`No se pudo abrir el libro: ${(error as Error).message}`);
     }
   }, [loadProject]);
+
+  const handleCloseBook = useCallback(async () => {
+    try {
+      await flushChapterSave();
+    } catch {
+      // Ignora errores de guardado al cerrar para no bloquear al usuario.
+    }
+
+    setBook(null);
+    setActiveChapterId(null);
+    setMainView('editor');
+    setFeedback('');
+    setChatScope('chapter');
+    refreshCovers(null);
+    dirtyRef.current = false;
+    setStatus('Libro cerrado.');
+  }, [flushChapterSave, refreshCovers]);
 
   const handleEditorChange = useCallback(
     (payload: { html: string; json: unknown }) => {
@@ -1560,6 +1576,7 @@ function App() {
             onSetBookPublished={handleSetBookPublished}
             onCreateBook={handleCreateBook}
             onOpenBook={handleOpenBook}
+            onCloseBook={handleCloseBook}
             onCreateChapter={handleCreateChapter}
             onRenameChapter={handleRenameChapter}
             onDuplicateChapter={handleDuplicateChapter}

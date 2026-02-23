@@ -114,7 +114,127 @@ function configFilePath(bookPath: string): string {
 }
 
 function normalizeFolderPath(path: string): string {
-  return normalizePath(path).replace(/\/$/, '');
+  const normalized = normalizePath(path).trim();
+  if (!normalized) {
+    return normalized;
+  }
+
+  if (/^[a-zA-Z]:\/$/.test(normalized)) {
+    return normalized;
+  }
+
+  return normalized.replace(/\/$/, '');
+}
+
+function sanitizeIncomingPath(path: string): string {
+  let next = path.trim();
+  if (!next) {
+    return next;
+  }
+
+  next = next.replace(/^\\\\\?\\/, '').replace(/^\/\/\?\//, '');
+
+  if (next.startsWith('file://')) {
+    try {
+      const uri = new URL(next);
+      next = decodeURIComponent(uri.pathname);
+      if (/^\/[a-zA-Z]:\//.test(next)) {
+        next = next.slice(1);
+      }
+    } catch {
+      next = next.replace(/^file:\/\//i, '');
+    }
+  }
+
+  return next;
+}
+
+function isBookJsonPath(path: string): boolean {
+  return /(^|\/)book\.json$/i.test(normalizePath(path));
+}
+
+function toBookFolderPath(path: string): string {
+  return normalizePath(path).replace(/\/book\.json$/i, '');
+}
+
+function buildPathCandidates(path: string): string[] {
+  const candidates = new Set<string>();
+  const push = (value: string) => {
+    const normalized = normalizeFolderPath(value);
+    if (normalized) {
+      candidates.add(normalized);
+    }
+  };
+
+  const sanitized = sanitizeIncomingPath(path);
+
+  push(path);
+  push(sanitized);
+  push(normalizePath(path));
+  push(normalizePath(sanitized));
+
+  if (isBookJsonPath(path)) {
+    push(toBookFolderPath(path));
+  }
+
+  if (isBookJsonPath(sanitized)) {
+    push(toBookFolderPath(sanitized));
+  }
+
+  return Array.from(candidates);
+}
+
+async function collectNestedBookCandidates(
+  basePath: string,
+  maxDepth = 3,
+  maxDirectories = 400,
+): Promise<string[]> {
+  const found = new Set<string>();
+  const visited = new Set<string>();
+  const queue: Array<{ path: string; depth: number }> = [{ path: basePath, depth: 0 }];
+  let scanned = 0;
+
+  while (queue.length > 0 && scanned < maxDirectories) {
+    const current = queue.shift();
+    if (!current) {
+      break;
+    }
+
+    if (current.depth > maxDepth || visited.has(current.path)) {
+      continue;
+    }
+
+    visited.add(current.path);
+    scanned += 1;
+
+    let entries: Awaited<ReturnType<typeof readDir>>;
+    try {
+      entries = await readDir(current.path);
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory) {
+        continue;
+      }
+
+      const childPath = normalizeFolderPath(joinPath(current.path, entry.name));
+      if (!childPath || visited.has(childPath)) {
+        continue;
+      }
+
+      if (await exists(bookFilePath(childPath))) {
+        found.add(childPath);
+      }
+
+      if (current.depth < maxDepth) {
+        queue.push({ path: childPath, depth: current.depth + 1 });
+      }
+    }
+  }
+
+  return Array.from(found);
 }
 
 async function libraryFilePath(): Promise<string> {
@@ -245,7 +365,8 @@ export async function createBookProject(
 ): Promise<BookProject> {
   const now = getNowIso();
   const folderName = slugify(title) || `book-${Date.now()}`;
-  const projectPath = joinPath(normalizePath(parentDirectory), folderName);
+  const parentPath = normalizeFolderPath(sanitizeIncomingPath(parentDirectory));
+  const projectPath = joinPath(parentPath, folderName);
 
   if (await exists(projectPath)) {
     throw new Error('La carpeta de destino ya existe.');
@@ -296,32 +417,45 @@ export async function createBookProject(
 }
 
 export async function resolveBookDirectory(path: string): Promise<string> {
-  const selectedPath = normalizeFolderPath(path);
-  const selectedBookFile = bookFilePath(selectedPath);
+  const pathCandidates = buildPathCandidates(path);
+  const candidateBooks = new Set<string>();
 
-  if (await exists(selectedBookFile)) {
-    return selectedPath;
+  for (const candidatePath of pathCandidates) {
+    if (await exists(bookFilePath(candidatePath))) {
+      return candidatePath;
+    }
   }
 
-  const entries = await readDir(selectedPath);
-  const candidateBooks: string[] = [];
-
-  for (const entry of entries) {
-    if (!entry.isDirectory) {
+  for (const candidatePath of pathCandidates) {
+    let entries: Awaited<ReturnType<typeof readDir>>;
+    try {
+      entries = await readDir(candidatePath);
+    } catch {
       continue;
     }
 
-    const candidatePath = normalizeFolderPath(joinPath(selectedPath, entry.name));
-    if (await exists(bookFilePath(candidatePath))) {
-      candidateBooks.push(candidatePath);
+    for (const entry of entries) {
+      if (!entry.isDirectory) {
+        continue;
+      }
+
+      const nestedPath = normalizeFolderPath(joinPath(candidatePath, entry.name));
+      if (await exists(bookFilePath(nestedPath))) {
+        candidateBooks.add(nestedPath);
+      }
+    }
+
+    const deepCandidates = await collectNestedBookCandidates(candidatePath, 3, 600);
+    for (const deepCandidate of deepCandidates) {
+      candidateBooks.add(deepCandidate);
     }
   }
 
-  if (candidateBooks.length === 1) {
-    return candidateBooks[0];
+  if (candidateBooks.size === 1) {
+    return Array.from(candidateBooks)[0];
   }
 
-  if (candidateBooks.length > 1) {
+  if (candidateBooks.size > 1) {
     const withDate: Array<{ path: string; updatedAt: string }> = [];
     for (const candidate of candidateBooks) {
       try {
@@ -342,7 +476,9 @@ export async function resolveBookDirectory(path: string): Promise<string> {
     return withDate[0].path;
   }
 
-  throw new Error('No se encontro book.json en la carpeta seleccionada.');
+  throw new Error(
+    'No se encontro book.json en la carpeta seleccionada. Elegi la carpeta del libro (la que contiene chapters, assets y versions).',
+  );
 }
 
 export async function loadBookProject(path: string): Promise<BookProject> {
