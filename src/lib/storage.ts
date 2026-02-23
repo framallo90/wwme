@@ -113,6 +113,10 @@ function configFilePath(bookPath: string): string {
   return joinPath(bookPath, CONFIG_FILE);
 }
 
+function normalizeFolderPath(path: string): string {
+  return normalizePath(path).replace(/\/$/, '');
+}
+
 async function libraryFilePath(): Promise<string> {
   const libraryRoot = normalizePath(await appDataDir());
   await mkdir(libraryRoot, { recursive: true });
@@ -291,8 +295,41 @@ export async function createBookProject(
   };
 }
 
+export async function resolveBookDirectory(path: string): Promise<string> {
+  const selectedPath = normalizeFolderPath(path);
+  const selectedBookFile = bookFilePath(selectedPath);
+
+  if (await exists(selectedBookFile)) {
+    return selectedPath;
+  }
+
+  const entries = await readDir(selectedPath);
+  const candidateBooks: string[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory) {
+      continue;
+    }
+
+    const candidatePath = normalizeFolderPath(joinPath(selectedPath, entry.name));
+    if (await exists(bookFilePath(candidatePath))) {
+      candidateBooks.push(candidatePath);
+    }
+  }
+
+  if (candidateBooks.length === 1) {
+    return candidateBooks[0];
+  }
+
+  if (candidateBooks.length > 1) {
+    throw new Error('La carpeta contiene varios libros. Selecciona la carpeta exacta del libro.');
+  }
+
+  throw new Error('No se encontro book.json en la carpeta seleccionada.');
+}
+
 export async function loadBookProject(path: string): Promise<BookProject> {
-  const projectPath = normalizePath(path);
+  const projectPath = await resolveBookDirectory(path);
   const bookPath = bookFilePath(projectPath);
 
   if (!(await exists(bookPath))) {

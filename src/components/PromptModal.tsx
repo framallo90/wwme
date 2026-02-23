@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import './PromptModal.css';
 
 interface PromptModalProps {
@@ -11,15 +11,33 @@ interface PromptModalProps {
 }
 
 function PromptModal(props: PromptModalProps) {
-  const [value, setValue] = useState(props.defaultValue ?? '');
+  const { isOpen, title, label, defaultValue, onConfirm, onClose } = props;
+  const [value, setValue] = useState(defaultValue ?? '');
 
-  if (!props.isOpen) {
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen) {
     return null;
   }
 
   const handleConfirm = () => {
     if (value.trim()) {
-      props.onConfirm(value.trim());
+      onConfirm(value.trim());
     }
   };
 
@@ -30,11 +48,16 @@ function PromptModal(props: PromptModalProps) {
   };
 
   return (
-    <div className="prompt-modal-overlay" onClick={props.onClose}>
+    <div className="prompt-modal-overlay" onClick={onClose}>
       <div className="prompt-modal-content" onClick={(e) => e.stopPropagation()}>
-        <h2>{props.title}</h2>
+        <div className="prompt-modal-head">
+          <h2>{title}</h2>
+          <button className="prompt-modal-close" onClick={onClose} aria-label="Cerrar">
+            X
+          </button>
+        </div>
         <label>
-          {props.label}
+          {label}
           <input
             type="text"
             value={value}
@@ -44,8 +67,10 @@ function PromptModal(props: PromptModalProps) {
           />
         </label>
         <div className="prompt-modal-actions">
-          <button onClick={props.onClose}>Cancelar</button>
-          <button onClick={handleConfirm}>Aceptar</button>
+          <button onClick={onClose}>Cancelar</button>
+          <button onClick={handleConfirm} disabled={!value.trim()}>
+            Aceptar
+          </button>
         </div>
       </div>
     </div>

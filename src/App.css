@@ -265,11 +265,44 @@ select {
   overflow: hidden;
 }
 
+.center-stack {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.active-book-banner {
+  border: 1px solid #c6ceda;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 0.55rem 0.7rem;
+}
+
+.active-book-banner h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.active-book-banner p {
+  margin: 0.2rem 0 0;
+  color: #556177;
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.active-book-banner.is-empty {
+  background: #f8f9fc;
+}
+
 .editor-pane,
 .outline-view,
 .cover-view,
 .settings-view {
-  height: 100%;
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 0.7rem;

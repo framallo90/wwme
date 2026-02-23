@@ -40,6 +40,7 @@ import {
   loadAppConfig,
   loadLibraryIndex,
   loadBookProject,
+  resolveBookDirectory,
   moveChapter,
   renameChapter,
   restoreLastSnapshot,
@@ -283,19 +284,13 @@ function App() {
               });
 
               if (!selectedDirectory || Array.isArray(selectedDirectory)) {
+                setStatus('Creacion cancelada.');
                 return;
               }
 
               const created = await createBookProject(selectedDirectory, title, author);
-              const loadedConfig = await loadAppConfig(created.path);
-              setBook(created);
-              setConfig(loadedConfig);
-              setActiveChapterId(created.metadata.chapterOrder[0] ?? null);
-              setMainView('editor');
-              setFeedback('');
-              refreshCovers(created);
-              await syncBookToLibrary(created, { markOpened: true });
-              setStatus(`Libro creado en ${created.path}`);
+              await loadProject(created.path);
+              setStatus(`Libro creado y abierto: ${created.metadata.title}`);
             } catch (error) {
               setStatus(`No se pudo crear el libro: ${(error as Error).message}`);
             }
@@ -303,7 +298,7 @@ function App() {
         });
       },
     });
-  }, [refreshCovers, syncBookToLibrary]);
+  }, [loadProject]);
 
   const handleOpenBook = useCallback(async () => {
     try {
@@ -315,10 +310,12 @@ function App() {
       });
 
       if (!selectedDirectory || Array.isArray(selectedDirectory)) {
+        setStatus('Apertura cancelada.');
         return;
       }
 
-      await loadProject(selectedDirectory);
+      const resolvedPath = await resolveBookDirectory(selectedDirectory);
+      await loadProject(resolvedPath);
     } catch (error) {
       setStatus(`No se pudo abrir el libro: ${(error as Error).message}`);
     }
@@ -1573,7 +1570,22 @@ function App() {
             onExportAmazonBundle={handleExportAmazonBundle}
           />
         }
-        center={centerView}
+        center={
+          <div className="center-stack">
+            {book ? (
+              <header className="active-book-banner">
+                <h2>{book.metadata.title}</h2>
+                <p>{book.path}</p>
+              </header>
+            ) : (
+              <header className="active-book-banner is-empty">
+                <h2>Sin libro abierto</h2>
+                <p>Crea o abre una carpeta de libro para empezar.</p>
+              </header>
+            )}
+            {centerView}
+          </div>
+        }
         right={
           <AIPanel
             actions={AI_ACTIONS}
@@ -1592,10 +1604,11 @@ function App() {
             onUndo={handleUndo}
           />
         }
-        status={status}
+        status={book ? `Libro activo: ${book.metadata.title} | ${status}` : status}
       />
       {promptModal && (
         <PromptModal
+          key={`${promptModal.title}-${promptModal.label}-${promptModal.defaultValue ?? ''}`}
           isOpen
           title={promptModal.title}
           label={promptModal.label}
