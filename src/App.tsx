@@ -448,31 +448,39 @@ function App() {
       return;
     }
 
-    try {
-      const title = window.prompt('Titulo del nuevo capitulo', 'Nuevo capitulo')?.trim() || 'Nuevo capitulo';
-      const result = await createChapter(book.path, book.metadata, title);
+    setPromptModal({
+      title: 'Crear nuevo capitulo',
+      label: 'Titulo del capitulo',
+      defaultValue: 'Nuevo capitulo',
+      onConfirm: async (title) => {
+        setPromptModal(null);
+        if (!book) return;
+        try {
+          const result = await createChapter(book.path, book.metadata, title);
 
-      setBook((previous) => {
-        if (!previous || previous.path !== book.path) {
-          return previous;
+          setBook((previous) => {
+            if (!previous || previous.path !== book.path) {
+              return previous;
+            }
+
+            return {
+              ...previous,
+              metadata: result.metadata,
+              chapters: {
+                ...previous.chapters,
+                [result.chapter.id]: result.chapter,
+              },
+            };
+          });
+
+          setActiveChapterId(result.chapter.id);
+          setMainView('editor');
+          setStatus(`Capitulo creado: ${result.chapter.title}`);
+        } catch (error) {
+          setStatus(`No se pudo crear el capitulo: ${(error as Error).message}`);
         }
-
-        return {
-          ...previous,
-          metadata: result.metadata,
-          chapters: {
-            ...previous.chapters,
-            [result.chapter.id]: result.chapter,
-          },
-        };
-      });
-
-      setActiveChapterId(result.chapter.id);
-      setMainView('editor');
-      setStatus(`Capitulo creado: ${result.chapter.title}`);
-    } catch (error) {
-      setStatus(`No se pudo crear el capitulo: ${(error as Error).message}`);
-    }
+      },
+    });
   }, [book]);
 
   const handleRenameChapter = useCallback(
@@ -486,31 +494,35 @@ function App() {
         return;
       }
 
-      const nextTitle = window.prompt('Nuevo titulo', chapter.title)?.trim();
-      if (!nextTitle) {
-        return;
-      }
+      setPromptModal({
+        title: 'Renombrar capitulo',
+        label: 'Nuevo titulo',
+        defaultValue: chapter.title,
+        onConfirm: async (nextTitle) => {
+          setPromptModal(null);
+          if (!book || !nextTitle) return;
+          try {
+            const updated = await renameChapter(book.path, chapter, nextTitle);
+            setBook((previous) => {
+              if (!previous || previous.path !== book.path) {
+                return previous;
+              }
 
-      try {
-        const updated = await renameChapter(book.path, chapter, nextTitle);
-        setBook((previous) => {
-          if (!previous || previous.path !== book.path) {
-            return previous;
+              return {
+                ...previous,
+                chapters: {
+                  ...previous.chapters,
+                  [chapterId]: updated,
+                },
+              };
+            });
+
+            setStatus('Capitulo renombrado.');
+          } catch (error) {
+            setStatus(`No se pudo renombrar: ${(error as Error).message}`);
           }
-
-          return {
-            ...previous,
-            chapters: {
-              ...previous.chapters,
-              [chapterId]: updated,
-            },
-          };
-        });
-
-        setStatus('Capitulo renombrado.');
-      } catch (error) {
-        setStatus(`No se pudo renombrar: ${(error as Error).message}`);
-      }
+        },
+      });
     },
     [book],
   );
