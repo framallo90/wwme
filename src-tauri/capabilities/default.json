@@ -8,30 +8,18 @@
   "permissions": [
     "core:default",
     "dialog:default",
-    "fs:default",
+    "fs:allow-exists",
+    "fs:allow-read-dir",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
+    "fs:allow-copy-file",
     {
       "identifier": "fs:scope",
       "allow": [
         {
-          "path": "$APPCONFIG/**"
-        },
-        {
-          "path": "$APPDATA/**"
-        },
-        {
-          "path": "$HOME/**"
-        },
-        {
-          "path": "$DESKTOP/**"
-        },
-        {
-          "path": "$DOCUMENT/**"
-        },
-        {
-          "path": "$DOWNLOAD/**"
-        },
-        {
-          "path": "$PICTURE/**"
+          "path": "**"
         }
       ]
     }

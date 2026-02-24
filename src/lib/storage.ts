@@ -515,6 +515,39 @@ function ensureBookMetadata(metadata: BookMetadata): BookMetadata {
   };
 }
 
+function formatStorageError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+
+  if (error && typeof error === 'object') {
+    const payload = error as { message?: unknown; code?: unknown; name?: unknown };
+    const details: string[] = [];
+
+    if (typeof payload.name === 'string' && payload.name.trim()) {
+      details.push(payload.name.trim());
+    }
+
+    if (typeof payload.code === 'string' || typeof payload.code === 'number') {
+      details.push(`code=${String(payload.code)}`);
+    }
+
+    if (typeof payload.message === 'string' && payload.message.trim()) {
+      details.push(payload.message.trim());
+    }
+
+    if (details.length > 0) {
+      return details.join(' | ');
+    }
+  }
+
+  return 'Error de acceso a archivos.';
+}
+
 export async function loadAppConfig(bookPath: string): Promise<AppConfig> {
   const normalizedBookPath = normalizePath(bookPath);
   const targetConfigPath = configFilePath(normalizedBookPath);
@@ -569,10 +602,17 @@ export async function createBookProject(
 export async function resolveBookDirectory(path: string): Promise<string> {
   const pathCandidates = buildPathCandidates(path);
   const candidateBooks = new Set<string>();
+  let firstAccessError: string | null = null;
 
   for (const candidatePath of pathCandidates) {
-    if ((await exists(bookFilePath(candidatePath))) || (await isBookScaffoldDirectory(candidatePath))) {
-      return candidatePath;
+    try {
+      if ((await exists(bookFilePath(candidatePath))) || (await isBookScaffoldDirectory(candidatePath))) {
+        return candidatePath;
+      }
+    } catch (error) {
+      if (!firstAccessError) {
+        firstAccessError = `${candidatePath}: ${formatStorageError(error)}`;
+      }
     }
   }
 
@@ -580,7 +620,10 @@ export async function resolveBookDirectory(path: string): Promise<string> {
     let entries: Awaited<ReturnType<typeof readDir>>;
     try {
       entries = await readDir(candidatePath);
-    } catch {
+    } catch (error) {
+      if (!firstAccessError) {
+        firstAccessError = `${candidatePath}: ${formatStorageError(error)}`;
+      }
       continue;
     }
 
@@ -590,14 +633,26 @@ export async function resolveBookDirectory(path: string): Promise<string> {
       }
 
       const nestedPath = normalizeFolderPath(joinPath(candidatePath, entry.name));
-      if ((await exists(bookFilePath(nestedPath))) || (await isBookScaffoldDirectory(nestedPath))) {
-        candidateBooks.add(nestedPath);
+      try {
+        if ((await exists(bookFilePath(nestedPath))) || (await isBookScaffoldDirectory(nestedPath))) {
+          candidateBooks.add(nestedPath);
+        }
+      } catch (error) {
+        if (!firstAccessError) {
+          firstAccessError = `${nestedPath}: ${formatStorageError(error)}`;
+        }
       }
     }
 
-    const deepCandidates = await collectNestedBookCandidates(candidatePath, 3, 600);
-    for (const deepCandidate of deepCandidates) {
-      candidateBooks.add(deepCandidate);
+    try {
+      const deepCandidates = await collectNestedBookCandidates(candidatePath, 3, 600);
+      for (const deepCandidate of deepCandidates) {
+        candidateBooks.add(deepCandidate);
+      }
+    } catch (error) {
+      if (!firstAccessError) {
+        firstAccessError = `${candidatePath}: ${formatStorageError(error)}`;
+      }
     }
   }
 
@@ -624,6 +679,10 @@ export async function resolveBookDirectory(path: string): Promise<string> {
 
     withDate.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     return withDate[0].path;
+  }
+
+  if (firstAccessError) {
+    throw new Error(`No se pudo acceder a la carpeta seleccionada (${firstAccessError}).`);
   }
 
   throw new Error(

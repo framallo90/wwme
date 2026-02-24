@@ -86,6 +86,73 @@ function parseContinuousAgentOutput(raw: string): { status: 'DONE' | 'CONTINUE';
   return { status, summary, text };
 }
 
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+
+  if (typeof error === 'number' || typeof error === 'boolean') {
+    return String(error);
+  }
+
+  if (error && typeof error === 'object') {
+    const payload = error as { name?: unknown; code?: unknown; message?: unknown };
+    const details: string[] = [];
+
+    if (typeof payload.name === 'string' && payload.name.trim()) {
+      details.push(payload.name.trim());
+    }
+
+    if (typeof payload.code === 'string' || typeof payload.code === 'number') {
+      details.push(`code=${String(payload.code)}`);
+    }
+
+    if (typeof payload.message === 'string' && payload.message.trim()) {
+      details.push(payload.message.trim());
+    }
+
+    if (details.length > 0) {
+      return details.join(' | ');
+    }
+
+    try {
+      const serialized = JSON.stringify(error);
+      if (serialized && serialized !== '{}') {
+        return serialized;
+      }
+    } catch {
+      // Ignora errores de serializacion.
+    }
+  }
+
+  return 'Error desconocido';
+}
+
+function extractDialogPath(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+
+  if (Array.isArray(value)) {
+    const firstPath = value.find((item): item is string => typeof item === 'string' && item.trim().length > 0);
+    return firstPath ? firstPath.trim() : null;
+  }
+
+  if (value && typeof value === 'object') {
+    const payload = value as { path?: unknown };
+    if (typeof payload.path === 'string' && payload.path.trim()) {
+      return payload.path.trim();
+    }
+  }
+
+  return null;
+}
+
 function App() {
   const editorRef = useRef<TiptapEditorHandle | null>(null);
   const dirtyRef = useRef(false);
@@ -275,7 +342,7 @@ function App() {
         } catch {
           // Continua con defaults aunque no se pueda reescribir config.
         }
-        setStatus(`Config dañada, se aplicaron defaults: ${(error as Error).message}`);
+        setStatus(`Abrir libro: config dañada, se aplicaron defaults (${formatUnknownError(error)})`);
       }
 
       applyOpenedProjectState(loaded, loadedConfig);
@@ -283,7 +350,9 @@ function App() {
       try {
         await syncBookToLibrary(loaded, { markOpened: true });
       } catch (error) {
-        setStatus(`Libro abierto: ${loaded.metadata.title} (no se pudo actualizar biblioteca: ${(error as Error).message})`);
+        setStatus(
+          `Abrir libro: ${loaded.metadata.title} (no se pudo actualizar biblioteca: ${formatUnknownError(error)})`,
+        );
         return;
       }
 
@@ -305,18 +374,20 @@ function App() {
           onConfirm: async (author) => {
             setPromptModal(null);
             try {
-              const selectedDirectory = await open({
+              const selectedDirectoryResult = await open({
                 directory: true,
                 multiple: false,
+                recursive: true,
                 title: 'Selecciona carpeta padre del libro',
               });
+              const selectedDirectory = extractDialogPath(selectedDirectoryResult);
 
-              if (!selectedDirectory || Array.isArray(selectedDirectory)) {
-                setStatus('Creacion cancelada.');
+              if (!selectedDirectory) {
+                setStatus('Crear libro: operacion cancelada.');
                 return;
               }
 
-              setStatus('Creando estructura del libro...');
+              setStatus('Crear libro: creando estructura del libro...');
               const created = await createBookProject(selectedDirectory, title, author);
 
               let loadedConfig: AppConfig = DEFAULT_APP_CONFIG;
@@ -334,13 +405,15 @@ function App() {
               try {
                 await syncBookToLibrary(created, { markOpened: true });
               } catch (error) {
-                setStatus(`Libro creado: ${created.metadata.title} (sin actualizar biblioteca: ${(error as Error).message})`);
+                setStatus(
+                  `Crear libro: ${created.metadata.title} (sin actualizar biblioteca: ${formatUnknownError(error)})`,
+                );
                 return;
               }
 
               setStatus(`Libro creado y abierto: ${created.metadata.title}`);
             } catch (error) {
-              setStatus(`No se pudo crear el libro: ${(error as Error).message}`);
+              setStatus(`Crear libro: ${formatUnknownError(error)}`);
             }
           },
         });
@@ -350,21 +423,23 @@ function App() {
 
   const handleOpenBook = useCallback(async () => {
     try {
-      const selectedDirectory = await open({
+      const selectedDirectoryResult = await open({
         directory: true,
         multiple: false,
+        recursive: true,
         title: 'Selecciona carpeta del libro',
       });
+      const selectedDirectory = extractDialogPath(selectedDirectoryResult);
 
-      if (!selectedDirectory || Array.isArray(selectedDirectory)) {
-        setStatus('Apertura cancelada.');
+      if (!selectedDirectory) {
+        setStatus('Abrir libro: operacion cancelada.');
         return;
       }
 
       const resolvedPath = await resolveBookDirectory(selectedDirectory);
       await loadProject(resolvedPath);
     } catch (error) {
-      setStatus(`No se pudo abrir el libro: ${(error as Error).message}`);
+      setStatus(`Abrir libro: ${formatUnknownError(error)}`);
     }
   }, [loadProject]);
 
@@ -1222,7 +1297,7 @@ function App() {
     }
 
     try {
-      const selected = await open({
+      const selectedResult = await open({
         multiple: false,
         title: 'Selecciona portada',
         filters: [
@@ -1232,8 +1307,9 @@ function App() {
           },
         ],
       });
+      const selected = extractDialogPath(selectedResult);
 
-      if (!selected || Array.isArray(selected)) {
+      if (!selected) {
         return;
       }
 
@@ -1248,7 +1324,7 @@ function App() {
       await syncBookToLibrary(updated);
       setStatus('Portada actualizada.');
     } catch (error) {
-      setStatus(`No se pudo actualizar portada: ${(error as Error).message}`);
+      setStatus(`Portada: ${formatUnknownError(error)}`);
     }
   }, [book, refreshCovers, syncBookToLibrary]);
 
@@ -1275,7 +1351,7 @@ function App() {
     }
 
     try {
-      const selected = await open({
+      const selectedResult = await open({
         multiple: false,
         title: 'Selecciona contraportada',
         filters: [
@@ -1285,8 +1361,9 @@ function App() {
           },
         ],
       });
+      const selected = extractDialogPath(selectedResult);
 
-      if (!selected || Array.isArray(selected)) {
+      if (!selected) {
         return;
       }
 
@@ -1301,7 +1378,7 @@ function App() {
       await syncBookToLibrary(updated);
       setStatus('Contraportada actualizada.');
     } catch (error) {
-      setStatus(`No se pudo actualizar contraportada: ${(error as Error).message}`);
+      setStatus(`Contraportada: ${formatUnknownError(error)}`);
     }
   }, [book, refreshCovers, syncBookToLibrary]);
 
@@ -1424,7 +1501,7 @@ function App() {
         await loadProject(bookPath);
         setMainView('editor');
       } catch (error) {
-        setStatus(`No se pudo abrir libro desde biblioteca: ${(error as Error).message}`);
+        setStatus(`Biblioteca abrir: ${formatUnknownError(error)}`);
       }
     },
     [libraryIndex.books, loadProject],
@@ -1440,7 +1517,7 @@ function App() {
         setMainView('editor');
         setStatus('Libro abierto en modo chat de libro.');
       } catch (error) {
-        setStatus(`No se pudo abrir chat del libro: ${(error as Error).message}`);
+        setStatus(`Biblioteca chat: ${formatUnknownError(error)}`);
       }
     },
     [libraryIndex.books, loadProject],
@@ -1454,7 +1531,7 @@ function App() {
         await loadProject(bookPath);
         setMainView('amazon');
       } catch (error) {
-        setStatus(`No se pudo abrir seccion Amazon del libro: ${(error as Error).message}`);
+        setStatus(`Biblioteca Amazon: ${formatUnknownError(error)}`);
       }
     },
     [libraryIndex.books, loadProject],
