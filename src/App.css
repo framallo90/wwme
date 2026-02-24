@@ -1021,7 +1021,6 @@ select {
 }
 
 .sidebar-logo-showcase {
-  margin-top: auto;
   border: 1px solid rgba(20, 43, 92, 0.24);
   border-radius: 12px;
   background:
@@ -1039,6 +1038,10 @@ select {
   max-width: 240px;
   height: auto;
   object-fit: contain;
+}
+
+.sidebar-logo-showcase-top {
+  min-height: 92px;
 }
 
 @media (max-width: 1240px) {

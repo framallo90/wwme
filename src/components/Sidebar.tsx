@@ -80,9 +80,9 @@ function Sidebar(props: SidebarProps) {
   return (
     <aside className="left-sidebar">
       <header className="sidebar-header">
-        <div className="sidebar-brand">
-          <img src={logoImage} alt="WriteWMe" className="brand-wordmark" />
-        </div>
+        <section className="sidebar-logo-showcase sidebar-logo-showcase-top" aria-label="Identidad visual de WriteWMe">
+          <img src={logoImage} alt="Logo WriteWMe" />
+        </section>
         <p className="sidebar-active-book">{props.hasBook ? props.bookTitle : 'Sin libro abierto'}</p>
       </header>
 
@@ -386,10 +386,6 @@ function Sidebar(props: SidebarProps) {
           </button>
         </div>
       </details>
-
-      <section className="sidebar-logo-showcase" aria-label="Identidad visual de WriteWMe">
-        <img src={logoImage} alt="Logo WriteWMe" />
-      </section>
     </aside>
   );
 }
