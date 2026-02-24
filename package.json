@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "verify:local": "powershell -ExecutionPolicy Bypass -File ./scripts/verify_local.ps1",
     "preview": "vite preview",
     "tauri": "tauri"
   },

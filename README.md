@@ -37,6 +37,30 @@ npm run build
 npm run dev
 ```
 
+## Verificacion local automatica
+
+Script extensible de verificacion completa:
+
+```bash
+npm run verify:local
+```
+
+Opciones utiles (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify_local.ps1 -Only app.lint,app.typecheck
+powershell -ExecutionPolicy Bypass -File .\scripts\verify_local.ps1 -Skip app.build,tauri.metadata
+powershell -ExecutionPolicy Bypass -File .\scripts\verify_local.ps1 -BookPath .\examples\demo-book
+```
+
+El script guarda reporte JSON en:
+
+```text
+reports/verify/verify-YYYYMMDD-HHMMSS.json
+```
+
+Para agregar futuras pruebas, sumas un nuevo entry en el array `$checks` de `scripts/verify_local.ps1`.
+
 ## Estructura de libro en disco
 
 ```text
