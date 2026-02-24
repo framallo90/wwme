@@ -125,6 +125,7 @@ function SettingsPanel(props: SettingsPanelProps) {
       <div className="preset-row">
         <button
           type="button"
+          title="Ajuste rapido para generar borradores con mayor creatividad."
           onClick={() =>
             props.onChange({
               ...config,
@@ -139,6 +140,7 @@ function SettingsPanel(props: SettingsPanelProps) {
         </button>
         <button
           type="button"
+          title="Ajuste balanceado para reescritura precisa y controlada."
           onClick={() =>
             props.onChange({
               ...config,
@@ -153,6 +155,7 @@ function SettingsPanel(props: SettingsPanelProps) {
         </button>
         <button
           type="button"
+          title="Ajuste mas estricto para revision final y consistencia."
           onClick={() =>
             props.onChange({
               ...config,
@@ -176,7 +179,12 @@ function SettingsPanel(props: SettingsPanelProps) {
         />
       </label>
 
-      <button onClick={props.onSave} disabled={!props.bookPath}>
+      <button
+        type="button"
+        onClick={props.onSave}
+        disabled={!props.bookPath}
+        title="Guarda config.json en la carpeta del libro activo."
+      >
         Guardar settings
       </button>
     </section>

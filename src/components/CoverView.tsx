@@ -24,8 +24,10 @@ function CoverView(props: CoverViewProps) {
             {props.coverSrc ? <img src={props.coverSrc} alt="Portada del libro" /> : <p>Sin portada</p>}
           </div>
           <div className="cover-actions">
-            <button onClick={props.onPickCover}>Cambiar portada</button>
-            <button onClick={props.onClearCover} disabled={!props.coverSrc}>
+            <button type="button" onClick={props.onPickCover} title="Selecciona una imagen para la portada.">
+              Cambiar portada
+            </button>
+            <button type="button" onClick={props.onClearCover} disabled={!props.coverSrc} title="Elimina la portada actual del libro.">
               Quitar portada
             </button>
           </div>
@@ -37,8 +39,10 @@ function CoverView(props: CoverViewProps) {
             {props.backCoverSrc ? <img src={props.backCoverSrc} alt="Contraportada del libro" /> : <p>Sin contraportada</p>}
           </div>
           <div className="cover-actions">
-            <button onClick={props.onPickBackCover}>Cambiar contraportada</button>
-            <button onClick={props.onClearBackCover} disabled={!props.backCoverSrc}>
+            <button type="button" onClick={props.onPickBackCover} title="Selecciona una imagen para la contraportada.">
+              Cambiar contraportada
+            </button>
+            <button type="button" onClick={props.onClearBackCover} disabled={!props.backCoverSrc} title="Elimina la contraportada actual del libro.">
               Quitar contraportada
             </button>
           </div>
@@ -53,7 +57,9 @@ function CoverView(props: CoverViewProps) {
           placeholder="Titulo para el lomo"
         />
       </label>
-      <button onClick={props.onSaveSpineText}>Guardar datos de portada</button>
+      <button type="button" onClick={props.onSaveSpineText} title="Guarda portada, contraportada y texto de lomo en book.json.">
+        Guardar datos de portada
+      </button>
     </section>
   );
 }

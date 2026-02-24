@@ -77,7 +77,7 @@ function Sidebar(props: SidebarProps) {
       <section className="library-section">
         <div className="section-title-row">
           <h2>Biblioteca</h2>
-          <button type="button" onClick={props.onToggleLibrary}>
+          <button type="button" onClick={props.onToggleLibrary} title="Expandir o contraer la lista de libros.">
             {props.libraryExpanded ? '-' : '+'}
           </button>
         </div>
@@ -97,29 +97,37 @@ function Sidebar(props: SidebarProps) {
                 <p>{entry.author}</p>
                 <p>{`${entry.chapterCount} caps - ${entry.wordCount} palabras`}</p>
                 <div className="library-actions">
-                  <button type="button" onClick={(event) => runLibraryAction(event, () => props.onOpenLibraryBook(entry.path))}>
+                  <button
+                    type="button"
+                    title="Abrir este libro en el editor."
+                    onClick={(event) => runLibraryAction(event, () => props.onOpenLibraryBook(entry.path))}
+                  >
                     Abrir
                   </button>
                   <button
                     type="button"
+                    title="Abrir chat del libro completo."
                     onClick={(event) => runLibraryAction(event, () => props.onOpenLibraryBookChat(entry.path))}
                   >
                     Chat
                   </button>
                   <button
                     type="button"
+                    title="Abrir la seccion Amazon de este libro."
                     onClick={(event) => runLibraryAction(event, () => props.onOpenLibraryBookAmazon(entry.path))}
                   >
                     Amazon
                   </button>
                   <button
                     type="button"
+                    title="Eliminar este libro de la biblioteca y del disco."
                     onClick={(event) => runLibraryAction(event, () => props.onDeleteLibraryBook(entry.path))}
                   >
                     Eliminar
                   </button>
                   <button
                     type="button"
+                    title="Cambiar estado entre publicado y no publicado."
                     onClick={(event) =>
                       runLibraryAction(event, () => props.onSetBookPublished(entry.path, entry.status !== 'publicado'))
                     }
@@ -133,77 +141,15 @@ function Sidebar(props: SidebarProps) {
         ) : null}
       </section>
 
-      <div className="sidebar-actions">
-        <button type="button" className="icon-button" onClick={props.onCreateBook}>
-          <BookPlus size={16} />
-          <span>Nuevo libro</span>
-        </button>
-        <button type="button" className="icon-button" onClick={props.onOpenBook}>
-          <FolderOpen size={16} />
-          <span>Abrir libro</span>
-        </button>
-        <button type="button" className="icon-button" onClick={props.onCloseBook} disabled={!props.hasBook}>
-          <BookX size={16} />
-          <span>Cerrar libro</span>
-        </button>
-        <button type="button" className="icon-button" onClick={props.onShowSettings}>
-          <Settings size={16} />
-          <span>Settings</span>
-        </button>
-      </div>
-
-      <div className="sidebar-view-actions">
-        <button
-          className={`icon-button ${props.currentView === 'editor' ? 'is-active' : ''}`}
-          type="button"
-          onClick={props.onShowEditor}
-          disabled={!props.hasBook}
-        >
-          <FileText size={16} />
-          <span>Editor</span>
-        </button>
-        <button
-          className={`icon-button ${props.currentView === 'outline' ? 'is-active' : ''}`}
-          type="button"
-          onClick={props.onShowOutline}
-          disabled={!props.hasBook}
-        >
-          <ListTree size={16} />
-          <span>Vista general</span>
-        </button>
-        <button
-          className={`icon-button ${props.currentView === 'cover' ? 'is-active' : ''}`}
-          type="button"
-          onClick={props.onShowCover}
-          disabled={!props.hasBook}
-        >
-          <BookImage size={16} />
-          <span>Portada</span>
-        </button>
-        <button
-          className={`icon-button ${props.currentView === 'foundation' ? 'is-active' : ''}`}
-          type="button"
-          onClick={props.onShowFoundation}
-          disabled={!props.hasBook}
-        >
-          <Database size={16} />
-          <span>Base</span>
-        </button>
-        <button
-          className={`icon-button ${props.currentView === 'amazon' ? 'is-active' : ''}`}
-          type="button"
-          onClick={props.onShowAmazon}
-          disabled={!props.hasBook}
-        >
-          <ShoppingCart size={16} />
-          <span>Amazon</span>
-        </button>
-      </div>
-
       <section className="chapter-section">
         <div className="section-title-row">
           <h2>Capitulos</h2>
-          <button type="button" onClick={props.onCreateChapter} disabled={!props.hasBook}>
+          <button
+            type="button"
+            onClick={props.onCreateChapter}
+            disabled={!props.hasBook}
+            title="Crea un nuevo capitulo en el libro."
+          >
             +
           </button>
         </div>
@@ -216,50 +162,156 @@ function Sidebar(props: SidebarProps) {
             >
               <button
                 className="chapter-main"
-                  type="button"
-                  onClick={() => props.onSelectChapter(chapter.id)}
-                  disabled={!props.hasBook}
-                >
+                type="button"
+                onClick={() => props.onSelectChapter(chapter.id)}
+                disabled={!props.hasBook}
+                title="Abrir capitulo en el editor."
+              >
                 <span className="chapter-id">{chapter.id}</span>
                 <span className="chapter-title">{chapter.title}</span>
               </button>
               <div className="chapter-controls">
-                <button type="button" onClick={() => props.onMoveChapter(chapter.id, 'up')} title="Subir">
+                <button type="button" onClick={() => props.onMoveChapter(chapter.id, 'up')} title="Sube el capitulo una posicion.">
                   ^
                 </button>
-                <button type="button" onClick={() => props.onMoveChapter(chapter.id, 'down')} title="Bajar">
+                <button type="button" onClick={() => props.onMoveChapter(chapter.id, 'down')} title="Baja el capitulo una posicion.">
                   v
                 </button>
-                <button type="button" onClick={() => props.onRenameChapter(chapter.id)} title="Renombrar">
+                <button type="button" onClick={() => props.onRenameChapter(chapter.id)} title="Renombra el capitulo.">
                   R
                 </button>
-                <button type="button" onClick={() => props.onDuplicateChapter(chapter.id)} title="Duplicar">
+                <button type="button" onClick={() => props.onDuplicateChapter(chapter.id)} title="Duplica el capitulo seleccionado.">
                   D
                 </button>
-                <button type="button" onClick={() => props.onDeleteChapter(chapter.id)} title="Borrar">
+                <button type="button" onClick={() => props.onDeleteChapter(chapter.id)} title="Elimina el capitulo seleccionado.">
                   X
                 </button>
               </div>
-            </article>
-          ))}
-        </div>
-      </section>
+              </article>
+            ))}
+          </div>
+        </section>
 
-      <section className="export-section">
-        <h2>Exportar</h2>
-        <button type="button" onClick={props.onExportChapter} disabled={!props.hasBook || !props.activeChapterId}>
-          Capitulo a Markdown
-        </button>
-        <button type="button" onClick={props.onExportBookSplit} disabled={!props.hasBook}>
-          Libro por capitulos
-        </button>
-        <button type="button" onClick={props.onExportBookSingle} disabled={!props.hasBook}>
-          Libro archivo unico
-        </button>
-        <button type="button" onClick={props.onExportAmazonBundle} disabled={!props.hasBook}>
-          Pack Amazon (TXT + HTML)
-        </button>
-      </section>
+      <details className="sidebar-collapsible">
+        <summary>Opciones y vistas</summary>
+        <div className="collapsible-body">
+          <div className="sidebar-actions">
+            <button
+              type="button"
+              className="icon-button"
+              onClick={props.onCreateBook}
+              title="Crea un libro nuevo y abre el procesador de texto."
+            >
+              <BookPlus size={16} />
+              <span>Nuevo libro</span>
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              onClick={props.onOpenBook}
+              title="Abre una carpeta de libro existente."
+            >
+              <FolderOpen size={16} />
+              <span>Abrir libro</span>
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              onClick={props.onCloseBook}
+              disabled={!props.hasBook}
+              title="Cierra el libro activo sin salir de la app."
+            >
+              <BookX size={16} />
+              <span>Cerrar libro</span>
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              onClick={props.onShowSettings}
+              title="Abre la configuracion persistente del modelo, prompt y opciones."
+            >
+              <Settings size={16} />
+              <span>Settings</span>
+            </button>
+          </div>
+
+          <div className="sidebar-view-actions">
+            <button
+              className={`icon-button ${props.currentView === 'editor' ? 'is-active' : ''}`}
+              type="button"
+              onClick={props.onShowEditor}
+              disabled={!props.hasBook}
+              title="Vista principal para escribir y editar."
+            >
+              <FileText size={16} />
+              <span>Editor</span>
+            </button>
+            <button
+              className={`icon-button ${props.currentView === 'outline' ? 'is-active' : ''}`}
+              type="button"
+              onClick={props.onShowOutline}
+              disabled={!props.hasBook}
+              title="Muestra todos los capitulos con su resumen."
+            >
+              <ListTree size={16} />
+              <span>Vista general</span>
+            </button>
+            <button
+              className={`icon-button ${props.currentView === 'cover' ? 'is-active' : ''}`}
+              type="button"
+              onClick={props.onShowCover}
+              disabled={!props.hasBook}
+              title="Gestiona portada, contraportada y texto del lomo."
+            >
+              <BookImage size={16} />
+              <span>Portada</span>
+            </button>
+            <button
+              className={`icon-button ${props.currentView === 'foundation' ? 'is-active' : ''}`}
+              type="button"
+              onClick={props.onShowFoundation}
+              disabled={!props.hasBook}
+              title="Define base narrativa: idea central, voz y reglas de estilo."
+            >
+              <Database size={16} />
+              <span>Base</span>
+            </button>
+            <button
+              className={`icon-button ${props.currentView === 'amazon' ? 'is-active' : ''}`}
+              type="button"
+              onClick={props.onShowAmazon}
+              disabled={!props.hasBook}
+              title="Completa metadatos y presets para publicar en Amazon."
+            >
+              <ShoppingCart size={16} />
+              <span>Amazon</span>
+            </button>
+          </div>
+        </div>
+      </details>
+
+      <details className="sidebar-collapsible">
+        <summary>Exportar</summary>
+        <div className="collapsible-body export-section">
+          <button
+            type="button"
+            onClick={props.onExportChapter}
+            disabled={!props.hasBook || !props.activeChapterId}
+            title="Exporta el capitulo activo a Markdown."
+          >
+            Capitulo a Markdown
+          </button>
+          <button type="button" onClick={props.onExportBookSplit} disabled={!props.hasBook} title="Exporta un archivo por capitulo.">
+            Libro por capitulos
+          </button>
+          <button type="button" onClick={props.onExportBookSingle} disabled={!props.hasBook} title="Exporta todo el libro en un solo archivo.">
+            Libro archivo unico
+          </button>
+          <button type="button" onClick={props.onExportAmazonBundle} disabled={!props.hasBook} title="Genera pack TXT + HTML para carga rapida en Amazon.">
+            Pack Amazon (TXT + HTML)
+          </button>
+        </div>
+      </details>
     </aside>
   );
 }

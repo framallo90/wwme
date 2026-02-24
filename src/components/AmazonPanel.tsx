@@ -146,10 +146,18 @@ function AmazonPanel(props: AmazonPanelProps) {
             ))}
           </select>
         </label>
-        <button onClick={applyPreset}>Aplicar preset</button>
-        <button onClick={autoGenerate}>Auto-completar textos</button>
-        <button onClick={props.onExportAmazonBundle}>Export pack Amazon</button>
-        <button onClick={() => props.onSave()}>Guardar Amazon</button>
+        <button type="button" onClick={applyPreset} title="Aplica estructura base de metadatos segun el tipo de libro.">
+          Aplicar preset
+        </button>
+        <button type="button" onClick={autoGenerate} title="Genera textos sugeridos para descripcion, bio y notas.">
+          Auto-completar textos
+        </button>
+        <button type="button" onClick={props.onExportAmazonBundle} title="Exporta paquete TXT + HTML para carga en Amazon.">
+          Export pack Amazon
+        </button>
+        <button type="button" onClick={() => props.onSave()} title="Guarda todos los campos Amazon dentro del libro.">
+          Guardar Amazon
+        </button>
       </div>
 
       <div className="amazon-grid">
@@ -192,7 +200,9 @@ function AmazonPanel(props: AmazonPanelProps) {
       <section className="amazon-section">
         <div className="section-title-row">
           <h3>Descripcion corta</h3>
-          <button onClick={() => handleCopy('Descripcion corta', amazon.backCoverText)}>Copiar</button>
+          <button type="button" onClick={() => handleCopy('Descripcion corta', amazon.backCoverText)} title="Copia la descripcion corta al portapapeles.">
+            Copiar
+          </button>
         </div>
         <textarea
           rows={4}
@@ -204,7 +214,9 @@ function AmazonPanel(props: AmazonPanelProps) {
       <section className="amazon-section">
         <div className="section-title-row">
           <h3>Descripcion larga (KDP)</h3>
-          <button onClick={() => handleCopy('Descripcion larga', amazon.longDescription)}>Copiar</button>
+          <button type="button" onClick={() => handleCopy('Descripcion larga', amazon.longDescription)} title="Copia la descripcion larga para pegar en KDP.">
+            Copiar
+          </button>
         </div>
         <textarea
           rows={10}
@@ -216,7 +228,9 @@ function AmazonPanel(props: AmazonPanelProps) {
       <section className="amazon-section">
         <div className="section-title-row">
           <h3>Keywords (7)</h3>
-          <button onClick={() => handleCopy('Keywords', keywordsAsLines(amazon))}>Copiar lineas</button>
+          <button type="button" onClick={() => handleCopy('Keywords', keywordsAsLines(amazon))} title="Copia keywords separadas por linea.">
+            Copiar lineas
+          </button>
         </div>
         <div className="amazon-lines">
           {amazon.keywords.map((keyword, index) => (
@@ -233,7 +247,9 @@ function AmazonPanel(props: AmazonPanelProps) {
       <section className="amazon-section">
         <div className="section-title-row">
           <h3>Categorias</h3>
-          <button onClick={() => handleCopy('Categorias', categoriesAsLines(amazon))}>Copiar lineas</button>
+          <button type="button" onClick={() => handleCopy('Categorias', categoriesAsLines(amazon))} title="Copia categorias separadas por linea.">
+            Copiar lineas
+          </button>
         </div>
         <div className="amazon-lines">
           {amazon.categories.map((category, index) => (
@@ -250,7 +266,9 @@ function AmazonPanel(props: AmazonPanelProps) {
       <section className="amazon-section">
         <div className="section-title-row">
           <h3>Bio autor</h3>
-          <button onClick={() => handleCopy('Bio autor', amazon.authorBio)}>Copiar</button>
+          <button type="button" onClick={() => handleCopy('Bio autor', amazon.authorBio)} title="Copia biografia de autor.">
+            Copiar
+          </button>
         </div>
         <textarea rows={4} value={amazon.authorBio} onChange={(event) => updateAmazon({ authorBio: event.target.value })} />
       </section>
@@ -258,7 +276,9 @@ function AmazonPanel(props: AmazonPanelProps) {
       <section className="amazon-section">
         <div className="section-title-row">
           <h3>Notas KDP</h3>
-          <button onClick={() => handleCopy('Notas KDP', amazon.kdpNotes)}>Copiar</button>
+          <button type="button" onClick={() => handleCopy('Notas KDP', amazon.kdpNotes)} title="Copia notas operativas para KDP.">
+            Copiar
+          </button>
         </div>
         <textarea rows={4} value={amazon.kdpNotes} onChange={(event) => updateAmazon({ kdpNotes: event.target.value })} />
       </section>
@@ -376,7 +396,9 @@ function AmazonPanel(props: AmazonPanelProps) {
       <section className="amazon-section">
         <div className="section-title-row">
           <h3>Checklist de subida</h3>
-          <button onClick={() => handleCopy('Checklist', kdpChecklist)}>Copiar</button>
+          <button type="button" onClick={() => handleCopy('Checklist', kdpChecklist)} title="Copia checklist de pasos de subida.">
+            Copiar
+          </button>
         </div>
         <pre className="feedback-box">{kdpChecklist}</pre>
       </section>
@@ -384,7 +406,9 @@ function AmazonPanel(props: AmazonPanelProps) {
       <section className="amazon-section">
         <div className="section-title-row">
           <h3>Pack completo</h3>
-          <button onClick={() => handleCopy('Pack Amazon', copyPack)}>Copiar pack</button>
+          <button type="button" onClick={() => handleCopy('Pack Amazon', copyPack)} title="Copia todo el pack de metadatos en un bloque unico.">
+            Copiar pack
+          </button>
         </div>
         <pre className="feedback-box">{copyPack}</pre>
       </section>

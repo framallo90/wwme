@@ -113,7 +113,8 @@ select {
   flex-direction: column;
   gap: 0.8rem;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .left-sidebar {
@@ -160,6 +161,32 @@ select {
 .export-section {
   display: grid;
   gap: 0.45rem;
+}
+
+.sidebar-collapsible,
+.panel-collapsible {
+  border: 1px solid rgba(18, 40, 94, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.sidebar-collapsible summary,
+.panel-collapsible summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #0f2a63;
+  padding: 0.45rem 0.55rem;
+}
+
+.sidebar-collapsible[open],
+.panel-collapsible[open] {
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.collapsible-body {
+  padding: 0.45rem 0.55rem 0.6rem;
+  display: grid;
+  gap: 0.5rem;
 }
 
 .sidebar-view-actions {
@@ -409,6 +436,9 @@ select {
   outline: none;
   min-height: 100%;
   line-height: var(--editor-line-height, 1.6);
+  max-width: 78ch;
+  margin: 0 auto;
+  padding: 0 0.35rem;
 }
 
 .editor-content p {
