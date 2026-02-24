@@ -175,7 +175,7 @@ select {
 .sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 0.7rem;
+  justify-content: flex-start;
   min-width: 0;
 }
 
@@ -188,6 +188,18 @@ select {
 
 .brand-text {
   min-width: 0;
+}
+
+.brand-wordmark {
+  width: min(210px, 100%);
+  height: auto;
+  object-fit: contain;
+}
+
+.sidebar-active-book {
+  margin: 0.25rem 0 0;
+  color: var(--muted-text);
+  font-weight: 500;
 }
 
 .sidebar-actions,
@@ -1006,6 +1018,27 @@ select {
   align-items: center;
   gap: 0.5rem;
   justify-content: center;
+}
+
+.sidebar-logo-showcase {
+  margin-top: auto;
+  border: 1px solid rgba(20, 43, 92, 0.24);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 12% 12%, rgba(34, 211, 238, 0.14), transparent 40%),
+    radial-gradient(circle at 88% 8%, rgba(18, 22, 111, 0.12), transparent 38%),
+    rgba(255, 255, 255, 0.92);
+  padding: 0.7rem;
+  min-height: 130px;
+  display: grid;
+  place-items: center;
+}
+
+.sidebar-logo-showcase img {
+  width: 100%;
+  max-width: 240px;
+  height: auto;
+  object-fit: contain;
 }
 
 @media (max-width: 1240px) {
