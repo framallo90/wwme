@@ -22,6 +22,7 @@ import {
   exportBookMarkdownSingleFile,
   exportChapterMarkdown,
 } from './lib/export';
+import { countWordsFromHtml, countWordsFromPlainText, estimatePagesFromWords } from './lib/metrics';
 import { generateWithOllama } from './lib/ollamaClient';
 import {
   AI_ACTIONS,
@@ -200,6 +201,110 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return Boolean(target.closest('[contenteditable="true"]'));
 }
 
+const EXPANSION_INTENT_PATTERN = /\b(alarg(?:a|ar|ue|uen|ado|ando)?|expand(?:e|ir|io|ido|iendo)?|ampli(?:a|ar|e|en|ado|ando)?|ext(?:ender|iende|endido)|desarroll(?:a|ar|ado)|profundiz(?:a|ar|ado)|mas largo|m[aá]s largo)\b/i;
+const SHORTEN_INTENT_PATTERN = /\b(acort(?:a|ar|ado)|resum(?:e|ir|ido)|reduc(?:e|ir|ido)|sintetiz(?:a|ar|ado)|abrevi(?:a|ar|ado))\b/i;
+const WORD_TARGET_PATTERN = /\b(\d{2,5})\s*(?:palabras?|words?)\b/i;
+const EXPANSION_ACTIONS = new Set<(typeof AI_ACTIONS)[number]['id']>([
+  'expand-examples',
+  'deepen-argument',
+  'draft-from-idea',
+]);
+const FALLBACK_INTERIOR_FORMAT = {
+  trimSize: '6x9' as const,
+  pageWidthIn: 6,
+  pageHeightIn: 9,
+  marginTopMm: 18,
+  marginBottomMm: 18,
+  marginInsideMm: 20,
+  marginOutsideMm: 16,
+  paragraphIndentEm: 1.4,
+  lineHeight: 1.55,
+};
+
+interface ExpansionGuardResult {
+  text: string;
+  summaryText: string;
+  corrected: boolean;
+}
+
+function parseWordTarget(value: string): number | null {
+  const match = value.match(WORD_TARGET_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(match[1], 10);
+  if (!Number.isFinite(parsed) || parsed < 30 || parsed > 50000) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function shouldEnforceExpansion(actionId: (typeof AI_ACTIONS)[number]['id'] | null, instruction: string): boolean {
+  if (actionId === 'shorten-20') {
+    return false;
+  }
+
+  if (actionId && EXPANSION_ACTIONS.has(actionId)) {
+    return true;
+  }
+
+  if (!instruction.trim()) {
+    return false;
+  }
+
+  if (SHORTEN_INTENT_PATTERN.test(instruction)) {
+    return false;
+  }
+
+  return EXPANSION_INTENT_PATTERN.test(instruction);
+}
+
+function resolveExpansionMinimumWords(instruction: string, originalText: string): number {
+  const originalWords = countWordsFromPlainText(originalText);
+  const explicitTarget = parseWordTarget(instruction);
+
+  if (explicitTarget !== null) {
+    return Math.max(explicitTarget, originalWords);
+  }
+
+  return originalWords;
+}
+
+function buildExpansionRecoveryPrompt(input: {
+  instruction: string;
+  bookTitle: string;
+  chapterTitle: string;
+  minWords: number;
+  originalText: string;
+  candidateText: string;
+}): string {
+  return [
+    'MODO: correccion de longitud.',
+    `Libro: ${input.bookTitle}`,
+    `Capitulo: ${input.chapterTitle}`,
+    `Objetivo minimo: ${input.minWords} palabras.`,
+    '',
+    'La salida previa redujo el texto y no cumplio la instruccion de expansion.',
+    '',
+    'Instruccion original del usuario:',
+    input.instruction,
+    '',
+    'Texto original antes del cambio:',
+    input.originalText || '(vacio)',
+    '',
+    'Salida previa que no cumple:',
+    input.candidateText || '(vacio)',
+    '',
+    'Reglas de salida:',
+    '- Devuelve solo el texto final del capitulo.',
+    `- Debe tener al menos ${input.minWords} palabras.`,
+    '- Mantene continuidad, tono y coherencia narrativa.',
+    '- No agregues resumen de cambios ni explicaciones.',
+  ].join('\n');
+}
+
 function App() {
   const editorRef = useRef<TiptapEditorHandle | null>(null);
   const dirtyRef = useRef(false);
@@ -279,6 +384,138 @@ function App() {
       wholeWord: searchWholeWord,
     }),
     [searchCaseSensitive, searchWholeWord],
+  );
+
+  const interiorFormat = useMemo(
+    () => book?.metadata.interiorFormat ?? FALLBACK_INTERIOR_FORMAT,
+    [book?.metadata.interiorFormat],
+  );
+
+  const chapterWordCount = useMemo(() => {
+    if (!activeChapter) {
+      return 0;
+    }
+
+    return countWordsFromHtml(activeChapter.content);
+  }, [activeChapter]);
+
+  const bookWordCount = useMemo(
+    () => orderedChapters.reduce((total, chapter) => total + countWordsFromHtml(chapter.content), 0),
+    [orderedChapters],
+  );
+
+  const chapterPageMap = useMemo(() => {
+    const map: Record<string, { start: number; end: number; pages: number }> = {};
+    let cursor = 1;
+
+    for (const chapter of orderedChapters) {
+      const words = countWordsFromHtml(chapter.content);
+      const estimatedPages = Math.max(1, estimatePagesFromWords(words, interiorFormat));
+      map[chapter.id] = {
+        start: cursor,
+        end: cursor + estimatedPages - 1,
+        pages: estimatedPages,
+      };
+      cursor += estimatedPages;
+    }
+
+    return map;
+  }, [orderedChapters, interiorFormat]);
+
+  const activeChapterPageRange = useMemo(() => {
+    if (!activeChapterId) {
+      return null;
+    }
+
+    return chapterPageMap[activeChapterId] ?? null;
+  }, [activeChapterId, chapterPageMap]);
+
+  const bookEstimatedPages = useMemo(() => {
+    if (orderedChapters.length === 0) {
+      return 0;
+    }
+
+    return Math.max(...Object.values(chapterPageMap).map((entry) => entry.end));
+  }, [orderedChapters.length, chapterPageMap]);
+
+  const enforceExpansionResult = useCallback(
+    async (input: {
+      actionId: (typeof AI_ACTIONS)[number]['id'] | null;
+      instruction: string;
+      originalText: string;
+      candidateText: string;
+      bookTitle: string;
+      chapterTitle: string;
+    }): Promise<ExpansionGuardResult> => {
+      const parsedCandidate = splitAiOutputAndSummary(input.candidateText);
+      const cleanedCandidate = parsedCandidate.cleanText || input.candidateText;
+
+      if (!shouldEnforceExpansion(input.actionId, input.instruction)) {
+        return {
+          text: cleanedCandidate,
+          summaryText: parsedCandidate.summaryText,
+          corrected: false,
+        };
+      }
+
+      const minimumWords = resolveExpansionMinimumWords(input.instruction, input.originalText);
+      if (minimumWords <= 0) {
+        return {
+          text: cleanedCandidate,
+          summaryText: parsedCandidate.summaryText,
+          corrected: false,
+        };
+      }
+
+      const candidateWords = countWordsFromPlainText(cleanedCandidate);
+      if (candidateWords >= minimumWords) {
+        return {
+          text: cleanedCandidate,
+          summaryText: parsedCandidate.summaryText,
+          corrected: false,
+        };
+      }
+
+      const recoveryPrompt = buildExpansionRecoveryPrompt({
+        instruction: input.instruction,
+        bookTitle: input.bookTitle,
+        chapterTitle: input.chapterTitle,
+        minWords: minimumWords,
+        originalText: input.originalText,
+        candidateText: cleanedCandidate,
+      });
+      const recoveredRaw = normalizeAiOutput(
+        await generateWithOllama({
+          config,
+          prompt: recoveryPrompt,
+        }),
+      );
+      const recoveredParsed = splitAiOutputAndSummary(recoveredRaw);
+      const recoveredText = recoveredParsed.cleanText || recoveredRaw;
+
+      if (countWordsFromPlainText(recoveredText) >= minimumWords) {
+        return {
+          text: recoveredText,
+          summaryText: recoveredParsed.summaryText || parsedCandidate.summaryText,
+          corrected: true,
+        };
+      }
+
+      if (countWordsFromPlainText(input.originalText) >= minimumWords) {
+        return {
+          text: input.originalText,
+          summaryText: recoveredParsed.summaryText || parsedCandidate.summaryText,
+          corrected: true,
+        };
+      }
+
+      return {
+        text: cleanedCandidate,
+        summaryText: recoveredParsed.summaryText || parsedCandidate.summaryText,
+        corrected: false,
+      };
+    },
+    [config],
   );
 
   const refreshCovers = useCallback((project: BookProject | null) => {
@@ -1342,13 +1579,14 @@ function App() {
                 await saveChapterSnapshot(book.path, chapter, `Agente continuo ronda ${round}/${maxRounds}`);
               }
 
+              const currentChapterText = stripHtml(chapter.content);
               const prompt = buildContinuousChapterPrompt({
                 userInstruction: message,
                 bookTitle: book.metadata.title,
                 foundation: book.metadata.foundation,
                 chapterTitle: chapter.title,
                 chapterLengthPreset: chapter.lengthPreset,
-                chapterText: stripHtml(chapter.content),
+                chapterText: currentChapterText,
                 fullBookText: buildBookContext(book, workingChapters),
                 round,
                 maxRounds,
@@ -1362,10 +1600,17 @@ function App() {
                 }),
               );
               const parsed = parseContinuousAgentOutput(rawResponse);
-              const parsedOutput = splitAiOutputAndSummary(parsed.text);
-              const nextChapterText = parsedOutput.cleanText || parsed.text;
+              const guardedResult = await enforceExpansionResult({
+                actionId: null,
+                instruction: message,
+                originalText: currentChapterText,
+                candidateText: parsed.text,
+                bookTitle: book.metadata.title,
+                chapterTitle: chapter.title,
+              });
+              const nextChapterText = guardedResult.text;
               previousSummary = parsed.summary;
-              lastSummaryMessage = parsedOutput.summaryText || parsed.summary || lastSummaryMessage;
+              lastSummaryMessage = guardedResult.summaryText || parsed.summary || lastSummaryMessage;
 
               const chapterDraft = {
                 ...chapter,
@@ -1391,13 +1636,14 @@ function App() {
                 await saveChapterSnapshot(book.path, chapter, `Chat auto-aplicar ${iteration}/${iterations}`);
               }
 
+              const currentChapterText = stripHtml(chapter.content);
               const prompt = buildAutoRewritePrompt({
                 userInstruction: message,
                 bookTitle: book.metadata.title,
                 foundation: book.metadata.foundation,
                 chapterTitle: chapter.title,
                 chapterLengthPreset: chapter.lengthPreset,
-                chapterText: stripHtml(chapter.content),
+                chapterText: currentChapterText,
                 fullBookText: buildBookContext(book, workingChapters),
                 chapterIndex: book.metadata.chapterOrder.indexOf(chapter.id) + 1,
                 chapterTotal: book.metadata.chapterOrder.length,
@@ -1411,9 +1657,16 @@ function App() {
                   prompt,
                 }),
               );
-              const parsedOutput = splitAiOutputAndSummary(response);
-              const nextChapterText = parsedOutput.cleanText || response;
-              lastSummaryMessage = parsedOutput.summaryText || lastSummaryMessage;
+              const guardedResult = await enforceExpansionResult({
+                actionId: null,
+                instruction: message,
+                originalText: currentChapterText,
+                candidateText: response,
+                bookTitle: book.metadata.title,
+                chapterTitle: chapter.title,
+              });
+              const nextChapterText = guardedResult.text;
+              lastSummaryMessage = guardedResult.summaryText || lastSummaryMessage;
 
               const chapterDraft = {
                 ...chapter,
@@ -1486,13 +1739,14 @@ function App() {
               );
             }
 
+            const currentChapterText = stripHtml(chapter.content);
             const prompt = buildAutoRewritePrompt({
               userInstruction: message,
               bookTitle: book.metadata.title,
               foundation: book.metadata.foundation,
               chapterTitle: chapter.title,
               chapterLengthPreset: chapter.lengthPreset,
-              chapterText: stripHtml(chapter.content),
+              chapterText: currentChapterText,
               fullBookText: buildBookContext(book, workingChapters),
               chapterIndex: index + 1,
               chapterTotal: book.metadata.chapterOrder.length,
@@ -1506,9 +1760,16 @@ function App() {
                 prompt,
               }),
             );
-            const parsedOutput = splitAiOutputAndSummary(response);
-            const nextChapterText = parsedOutput.cleanText || response;
-            if (parsedOutput.summaryText) {
+            const guardedResult = await enforceExpansionResult({
+              actionId: null,
+              instruction: message,
+              originalText: currentChapterText,
+              candidateText: response,
+              bookTitle: book.metadata.title,
+              chapterTitle: chapter.title,
+            });
+            const nextChapterText = guardedResult.text;
+            if (guardedResult.summaryText) {
               extractedSummaries += 1;
             }
 
@@ -1558,12 +1819,12 @@ function App() {
         await persistScopeMessages(scope, [...withUser, assistantMessage]);
         setStatus('Chat aplicado automaticamente al libro completo.');
       } catch (error) {
-        setStatus(`Error de IA: ${(error as Error).message}`);
+        setStatus(`Error de IA: ${formatUnknownError(error)}`);
       } finally {
         setAiBusy(false);
       }
     },
-    [book, activeChapter, activeChapterId, config, persistScopeMessages, syncBookToLibrary],
+    [book, activeChapter, activeChapterId, config, persistScopeMessages, syncBookToLibrary, enforceExpansionResult],
   );
 
   const handleRunAction = useCallback(
@@ -1612,7 +1873,21 @@ function App() {
           }),
         );
         const parsedOutput = splitAiOutputAndSummary(response);
-        const outputText = parsedOutput.cleanText || response;
+        let outputText = parsedOutput.cleanText || response;
+        let summaryText = parsedOutput.summaryText;
+
+        if (action?.modifiesText) {
+          const expansionResult = await enforceExpansionResult({
+            actionId,
+            instruction: `${action.label}. ${action.description}`,
+            originalText: selectedText,
+            candidateText: outputText,
+            bookTitle: book.metadata.title,
+            chapterTitle: activeChapter.title,
+          });
+          outputText = expansionResult.text;
+          summaryText = expansionResult.summaryText || summaryText;
+        }
 
         if (action?.modifiesText) {
           if (hasSelection) {
@@ -1653,13 +1928,13 @@ function App() {
             },
           });
 
-          if (parsedOutput.summaryText) {
+          if (summaryText) {
             const currentChapterMessages = book.metadata.chats.chapters[activeChapter.id] ?? [];
             const summaryMessage: ChatMessage = {
               id: randomId('msg'),
               role: 'assistant',
               scope: 'chapter',
-              content: buildSummaryMessage(parsedOutput.summaryText, `Resumen de cambios (${action?.label ?? actionId}):`),
+              content: buildSummaryMessage(summaryText, `Resumen de cambios (${action?.label ?? actionId}):`),
               createdAt: getNowIso(),
             };
             await persistScopeMessages('chapter', [...currentChapterMessages, summaryMessage]);
@@ -1671,12 +1946,12 @@ function App() {
           setStatus(`Devolucion lista: ${action?.label ?? actionId}`);
         }
       } catch (error) {
-        setStatus(`Error IA: ${(error as Error).message}`);
+        setStatus(`Error IA: ${formatUnknownError(error)}`);
       } finally {
         setAiBusy(false);
       }
     },
-    [book, activeChapter, config, persistScopeMessages, syncBookToLibrary],
+    [book, activeChapter, config, persistScopeMessages, syncBookToLibrary, enforceExpansionResult],
   );
 
   const handleUndo = useCallback(async () => {
@@ -2142,20 +2417,14 @@ function App() {
       <EditorPane
         ref={editorRef}
         chapter={activeChapter}
-        interiorFormat={
-          book?.metadata.interiorFormat ?? {
-            trimSize: '6x9',
-            pageWidthIn: 6,
-            pageHeightIn: 9,
-            marginTopMm: 18,
-            marginBottomMm: 18,
-            marginInsideMm: 20,
-            marginOutsideMm: 16,
-            paragraphIndentEm: 1.4,
-            lineHeight: 1.55,
-          }
-        }
+        interiorFormat={interiorFormat}
         autosaveIntervalMs={config.autosaveIntervalMs}
+        chapterWordCount={chapterWordCount}
+        chapterEstimatedPages={activeChapterPageRange?.pages ?? 0}
+        chapterPageStart={activeChapterPageRange?.start ?? 0}
+        chapterPageEnd={activeChapterPageRange?.end ?? 0}
+        bookWordCount={bookWordCount}
+        bookEstimatedPages={bookEstimatedPages}
         onLengthPresetChange={handleChapterLengthPresetChange}
         onContentChange={handleEditorChange}
         onBlur={() => {
@@ -2188,8 +2457,13 @@ function App() {
     handleSaveCoverData,
     handleSaveSettings,
     handleSpineTextChange,
+    interiorFormat,
     mainView,
     orderedChapters,
+    chapterWordCount,
+    activeChapterPageRange,
+    bookWordCount,
+    bookEstimatedPages,
     replaceQuery,
     searchBusy,
     searchCaseSensitive,

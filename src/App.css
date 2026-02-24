@@ -530,6 +530,8 @@ select {
   display: flex;
   align-items: flex-end;
   gap: 0.55rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .editor-header h2 {
@@ -545,6 +547,15 @@ select {
   display: grid;
   gap: 0.18rem;
   min-width: 250px;
+}
+
+.editor-metrics {
+  display: grid;
+  gap: 0.1rem;
+  text-align: right;
+  font-size: 0.82rem;
+  color: #45557b;
+  min-width: 220px;
 }
 
 .chapter-length-control > span {
@@ -940,11 +951,17 @@ select {
 
   .editor-header-meta {
     justify-content: space-between;
+    align-items: stretch;
   }
 
   .chapter-length-control {
     min-width: 0;
     flex: 1;
+  }
+
+  .editor-metrics {
+    min-width: 0;
+    text-align: left;
   }
 
   .preset-row {

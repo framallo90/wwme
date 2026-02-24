@@ -99,7 +99,9 @@ export function normalizeAiOutput(value: string): string {
 
 const SUMMARY_HEADING_PATTERN =
   /^\s*[*_#>\-\s]*(?:resumen(?:\s+de)?\s+cambios?|cambios(?:\s+realizados)?|summary)\s*:?\s*[*_]*\s*$/i;
-const BULLET_LINE_PATTERN = /^\s*(?:[-*•]\s+|\d+[.)]\s+)(.+?)\s*$/;
+const SUMMARY_LINE_PATTERN =
+  /^\s*[*_#>\-\s]*(resumen(?:\s+de)?\s+cambios?|cambios(?:\s+realizados)?|summary)\s*:?\s*(.*?)\s*[*_]*\s*$/i;
+const BULLET_LINE_PATTERN = /^\s*(?:[-*\u2022]\s+|\d+[.)]\s+)(.+?)\s*$/;
 
 function extractBullet(line: string): string | null {
   const match = line.match(BULLET_LINE_PATTERN);
@@ -114,6 +116,18 @@ function formatBullets(lines: string[]): string[] {
   return lines
     .map((line) => extractBullet(line))
     .filter((line): line is string => Boolean(line));
+}
+
+function parseSummaryLine(line: string): { isSummary: boolean; inlineText: string } {
+  const match = line.match(SUMMARY_LINE_PATTERN);
+  if (!match) {
+    return { isSummary: false, inlineText: '' };
+  }
+
+  return {
+    isSummary: true,
+    inlineText: match[2]?.trim() ?? '',
+  };
 }
 
 export interface ParsedAiOutput {
@@ -131,12 +145,16 @@ export function splitAiOutputAndSummary(value: string): ParsedAiOutput {
   const lines = normalized.replace(/\r\n/g, '\n').split('\n');
 
   for (let index = lines.length - 1; index >= 0; index -= 1) {
-    if (!SUMMARY_HEADING_PATTERN.test(lines[index])) {
+    const summaryLine = parseSummaryLine(lines[index]);
+    if (!summaryLine.isSummary) {
       continue;
     }
 
     const before = lines.slice(0, index).join('\n').trim();
-    const afterLines = lines.slice(index + 1).filter((line) => line.trim().length > 0);
+    const afterLines = [
+      ...(summaryLine.inlineText ? [summaryLine.inlineText] : []),
+      ...lines.slice(index + 1).filter((line) => line.trim().length > 0),
+    ];
     const bullets = formatBullets(afterLines);
 
     if (bullets.length > 0 && before) {
@@ -153,6 +171,14 @@ export function splitAiOutputAndSummary(value: string): ParsedAiOutput {
         cleanText: before,
         summaryBullets: [],
         summaryText,
+      };
+    }
+
+    if (!summaryText && before && SUMMARY_HEADING_PATTERN.test(lines[index])) {
+      return {
+        cleanText: before,
+        summaryBullets: [],
+        summaryText: '',
       };
     }
   }
@@ -200,3 +226,4 @@ export function splitAiOutputAndSummary(value: string): ParsedAiOutput {
 
   return { cleanText: normalized, summaryBullets: [], summaryText: '' };
 }
+
