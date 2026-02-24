@@ -11,6 +11,7 @@ import {
   Database,
   ShoppingCart,
 } from 'lucide-react';
+import logoImage from '../assets/wwme-logo.png';
 
 interface SidebarProps {
   hasBook: boolean;
@@ -64,8 +65,13 @@ function Sidebar(props: SidebarProps) {
   return (
     <aside className="left-sidebar">
       <header className="sidebar-header">
-        <h1>WriteWMe</h1>
-        <p>{props.hasBook ? props.bookTitle : 'Sin libro abierto'}</p>
+        <div className="sidebar-brand">
+          <img src={logoImage} alt="WriteWMe" className="brand-logo" />
+          <div className="brand-text">
+            <h1>WriteWMe</h1>
+            <p>{props.hasBook ? props.bookTitle : 'Sin libro abierto'}</p>
+          </div>
+        </div>
       </header>
 
       <section className="library-section">
