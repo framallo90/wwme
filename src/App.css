@@ -413,6 +413,12 @@ select {
   gap: 0.5rem;
 }
 
+.editor-header-meta {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.55rem;
+}
+
 .editor-header h2 {
   margin: 0;
 }
@@ -420,6 +426,17 @@ select {
 .editor-header p {
   margin: 0.2rem 0 0;
   color: #5e6881;
+}
+
+.chapter-length-control {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 250px;
+}
+
+.chapter-length-control > span {
+  font-size: 0.8rem;
+  color: #4d5e85;
 }
 
 .tiptap-wrapper {
@@ -711,6 +728,20 @@ select {
   .quick-actions,
   .feedback-section {
     max-height: none;
+  }
+
+  .editor-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .editor-header-meta {
+    justify-content: space-between;
+  }
+
+  .chapter-length-control {
+    min-width: 0;
+    flex: 1;
   }
 
   .preset-row {

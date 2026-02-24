@@ -96,3 +96,107 @@ export function normalizeAiOutput(value: string): string {
     .replace(/```$/g, '')
     .trim();
 }
+
+const SUMMARY_HEADING_PATTERN =
+  /^\s*[*_#>\-\s]*(?:resumen(?:\s+de)?\s+cambios?|cambios(?:\s+realizados)?|summary)\s*:?\s*[*_]*\s*$/i;
+const BULLET_LINE_PATTERN = /^\s*(?:[-*•]\s+|\d+[.)]\s+)(.+?)\s*$/;
+
+function extractBullet(line: string): string | null {
+  const match = line.match(BULLET_LINE_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  return match[1].trim().replace(/^[*_]+|[*_]+$/g, '');
+}
+
+function formatBullets(lines: string[]): string[] {
+  return lines
+    .map((line) => extractBullet(line))
+    .filter((line): line is string => Boolean(line));
+}
+
+export interface ParsedAiOutput {
+  cleanText: string;
+  summaryBullets: string[];
+  summaryText: string;
+}
+
+export function splitAiOutputAndSummary(value: string): ParsedAiOutput {
+  const normalized = normalizeAiOutput(value);
+  if (!normalized) {
+    return { cleanText: '', summaryBullets: [], summaryText: '' };
+  }
+
+  const lines = normalized.replace(/\r\n/g, '\n').split('\n');
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (!SUMMARY_HEADING_PATTERN.test(lines[index])) {
+      continue;
+    }
+
+    const before = lines.slice(0, index).join('\n').trim();
+    const afterLines = lines.slice(index + 1).filter((line) => line.trim().length > 0);
+    const bullets = formatBullets(afterLines);
+
+    if (bullets.length > 0 && before) {
+      return {
+        cleanText: before,
+        summaryBullets: bullets,
+        summaryText: bullets.map((bullet) => `- ${bullet}`).join('\n'),
+      };
+    }
+
+    const summaryText = afterLines.join('\n').trim();
+    if (summaryText && before) {
+      return {
+        cleanText: before,
+        summaryBullets: [],
+        summaryText,
+      };
+    }
+  }
+
+  let endIndex = lines.length - 1;
+  while (endIndex >= 0 && lines[endIndex].trim() === '') {
+    endIndex -= 1;
+  }
+
+  if (endIndex < 0) {
+    return { cleanText: normalized, summaryBullets: [], summaryText: '' };
+  }
+
+  const trailing: string[] = [];
+  let cursor = endIndex;
+  while (cursor >= 0) {
+    const current = lines[cursor];
+    if (!current.trim()) {
+      if (trailing.length > 0) {
+        break;
+      }
+      cursor -= 1;
+      continue;
+    }
+
+    if (!extractBullet(current)) {
+      break;
+    }
+
+    trailing.push(current);
+    cursor -= 1;
+  }
+
+  const bullets = formatBullets(trailing.reverse());
+  if (bullets.length >= 4 && cursor >= 0) {
+    const cleanText = lines.slice(0, cursor + 1).join('\n').trim();
+    if (cleanText) {
+      return {
+        cleanText,
+        summaryBullets: bullets,
+        summaryText: bullets.map((bullet) => `- ${bullet}`).join('\n'),
+      };
+    }
+  }
+
+  return { cleanText: normalized, summaryBullets: [], summaryText: '' };
+}

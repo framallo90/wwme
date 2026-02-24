@@ -1,13 +1,15 @@
 import { forwardRef } from 'react';
 import type { JSONContent } from '@tiptap/core';
 
-import type { ChapterDocument, InteriorFormat } from '../types/book';
+import { CHAPTER_LENGTH_OPTIONS, formatChapterLengthLabel, resolveChapterLengthPreset } from '../lib/chapterLength';
+import type { ChapterDocument, ChapterLengthPreset, InteriorFormat } from '../types/book';
 import TiptapEditor, { type TiptapEditorHandle } from './TiptapEditor';
 
 interface EditorPaneProps {
   chapter: ChapterDocument | null;
   interiorFormat: InteriorFormat;
   autosaveIntervalMs: number;
+  onLengthPresetChange: (preset: ChapterLengthPreset) => void;
   onContentChange: (payload: { html: string; json: JSONContent }) => void;
   onBlur: () => void;
 }
@@ -29,7 +31,22 @@ const EditorPane = forwardRef<TiptapEditorHandle, EditorPaneProps>((props, ref) 
           <h2>{props.chapter.title}</h2>
           <p>ID {props.chapter.id}</p>
         </div>
-        <span>Auto-guardado {Math.round(props.autosaveIntervalMs / 1000)}s</span>
+        <div className="editor-header-meta">
+          <span>Auto-guardado {Math.round(props.autosaveIntervalMs / 1000)}s</span>
+          <label className="chapter-length-control" title="Define el largo objetivo de este capitulo para las acciones de IA.">
+            <span>Extension objetivo</span>
+            <select
+              value={resolveChapterLengthPreset(props.chapter.lengthPreset)}
+              onChange={(event) => props.onLengthPresetChange(event.target.value as ChapterLengthPreset)}
+            >
+              {CHAPTER_LENGTH_OPTIONS.map((option) => (
+                <option key={option.preset} value={option.preset}>
+                  {formatChapterLengthLabel(option.preset)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </header>
 
       <TiptapEditor

@@ -12,6 +12,7 @@ import OutlineView from './components/OutlineView';
 import SettingsPanel from './components/SettingsPanel';
 import Sidebar from './components/Sidebar';
 import type { TiptapEditorHandle } from './components/TiptapEditor';
+import { formatChapterLengthLabel, resolveChapterLengthPreset } from './lib/chapterLength';
 import { DEFAULT_APP_CONFIG } from './lib/config';
 import {
   exportBookAmazonBundle,
@@ -54,8 +55,16 @@ import {
   upsertBookInLibrary,
   updateBookChats,
 } from './lib/storage';
-import { getNowIso, normalizeAiOutput, plainTextToHtml, randomId, stripHtml } from './lib/text';
-import type { AppConfig, BookProject, ChatMessage, ChatScope, LibraryIndex, MainView } from './types/book';
+import { getNowIso, normalizeAiOutput, plainTextToHtml, randomId, splitAiOutputAndSummary, stripHtml } from './lib/text';
+import type {
+  AppConfig,
+  BookProject,
+  ChapterLengthPreset,
+  ChatMessage,
+  ChatScope,
+  LibraryIndex,
+  MainView,
+} from './types/book';
 
 import './App.css';
 
@@ -84,6 +93,19 @@ function parseContinuousAgentOutput(raw: string): { status: 'DONE' | 'CONTINUE';
   const text = textMatch?.[1]?.trim() || normalized;
 
   return { status, summary, text };
+}
+
+function buildSummaryMessage(summaryText: string, title?: string): string {
+  const trimmed = summaryText.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  if (!title) {
+    return `Resumen de cambios:\n${trimmed}`;
+  }
+
+  return `${title}\n${trimmed}`;
 }
 
 function formatUnknownError(error: unknown): string {
@@ -495,6 +517,71 @@ function App() {
     [book, activeChapterId],
   );
 
+  const handleChapterLengthPresetChange = useCallback(
+    async (preset: ChapterLengthPreset) => {
+      if (!book || !activeChapterId) {
+        return;
+      }
+
+      const nextPreset = resolveChapterLengthPreset(preset);
+      const currentChapter = book.chapters[activeChapterId];
+      if (!currentChapter) {
+        return;
+      }
+
+      const chapterDraft = {
+        ...currentChapter,
+        lengthPreset: nextPreset,
+        updatedAt: getNowIso(),
+      };
+
+      setBook((previous) => {
+        if (!previous || previous.path !== book.path) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          chapters: {
+            ...previous.chapters,
+            [activeChapterId]: chapterDraft,
+          },
+        };
+      });
+
+      try {
+        const persistedChapter = await saveChapter(book.path, chapterDraft);
+        const nextProject: BookProject = {
+          ...book,
+          chapters: {
+            ...book.chapters,
+            [activeChapterId]: persistedChapter,
+          },
+        };
+
+        setBook((previous) => {
+          if (!previous || previous.path !== book.path) {
+            return previous;
+          }
+
+          return {
+            ...previous,
+            chapters: {
+              ...previous.chapters,
+              [activeChapterId]: persistedChapter,
+            },
+          };
+        });
+
+        await syncBookToLibrary(nextProject);
+        setStatus(`Extension del capitulo: ${formatChapterLengthLabel(nextPreset)}.`);
+      } catch (error) {
+        setStatus(`No se pudo guardar extension de capitulo: ${formatUnknownError(error)}`);
+      }
+    },
+    [book, activeChapterId, syncBookToLibrary],
+  );
+
   const handleSaveSettings = useCallback(async () => {
     if (!book) {
       setStatus('Abri un libro para guardar config en mi-libro/config.json.');
@@ -895,6 +982,7 @@ function App() {
             bookTitle: book.metadata.title,
             foundation: book.metadata.foundation,
             chapterTitle: activeChapter?.title,
+            chapterLengthPreset: activeChapter?.lengthPreset,
             chapterText,
             fullBookText: buildBookContext(book),
             compactHistory,
@@ -934,7 +1022,7 @@ function App() {
             throw new Error('No se encontro el capitulo activo.');
           }
 
-          let lastResponse = '';
+          let lastSummaryMessage = '';
 
           if (config.continuousAgentEnabled) {
             const maxRounds = Math.max(1, Math.min(12, config.continuousAgentMaxRounds));
@@ -950,6 +1038,7 @@ function App() {
                 bookTitle: book.metadata.title,
                 foundation: book.metadata.foundation,
                 chapterTitle: chapter.title,
+                chapterLengthPreset: chapter.lengthPreset,
                 chapterText: stripHtml(chapter.content),
                 fullBookText: buildBookContext(book, workingChapters),
                 round,
@@ -964,12 +1053,14 @@ function App() {
                 }),
               );
               const parsed = parseContinuousAgentOutput(rawResponse);
-              lastResponse = parsed.text;
+              const parsedOutput = splitAiOutputAndSummary(parsed.text);
+              const nextChapterText = parsedOutput.cleanText || parsed.text;
               previousSummary = parsed.summary;
+              lastSummaryMessage = parsedOutput.summaryText || parsed.summary || lastSummaryMessage;
 
               const chapterDraft = {
                 ...chapter,
-                content: plainTextToHtml(parsed.text),
+                content: plainTextToHtml(nextChapterText),
                 contentJson: null,
                 updatedAt: getNowIso(),
               };
@@ -996,6 +1087,7 @@ function App() {
                 bookTitle: book.metadata.title,
                 foundation: book.metadata.foundation,
                 chapterTitle: chapter.title,
+                chapterLengthPreset: chapter.lengthPreset,
                 chapterText: stripHtml(chapter.content),
                 fullBookText: buildBookContext(book, workingChapters),
                 chapterIndex: book.metadata.chapterOrder.indexOf(chapter.id) + 1,
@@ -1004,16 +1096,19 @@ function App() {
                 totalIterations: iterations,
               });
 
-              lastResponse = normalizeAiOutput(
+              const response = normalizeAiOutput(
                 await generateWithOllama({
                   config,
                   prompt,
                 }),
               );
+              const parsedOutput = splitAiOutputAndSummary(response);
+              const nextChapterText = parsedOutput.cleanText || response;
+              lastSummaryMessage = parsedOutput.summaryText || lastSummaryMessage;
 
               const chapterDraft = {
                 ...chapter,
-                content: plainTextToHtml(lastResponse),
+                content: plainTextToHtml(nextChapterText),
                 contentJson: null,
                 updatedAt: getNowIso(),
               };
@@ -1048,7 +1143,9 @@ function App() {
             id: randomId('msg'),
             role: 'assistant',
             scope,
-            content: lastResponse,
+            content:
+              buildSummaryMessage(lastSummaryMessage) ||
+              `Cambios aplicados automaticamente en "${chapter.title}".`,
             createdAt: getNowIso(),
           };
 
@@ -1062,6 +1159,7 @@ function App() {
         }
 
         let workingChapters: BookProject['chapters'] = { ...book.chapters };
+        let extractedSummaries = 0;
 
         for (let iteration = 1; iteration <= iterations; iteration += 1) {
           for (let index = 0; index < book.metadata.chapterOrder.length; index += 1) {
@@ -1084,6 +1182,7 @@ function App() {
               bookTitle: book.metadata.title,
               foundation: book.metadata.foundation,
               chapterTitle: chapter.title,
+              chapterLengthPreset: chapter.lengthPreset,
               chapterText: stripHtml(chapter.content),
               fullBookText: buildBookContext(book, workingChapters),
               chapterIndex: index + 1,
@@ -1098,10 +1197,15 @@ function App() {
                 prompt,
               }),
             );
+            const parsedOutput = splitAiOutputAndSummary(response);
+            const nextChapterText = parsedOutput.cleanText || response;
+            if (parsedOutput.summaryText) {
+              extractedSummaries += 1;
+            }
 
             const chapterDraft = {
               ...chapter,
-              content: plainTextToHtml(response),
+              content: plainTextToHtml(nextChapterText),
               contentJson: null,
               updatedAt: getNowIso(),
             };
@@ -1138,7 +1242,7 @@ function App() {
           id: randomId('msg'),
           role: 'assistant',
           scope,
-          content: `Cambios aplicados automaticamente en todo el libro (${book.metadata.chapterOrder.length} capitulos, ${iterations} iteracion/es).`,
+          content: `Cambios aplicados automaticamente en todo el libro (${book.metadata.chapterOrder.length} capitulos, ${iterations} iteracion/es).${extractedSummaries > 0 ? ` Resumenes detectados: ${extractedSummaries}.` : ''}`,
           createdAt: getNowIso(),
         };
 
@@ -1178,6 +1282,7 @@ function App() {
         chapterTitle: activeChapter.title,
         bookTitle: book.metadata.title,
         foundation: book.metadata.foundation,
+        chapterLengthPreset: activeChapter.lengthPreset,
         chapterContext: stripHtml(activeChapter.content),
         fullBookContext: buildBookContext(book),
       });
@@ -1197,12 +1302,14 @@ function App() {
             prompt,
           }),
         );
+        const parsedOutput = splitAiOutputAndSummary(response);
+        const outputText = parsedOutput.cleanText || response;
 
         if (action?.modifiesText) {
           if (hasSelection) {
-            editor.replaceSelectionWithText(response);
+            editor.replaceSelectionWithText(outputText);
           } else {
-            editor.replaceDocumentWithText(response);
+            editor.replaceDocumentWithText(outputText);
           }
 
           const nextHtml = editor.getHTML();
@@ -1237,9 +1344,21 @@ function App() {
             },
           });
 
+          if (parsedOutput.summaryText) {
+            const currentChapterMessages = book.metadata.chats.chapters[activeChapter.id] ?? [];
+            const summaryMessage: ChatMessage = {
+              id: randomId('msg'),
+              role: 'assistant',
+              scope: 'chapter',
+              content: buildSummaryMessage(parsedOutput.summaryText, `Resumen de cambios (${action?.label ?? actionId}):`),
+              createdAt: getNowIso(),
+            };
+            await persistScopeMessages('chapter', [...currentChapterMessages, summaryMessage]);
+          }
+
           setStatus(`Accion aplicada: ${action?.label ?? actionId}`);
         } else {
-          setFeedback(response);
+          setFeedback(outputText);
           setStatus(`Devolucion lista: ${action?.label ?? actionId}`);
         }
       } catch (error) {
@@ -1248,7 +1367,7 @@ function App() {
         setAiBusy(false);
       }
     },
-    [book, activeChapter, config, syncBookToLibrary],
+    [book, activeChapter, config, persistScopeMessages, syncBookToLibrary],
   );
 
   const handleUndo = useCallback(async () => {
@@ -1696,6 +1815,7 @@ function App() {
           }
         }
         autosaveIntervalMs={config.autosaveIntervalMs}
+        onLengthPresetChange={handleChapterLengthPresetChange}
         onContentChange={handleEditorChange}
         onBlur={() => {
           void flushChapterSave();
@@ -1711,6 +1831,7 @@ function App() {
     flushChapterSave,
     handleClearBackCover,
     handleClearCover,
+    handleChapterLengthPresetChange,
     handleEditorChange,
     handleAmazonMetadataChange,
     handleExportAmazonBundle,

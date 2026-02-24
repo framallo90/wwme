@@ -9,6 +9,7 @@ import {
 } from '@tauri-apps/plugin-fs';
 import { appDataDir } from '@tauri-apps/api/path';
 
+import { resolveChapterLengthPreset } from './chapterLength';
 import { DEFAULT_APP_CONFIG } from './config';
 import { getNowIso, joinPath, normalizePath, randomId, safeFileName, slugify } from './text';
 import type {
@@ -291,6 +292,7 @@ function ensureChapterDocument(chapter: ChapterDocument): ChapterDocument {
   return {
     ...chapter,
     contentJson: chapter.contentJson ?? null,
+    lengthPreset: resolveChapterLengthPreset(chapter.lengthPreset),
   };
 }
 
@@ -328,6 +330,7 @@ function buildDefaultChapterDocument(chapterId: string, index: number, now: stri
     title: chapterDisplayTitle(chapterId, index),
     content: '<p>Escribe aqui...</p>',
     contentJson: null,
+    lengthPreset: 'media',
     createdAt: now,
     updatedAt: now,
   };
@@ -745,6 +748,7 @@ export async function createChapter(
     title,
     content: '<p></p>',
     contentJson: null,
+    lengthPreset: 'media',
     createdAt: now,
     updatedAt: now,
   };

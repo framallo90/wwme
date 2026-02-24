@@ -4,6 +4,7 @@ export type ChatScope = 'chapter' | 'book';
 export type BookStatus = 'recien_creado' | 'avanzado' | 'publicado';
 
 export type ChatRole = 'user' | 'assistant';
+export type ChapterLengthPreset = 'corta' | 'media' | 'larga';
 
 export interface ChatMessage {
   id: string;
@@ -18,6 +19,7 @@ export interface ChapterDocument {
   title: string;
   content: string;
   contentJson?: unknown | null;
+  lengthPreset: ChapterLengthPreset;
   createdAt: string;
   updatedAt: string;
 }

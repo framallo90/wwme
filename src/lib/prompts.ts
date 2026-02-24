@@ -1,4 +1,5 @@
-import type { AiAction, AiActionId, BookFoundation } from '../types/book';
+import { getChapterLengthInstruction } from './chapterLength';
+import type { AiAction, AiActionId, BookFoundation, ChapterLengthPreset } from '../types/book';
 
 export const DEFAULT_SYSTEM_PROMPT = `Sos un editor literario experto. Tu tono debe ser intimo, sobrio y reflexivo. No uses estilo de autoayuda ni new age.
 No pidas confirmaciones ni hagas preguntas: aplica los cambios directamente.
@@ -120,6 +121,7 @@ interface BuildActionPromptInput {
   chapterTitle: string;
   bookTitle: string;
   foundation: BookFoundation;
+  chapterLengthPreset?: ChapterLengthPreset;
   chapterContext?: string;
   fullBookContext?: string;
 }
@@ -128,6 +130,7 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
   const instruction = ACTION_INSTRUCTIONS[input.actionId];
   const target = input.selectedText.trim();
   const foundationBlock = buildFoundationBlock(input.foundation);
+  const chapterLengthInstruction = getChapterLengthInstruction(input.chapterLengthPreset);
 
   if (input.actionId === 'feedback-book') {
     return [
@@ -145,6 +148,7 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
       `Libro: ${input.bookTitle}`,
       `Capitulo: ${input.chapterTitle}`,
       foundationBlock,
+      chapterLengthInstruction,
       `Accion: ${instruction}`,
       '',
       'Contenido del capitulo:',
@@ -157,6 +161,7 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
       `Libro: ${input.bookTitle}`,
       `Capitulo: ${input.chapterTitle}`,
       foundationBlock,
+      chapterLengthInstruction,
       `Accion: ${instruction}`,
       '',
       'Texto actual del capitulo (si existe):',
@@ -170,6 +175,7 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
     `Libro: ${input.bookTitle}`,
     `Capitulo: ${input.chapterTitle}`,
     foundationBlock,
+    chapterLengthInstruction,
     `Accion: ${instruction}`,
     '',
     'Texto objetivo:',
@@ -183,6 +189,7 @@ interface BuildChatPromptInput {
   bookTitle: string;
   foundation: BookFoundation;
   chapterTitle?: string;
+  chapterLengthPreset?: ChapterLengthPreset;
   chapterText: string;
   fullBookText: string;
   compactHistory: string;
@@ -193,6 +200,7 @@ interface BuildAutoRewritePromptInput {
   bookTitle: string;
   foundation: BookFoundation;
   chapterTitle: string;
+  chapterLengthPreset?: ChapterLengthPreset;
   chapterText: string;
   fullBookText: string;
   chapterIndex: number;
@@ -206,6 +214,7 @@ interface BuildContinuousChapterPromptInput {
   bookTitle: string;
   foundation: BookFoundation;
   chapterTitle: string;
+  chapterLengthPreset?: ChapterLengthPreset;
   chapterText: string;
   fullBookText: string;
   round: number;
@@ -214,10 +223,14 @@ interface BuildContinuousChapterPromptInput {
 }
 
 export function buildChatPrompt(input: BuildChatPromptInput): string {
+  const chapterLengthInstruction =
+    input.scope === 'chapter' ? getChapterLengthInstruction(input.chapterLengthPreset) : null;
+
   return [
     `Libro: ${input.bookTitle}`,
     buildFoundationBlock(input.foundation),
     input.chapterTitle ? `Capitulo activo: ${input.chapterTitle}` : 'Sin capitulo activo',
+    ...(chapterLengthInstruction ? [chapterLengthInstruction] : []),
     '',
     input.scope === 'book' ? 'Contexto global del libro:' : 'Contexto del capitulo:',
     input.scope === 'book' ? input.fullBookText : input.chapterText,
@@ -236,6 +249,7 @@ export function buildAutoRewritePrompt(input: BuildAutoRewritePromptInput): stri
     `Libro: ${input.bookTitle}`,
     buildFoundationBlock(input.foundation),
     `Capitulo: ${input.chapterTitle} (${input.chapterIndex}/${input.chapterTotal})`,
+    getChapterLengthInstruction(input.chapterLengthPreset),
     `Iteracion: ${input.iteration}/${input.totalIterations}`,
     '',
     'Instruccion del usuario:',
@@ -260,6 +274,7 @@ export function buildContinuousChapterPrompt(input: BuildContinuousChapterPrompt
     `Libro: ${input.bookTitle}`,
     buildFoundationBlock(input.foundation),
     `Capitulo: ${input.chapterTitle}`,
+    getChapterLengthInstruction(input.chapterLengthPreset),
     `Ronda: ${input.round}/${input.maxRounds}`,
     '',
     'Instruccion del usuario:',
