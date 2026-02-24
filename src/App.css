@@ -234,6 +234,16 @@ select {
   gap: 0.25rem;
 }
 
+.library-item[role='button'] {
+  cursor: pointer;
+}
+
+.library-item[role='button']:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-color: rgba(34, 211, 238, 0.9);
+}
+
 .library-item.is-active {
   border-color: rgba(34, 211, 238, 0.8);
   background: linear-gradient(180deg, rgba(34, 211, 238, 0.15), rgba(255, 255, 255, 0.9));
@@ -943,5 +953,15 @@ select {
     right: 10px;
     bottom: 10px;
     transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
   }
 }

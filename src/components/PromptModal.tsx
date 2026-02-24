@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import './PromptModal.css';
 
 interface PromptModalProps {
@@ -13,6 +13,15 @@ interface PromptModalProps {
 function PromptModal(props: PromptModalProps) {
   const { isOpen, title, label, defaultValue, onConfirm, onClose } = props;
   const [value, setValue] = useState(defaultValue ?? '');
+  const titleId = useId();
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    closeButtonRef.current?.focus();
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -49,10 +58,16 @@ function PromptModal(props: PromptModalProps) {
 
   return (
     <div className="prompt-modal-overlay" onClick={onClose}>
-      <div className="prompt-modal-content" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="prompt-modal-content"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="prompt-modal-head">
-          <h2>{title}</h2>
-          <button className="prompt-modal-close" onClick={onClose} aria-label="Cerrar">
+          <h2 id={titleId}>{title}</h2>
+          <button ref={closeButtonRef} type="button" className="prompt-modal-close" onClick={onClose} aria-label="Cerrar">
             X
           </button>
         </div>
@@ -67,8 +82,8 @@ function PromptModal(props: PromptModalProps) {
           />
         </label>
         <div className="prompt-modal-actions">
-          <button onClick={onClose}>Cancelar</button>
-          <button onClick={handleConfirm} disabled={!value.trim()}>
+          <button type="button" onClick={onClose}>Cancelar</button>
+          <button type="button" onClick={handleConfirm} disabled={!value.trim()}>
             Aceptar
           </button>
         </div>

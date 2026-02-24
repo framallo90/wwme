@@ -14,7 +14,9 @@ function AppShell(props: AppShellProps) {
       {props.focusMode ? null : props.sidebar}
       <section className="center-stage">{props.center}</section>
       {props.focusMode ? null : props.right}
-      <footer className="status-bar">{props.status}</footer>
+      <footer className="status-bar" role="status" aria-live="polite">
+        {props.status}
+      </footer>
     </main>
   );
 }

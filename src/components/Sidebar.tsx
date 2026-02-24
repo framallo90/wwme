@@ -1,4 +1,4 @@
-import type { MouseEvent } from 'react';
+import type { KeyboardEvent, MouseEvent } from 'react';
 import type { ChapterDocument, LibraryBookEntry, MainView } from '../types/book';
 import {
   BookPlus,
@@ -68,6 +68,13 @@ function Sidebar(props: SidebarProps) {
     event.stopPropagation();
   };
 
+  const handleLibraryItemKeyDown = (event: KeyboardEvent<HTMLElement>, bookPath: string): void => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      props.onOpenLibraryBook(bookPath);
+    }
+  };
+
   return (
     <aside className="left-sidebar">
       <header className="sidebar-header">
@@ -83,7 +90,12 @@ function Sidebar(props: SidebarProps) {
       <section className="library-section">
         <div className="section-title-row">
           <h2>Biblioteca</h2>
-          <button type="button" onClick={props.onToggleLibrary} title="Expandir o contraer la lista de libros.">
+          <button
+            type="button"
+            onClick={props.onToggleLibrary}
+            title="Expandir o contraer la lista de libros."
+            aria-label={props.libraryExpanded ? 'Contraer biblioteca' : 'Expandir biblioteca'}
+          >
             {props.libraryExpanded ? '-' : '+'}
           </button>
         </div>
@@ -95,6 +107,10 @@ function Sidebar(props: SidebarProps) {
                 key={entry.id}
                 className={`library-item ${props.activeBookPath === entry.path ? 'is-active' : ''}`}
                 onClick={() => props.onOpenLibraryBook(entry.path)}
+                onKeyDown={(event) => handleLibraryItemKeyDown(event, entry.path)}
+                role="button"
+                tabIndex={0}
+                aria-label={`Abrir libro ${entry.title}`}
               >
                 <div className="library-head">
                   <h3>{entry.title}</h3>
@@ -162,6 +178,7 @@ function Sidebar(props: SidebarProps) {
             onClick={props.onCreateChapter}
             disabled={!props.hasBook}
             title="Crea un nuevo capitulo en el libro."
+            aria-label="Crear nuevo capitulo"
           >
             +
           </button>
@@ -184,19 +201,44 @@ function Sidebar(props: SidebarProps) {
                 <span className="chapter-title">{chapter.title}</span>
               </button>
               <div className="chapter-controls">
-                <button type="button" onClick={() => props.onMoveChapter(chapter.id, 'up')} title="Sube el capitulo una posicion.">
+                <button
+                  type="button"
+                  onClick={() => props.onMoveChapter(chapter.id, 'up')}
+                  title="Sube el capitulo una posicion."
+                  aria-label={`Subir ${chapter.title}`}
+                >
                   ^
                 </button>
-                <button type="button" onClick={() => props.onMoveChapter(chapter.id, 'down')} title="Baja el capitulo una posicion.">
+                <button
+                  type="button"
+                  onClick={() => props.onMoveChapter(chapter.id, 'down')}
+                  title="Baja el capitulo una posicion."
+                  aria-label={`Bajar ${chapter.title}`}
+                >
                   v
                 </button>
-                <button type="button" onClick={() => props.onRenameChapter(chapter.id)} title="Renombra el capitulo.">
+                <button
+                  type="button"
+                  onClick={() => props.onRenameChapter(chapter.id)}
+                  title="Renombra el capitulo."
+                  aria-label={`Renombrar ${chapter.title}`}
+                >
                   R
                 </button>
-                <button type="button" onClick={() => props.onDuplicateChapter(chapter.id)} title="Duplica el capitulo seleccionado.">
+                <button
+                  type="button"
+                  onClick={() => props.onDuplicateChapter(chapter.id)}
+                  title="Duplica el capitulo seleccionado."
+                  aria-label={`Duplicar ${chapter.title}`}
+                >
                   D
                 </button>
-                <button type="button" onClick={() => props.onDeleteChapter(chapter.id)} title="Elimina el capitulo seleccionado.">
+                <button
+                  type="button"
+                  onClick={() => props.onDeleteChapter(chapter.id)}
+                  title="Elimina el capitulo seleccionado."
+                  aria-label={`Eliminar ${chapter.title}`}
+                >
                   X
                 </button>
               </div>

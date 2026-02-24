@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import './HelpPanel.css';
 
 interface HelpPanelProps {
@@ -12,6 +12,15 @@ interface HelpPanelProps {
 
 function HelpPanel(props: HelpPanelProps) {
   const { isOpen, focusMode, onClose, onCreateBook, onOpenBook, onToggleFocusMode } = props;
+  const titleId = useId();
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    closeButtonRef.current?.focus();
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -46,10 +55,16 @@ function HelpPanel(props: HelpPanelProps) {
 
   return (
     <div className="help-overlay" onClick={onClose}>
-      <section className="help-panel" onClick={(event) => event.stopPropagation()}>
+      <section
+        className="help-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
+      >
         <header className="help-header">
-          <h2>Ayuda rapida WriteWMe</h2>
-          <button type="button" onClick={onClose} aria-label="Cerrar ayuda">
+          <h2 id={titleId}>Ayuda rapida WriteWMe</h2>
+          <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="Cerrar ayuda">
             X
           </button>
         </header>
