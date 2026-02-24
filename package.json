@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "verify:a11y-contrast": "powershell -ExecutionPolicy Bypass -File ./scripts/a11y_contrast_audit.ps1",
     "verify:local": "powershell -ExecutionPolicy Bypass -File ./scripts/verify_local.ps1",
     "preview": "vite preview",
     "tauri": "tauri"

@@ -337,6 +337,23 @@ $checks = @(
     }
   },
   @{
+    id = "app.a11y-contrast"
+    category = "app"
+    name = "A11y contrast (WCAG)"
+    run = {
+      $scriptPath = Join-Path $projectRoot "scripts\a11y_contrast_audit.ps1"
+      if (-not (Test-Path -LiteralPath $scriptPath)) {
+        return @{ status = "FAIL"; summary = "No se encontro scripts/a11y_contrast_audit.ps1."; details = $scriptPath }
+      }
+
+      $result = Invoke-ExternalCommand -FileName "powershell" -Arguments @("-ExecutionPolicy", "Bypass", "-File", $scriptPath, "-Quiet") -WorkingDirectory $projectRoot
+      if ($result.ExitCode -eq 0) {
+        return @{ status = "PASS"; summary = "Contraste WCAG OK."; details = "Sin violaciones detectadas." }
+      }
+      return @{ status = "FAIL"; summary = "Contraste WCAG con fallos."; details = ($result.StdErr + "`n" + $result.StdOut).Trim() }
+    }
+  },
+  @{
     id = "app.build"
     category = "app"
     name = "Frontend build"

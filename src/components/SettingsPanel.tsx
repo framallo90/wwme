@@ -106,6 +106,24 @@ function SettingsPanel(props: SettingsPanelProps) {
         Agente continuo por chat (capitulo)
       </label>
 
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={config.accessibilityHighContrast}
+          onChange={(event) => props.onChange({ ...config, accessibilityHighContrast: event.target.checked })}
+        />
+        Alto contraste visual
+      </label>
+
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={config.accessibilityLargeText}
+          onChange={(event) => props.onChange({ ...config, accessibilityLargeText: event.target.checked })}
+        />
+        Texto grande en interfaz
+      </label>
+
       <label>
         Rondas maximas del agente continuo
         <input

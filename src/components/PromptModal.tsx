@@ -14,6 +14,7 @@ function PromptModal(props: PromptModalProps) {
   const { isOpen, title, label, defaultValue, onConfirm, onClose } = props;
   const [value, setValue] = useState(defaultValue ?? '');
   const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
@@ -56,13 +57,52 @@ function PromptModal(props: PromptModalProps) {
     }
   };
 
+  const handleDialogKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab') {
+      return;
+    }
+
+    const container = dialogRef.current;
+    if (!container) {
+      return;
+    }
+
+    const focusables = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    );
+
+    if (focusables.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+
+    if (event.shiftKey && active === first) {
+      event.preventDefault();
+      last.focus();
+      return;
+    }
+
+    if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   return (
     <div className="prompt-modal-overlay" onClick={onClose}>
       <div
+        ref={dialogRef}
         className="prompt-modal-content"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        onKeyDown={handleDialogKeyDown}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="prompt-modal-head">

@@ -349,6 +349,12 @@ function App() {
     refreshSearchResults(book, searchQuery, currentSearchOptions);
   }, [book, searchQuery, currentSearchOptions, refreshSearchResults]);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    root.setAttribute('data-contrast', config.accessibilityHighContrast ? 'high' : 'normal');
+    root.setAttribute('data-text-size', config.accessibilityLargeText ? 'large' : 'normal');
+  }, [config.accessibilityHighContrast, config.accessibilityLargeText]);
+
   const flushChapterSave = useCallback(async () => {
     if (!book || !activeChapterId || !dirtyRef.current || saveInFlightRef.current) {
       return;

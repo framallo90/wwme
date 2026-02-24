@@ -45,6 +45,12 @@ Script extensible de verificacion completa:
 npm run verify:local
 ```
 
+Auditoria especifica de contraste (WCAG):
+
+```bash
+npm run verify:a11y-contrast
+```
+
 Opciones utiles (PowerShell):
 
 ```powershell

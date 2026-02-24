@@ -137,6 +137,8 @@ export interface AppConfig {
   continuousAgentMaxRounds: number;
   ollamaOptions: Record<string, number | string | boolean>;
   autosaveIntervalMs: number;
+  accessibilityHighContrast: boolean;
+  accessibilityLargeText: boolean;
 }
 
 export type AiActionId =

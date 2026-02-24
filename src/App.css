@@ -1,6 +1,7 @@
 :root {
   font-family: 'Segoe UI Variable', 'Segoe UI', 'Trebuchet MS', sans-serif;
   color: #0d1a3c;
+  --font-scale: 1;
   --wwme-navy: #12166f;
   --wwme-navy-soft: #2a337f;
   --wwme-cyan: #22d3ee;
@@ -18,6 +19,19 @@
     linear-gradient(170deg, var(--bg-top), var(--bg-bottom));
 }
 
+:root[data-text-size='large'] {
+  --font-scale: 1.08;
+}
+
+:root[data-contrast='high'] {
+  --bg-top: #f8fbff;
+  --bg-bottom: #cfe1ff;
+  --panel-bg: rgba(255, 255, 255, 0.97);
+  --panel-border: rgba(10, 35, 86, 0.55);
+  --muted-text: #1f3158;
+  --shadow-focus: 0 0 0 3px rgba(0, 110, 255, 0.45);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -28,6 +42,8 @@ body {
   min-height: 100vh;
   background: transparent;
   color: #0d1a3c;
+  font-size: calc(16px * var(--font-scale));
+  line-height: 1.45;
 }
 
 #root {
@@ -81,6 +97,19 @@ select {
   padding: 0.45rem 0.55rem;
   background: rgba(255, 255, 255, 0.94);
   color: #102048;
+}
+
+:root[data-contrast='high'] button,
+:root[data-contrast='high'] input,
+:root[data-contrast='high'] textarea,
+:root[data-contrast='high'] select {
+  border-color: rgba(8, 31, 85, 0.68);
+  color: #0a1f45;
+  background: #ffffff;
+}
+
+:root[data-contrast='high'] .muted {
+  color: #274377;
 }
 
 .app-shell {

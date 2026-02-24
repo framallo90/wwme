@@ -13,6 +13,7 @@ interface HelpPanelProps {
 function HelpPanel(props: HelpPanelProps) {
   const { isOpen, focusMode, onClose, onCreateBook, onOpenBook, onToggleFocusMode } = props;
   const titleId = useId();
+  const dialogRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
@@ -53,13 +54,52 @@ function HelpPanel(props: HelpPanelProps) {
     onOpenBook();
   };
 
+  const handleDialogKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Tab') {
+      return;
+    }
+
+    const container = dialogRef.current;
+    if (!container) {
+      return;
+    }
+
+    const focusables = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    );
+
+    if (focusables.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+
+    if (event.shiftKey && active === first) {
+      event.preventDefault();
+      last.focus();
+      return;
+    }
+
+    if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   return (
     <div className="help-overlay" onClick={onClose}>
       <section
+        ref={dialogRef}
         className="help-panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        onKeyDown={handleDialogKeyDown}
         onClick={(event) => event.stopPropagation()}
       >
         <header className="help-header">

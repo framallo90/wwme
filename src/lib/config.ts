@@ -11,6 +11,8 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   continuousAgentEnabled: true,
   continuousAgentMaxRounds: 3,
   autosaveIntervalMs: 5000,
+  accessibilityHighContrast: false,
+  accessibilityLargeText: false,
   ollamaOptions: {
     top_p: 0.9,
   },
