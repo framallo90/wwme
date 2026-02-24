@@ -10,6 +10,18 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 $script:IsWindowsHost = $env:OS -eq "Windows_NT"
 
+function Normalize-CheckList {
+  param([string[]]$Values)
+  $normalized = @()
+  foreach ($value in $Values) {
+    if ([string]::IsNullOrWhiteSpace($value)) {
+      continue
+    }
+    $normalized += $value.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+  }
+  return @($normalized)
+}
+
 function Normalize-ProjectPath {
   param([string]$InputPath)
   $resolved = Resolve-Path -LiteralPath $InputPath
@@ -183,6 +195,8 @@ function Test-BookStructure {
 }
 
 $projectRoot = Normalize-ProjectPath -InputPath $ProjectPath
+$Only = @(Normalize-CheckList -Values $Only)
+$Skip = @(Normalize-CheckList -Values $Skip)
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $reportDir = Join-Path $projectRoot "reports\verify"
 New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
@@ -368,10 +382,10 @@ $checks = @(
 $selectedChecks = @()
 foreach ($check in $checks) {
   $id = $check.id
-  if ($Only.Count -gt 0 -and -not ($Only -contains $id)) {
+  if (@($Only).Count -gt 0 -and -not (@($Only) -contains $id)) {
     continue
   }
-  if ($Skip.Count -gt 0 -and ($Skip -contains $id)) {
+  if (@($Skip).Count -gt 0 -and (@($Skip) -contains $id)) {
     continue
   }
   $selectedChecks += $check

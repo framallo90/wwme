@@ -10,6 +10,7 @@ import CoverView from './components/CoverView';
 import EditorPane from './components/EditorPane';
 import HelpPanel from './components/HelpPanel';
 import OutlineView from './components/OutlineView';
+import SearchReplacePanel from './components/SearchReplacePanel';
 import SettingsPanel from './components/SettingsPanel';
 import Sidebar from './components/Sidebar';
 import type { TiptapEditorHandle } from './components/TiptapEditor';
@@ -56,6 +57,12 @@ import {
   upsertBookInLibrary,
   updateBookChats,
 } from './lib/storage';
+import {
+  buildBookSearchMatches,
+  replaceMatchesInHtml,
+  type ChapterSearchMatch,
+  type SearchReplaceOptions,
+} from './lib/searchReplace';
 import { getNowIso, normalizeAiOutput, plainTextToHtml, randomId, splitAiOutputAndSummary, stripHtml } from './lib/text';
 import type {
   AppConfig,
@@ -218,6 +225,13 @@ function App() {
   const [libraryExpanded, setLibraryExpanded] = useState(true);
   const [focusMode, setFocusMode] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [replaceQuery, setReplaceQuery] = useState('');
+  const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
+  const [searchWholeWord, setSearchWholeWord] = useState(false);
+  const [searchBusy, setSearchBusy] = useState(false);
+  const [searchMatches, setSearchMatches] = useState<ChapterSearchMatch[]>([]);
+  const [searchTotalMatches, setSearchTotalMatches] = useState(0);
   const [promptModal, setPromptModal] = useState<{
     title: string;
     label: string;
@@ -259,6 +273,14 @@ function App() {
     return book.metadata.chats.chapters[activeChapterId] ?? [];
   }, [book, chatScope, activeChapterId]);
 
+  const currentSearchOptions = useMemo<SearchReplaceOptions>(
+    () => ({
+      caseSensitive: searchCaseSensitive,
+      wholeWord: searchWholeWord,
+    }),
+    [searchCaseSensitive, searchWholeWord],
+  );
+
   const refreshCovers = useCallback((project: BookProject | null) => {
     if (!project) {
       setCoverSrc(null);
@@ -290,6 +312,24 @@ function App() {
     setFocusMode((previous) => !previous);
   }, []);
 
+  const refreshSearchResults = useCallback(
+    (nextBook: BookProject | null, query: string, options: SearchReplaceOptions) => {
+      if (!nextBook || !query.trim()) {
+        setSearchMatches([]);
+        setSearchTotalMatches(0);
+        return;
+      }
+
+      const ordered = nextBook.metadata.chapterOrder
+        .map((chapterId) => nextBook.chapters[chapterId])
+        .filter((chapter): chapter is NonNullable<typeof chapter> => Boolean(chapter));
+      const report = buildBookSearchMatches(ordered, query, options);
+      setSearchMatches(report.matches);
+      setSearchTotalMatches(report.totalMatches);
+    },
+    [],
+  );
+
   useEffect(() => {
     void refreshLibrary();
   }, [refreshLibrary]);
@@ -304,6 +344,10 @@ function App() {
       setActiveChapterId(book.metadata.chapterOrder[0] ?? null);
     }
   }, [book, activeChapterId]);
+
+  useEffect(() => {
+    refreshSearchResults(book, searchQuery, currentSearchOptions);
+  }, [book, searchQuery, currentSearchOptions, refreshSearchResults]);
 
   const flushChapterSave = useCallback(async () => {
     if (!book || !activeChapterId || !dirtyRef.current || saveInFlightRef.current) {
@@ -502,6 +546,8 @@ function App() {
     setFocusMode(false);
     setFeedback('');
     setChatScope('chapter');
+    setSearchMatches([]);
+    setSearchTotalMatches(0);
     refreshCovers(null);
     dirtyRef.current = false;
     setStatus('Libro cerrado.');
@@ -936,6 +982,173 @@ function App() {
     [book, syncBookToLibrary],
   );
 
+  const handleRunBookSearch = useCallback(() => {
+    if (!book) {
+      return;
+    }
+
+    const query = searchQuery.trim();
+    if (!query) {
+      setSearchMatches([]);
+      setSearchTotalMatches(0);
+      setStatus('Buscar: escribe texto para iniciar la busqueda.');
+      return;
+    }
+
+    setSearchBusy(true);
+    try {
+      const report = buildBookSearchMatches(orderedChapters, query, currentSearchOptions);
+      setSearchMatches(report.matches);
+      setSearchTotalMatches(report.totalMatches);
+      setStatus(`Busqueda completada: ${report.totalMatches} coincidencia/s en ${report.matches.length} capitulo/s.`);
+    } finally {
+      setSearchBusy(false);
+    }
+  }, [book, searchQuery, orderedChapters, currentSearchOptions]);
+
+  const handleReplaceInActiveChapter = useCallback(async () => {
+    if (!book || !activeChapterId) {
+      return;
+    }
+
+    const chapter = book.chapters[activeChapterId];
+    if (!chapter) {
+      return;
+    }
+
+    const query = searchQuery.trim();
+    if (!query) {
+      setStatus('Reemplazar: define primero el texto a buscar.');
+      return;
+    }
+
+    setSearchBusy(true);
+    try {
+      if (config.autoVersioning) {
+        await saveChapterSnapshot(book.path, chapter, 'Buscar/Reemplazar capitulo activo');
+      }
+
+      const updated = replaceMatchesInHtml(chapter.content, query, replaceQuery, currentSearchOptions);
+      if (updated.replacements === 0) {
+        setStatus('No hubo coincidencias en el capitulo activo.');
+        return;
+      }
+
+      const chapterDraft = {
+        ...chapter,
+        content: updated.html,
+        contentJson: null,
+        updatedAt: getNowIso(),
+      };
+      const persisted = await saveChapter(book.path, chapterDraft);
+      const nextProject: BookProject = {
+        ...book,
+        chapters: {
+          ...book.chapters,
+          [chapter.id]: persisted,
+        },
+      };
+
+      setBook(nextProject);
+      await syncBookToLibrary(nextProject);
+      dirtyRef.current = false;
+
+      refreshSearchResults(nextProject, query, currentSearchOptions);
+      setStatus(`Reemplazo aplicado en capitulo activo: ${updated.replacements} cambio/s.`);
+    } catch (error) {
+      setStatus(`Reemplazar capitulo: ${formatUnknownError(error)}`);
+    } finally {
+      setSearchBusy(false);
+    }
+  }, [
+    book,
+    activeChapterId,
+    searchQuery,
+    replaceQuery,
+    currentSearchOptions,
+    config.autoVersioning,
+    syncBookToLibrary,
+    refreshSearchResults,
+  ]);
+
+  const handleReplaceInBook = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    const query = searchQuery.trim();
+    if (!query) {
+      setStatus('Reemplazar libro: define primero el texto a buscar.');
+      return;
+    }
+
+    setSearchBusy(true);
+    try {
+      let totalReplacements = 0;
+      let changedChapters = 0;
+      let workingChapters: BookProject['chapters'] = { ...book.chapters };
+
+      for (const chapterId of book.metadata.chapterOrder) {
+        const chapter = workingChapters[chapterId];
+        if (!chapter) {
+          continue;
+        }
+
+        const updated = replaceMatchesInHtml(chapter.content, query, replaceQuery, currentSearchOptions);
+        if (updated.replacements === 0) {
+          continue;
+        }
+
+        if (config.autoVersioning) {
+          await saveChapterSnapshot(book.path, chapter, 'Buscar/Reemplazar libro completo');
+        }
+
+        const persisted = await saveChapter(book.path, {
+          ...chapter,
+          content: updated.html,
+          contentJson: null,
+          updatedAt: getNowIso(),
+        });
+
+        workingChapters = {
+          ...workingChapters,
+          [chapterId]: persisted,
+        };
+
+        changedChapters += 1;
+        totalReplacements += updated.replacements;
+      }
+
+      if (totalReplacements === 0) {
+        setStatus('No hubo coincidencias para reemplazar en el libro.');
+        return;
+      }
+
+      const nextProject: BookProject = {
+        ...book,
+        chapters: workingChapters,
+      };
+      setBook(nextProject);
+      await syncBookToLibrary(nextProject);
+      dirtyRef.current = false;
+
+      refreshSearchResults(nextProject, query, currentSearchOptions);
+      setStatus(`Reemplazo global aplicado: ${totalReplacements} cambio/s en ${changedChapters} capitulo/s.`);
+    } catch (error) {
+      setStatus(`Reemplazar libro: ${formatUnknownError(error)}`);
+    } finally {
+      setSearchBusy(false);
+    }
+  }, [
+    book,
+    searchQuery,
+    replaceQuery,
+    currentSearchOptions,
+    config.autoVersioning,
+    refreshSearchResults,
+    syncBookToLibrary,
+  ]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
@@ -951,6 +1164,14 @@ function App() {
       if (ctrlOrMeta && shift && key === 'f') {
         event.preventDefault();
         setFocusMode((previous) => !previous);
+        return;
+      }
+
+      if (ctrlOrMeta && !shift && key === 'f') {
+        event.preventDefault();
+        if (book) {
+          setMainView('search');
+        }
         return;
       }
 
@@ -991,7 +1212,7 @@ function App() {
     return () => {
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [activeChapterId, flushChapterSave, handleCreateChapter, handleMoveChapter, promptModal]);
+  }, [activeChapterId, book, flushChapterSave, handleCreateChapter, handleMoveChapter, promptModal]);
 
   const persistScopeMessages = useCallback(
     async (scope: ChatScope, messages: ChatMessage[]) => {
@@ -1875,6 +2096,38 @@ function App() {
       );
     }
 
+    if (mainView === 'search') {
+      return (
+        <SearchReplacePanel
+          hasBook={Boolean(book)}
+          bookTitle={book?.metadata.title ?? ''}
+          query={searchQuery}
+          replacement={replaceQuery}
+          caseSensitive={searchCaseSensitive}
+          wholeWord={searchWholeWord}
+          activeChapterId={activeChapterId}
+          results={searchMatches}
+          totalMatches={searchTotalMatches}
+          busy={searchBusy}
+          onQueryChange={setSearchQuery}
+          onReplacementChange={setReplaceQuery}
+          onCaseSensitiveChange={setSearchCaseSensitive}
+          onWholeWordChange={setSearchWholeWord}
+          onRunSearch={handleRunBookSearch}
+          onReplaceInChapter={() => {
+            void handleReplaceInActiveChapter();
+          }}
+          onReplaceInBook={() => {
+            void handleReplaceInBook();
+          }}
+          onSelectChapter={(chapterId) => {
+            setActiveChapterId(chapterId);
+            setMainView('editor');
+          }}
+        />
+      );
+    }
+
     if (mainView === 'settings') {
       return <SettingsPanel config={config} bookPath={book?.path ?? null} onChange={setConfig} onSave={handleSaveSettings} />;
     }
@@ -1905,6 +2158,7 @@ function App() {
       />
     );
   }, [
+    activeChapterId,
     activeChapter,
     book,
     config,
@@ -1918,6 +2172,9 @@ function App() {
     handleAmazonMetadataChange,
     handleExportAmazonBundle,
     handleSaveAmazon,
+    handleReplaceInBook,
+    handleReplaceInActiveChapter,
+    handleRunBookSearch,
     handlePickBackCover,
     handleFoundationChange,
     handleSaveFoundation,
@@ -1927,6 +2184,13 @@ function App() {
     handleSpineTextChange,
     mainView,
     orderedChapters,
+    replaceQuery,
+    searchBusy,
+    searchCaseSensitive,
+    searchMatches,
+    searchQuery,
+    searchTotalMatches,
+    searchWholeWord,
   ]);
 
   return (
@@ -1966,6 +2230,7 @@ function App() {
             onShowCover={() => setMainView('cover')}
             onShowFoundation={() => setMainView('foundation')}
             onShowAmazon={() => setMainView('amazon')}
+            onShowSearch={() => setMainView('search')}
             onShowSettings={() => setMainView('settings')}
             onExportChapter={handleExportChapter}
             onExportBookSingle={handleExportBookSingle}

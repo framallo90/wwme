@@ -4,6 +4,7 @@ import {
   BookPlus,
   FolderOpen,
   BookX,
+  Search,
   Settings,
   FileText,
   ListTree,
@@ -42,6 +43,7 @@ interface SidebarProps {
   onShowCover: () => void;
   onShowFoundation: () => void;
   onShowAmazon: () => void;
+  onShowSearch: () => void;
   onShowSettings: () => void;
   onExportChapter: () => void;
   onExportBookSingle: () => void;
@@ -60,6 +62,10 @@ function Sidebar(props: SidebarProps) {
     event.preventDefault();
     event.stopPropagation();
     action();
+  };
+
+  const stopLibraryTogglePropagation = (event: MouseEvent<HTMLElement>): void => {
+    event.stopPropagation();
   };
 
   return (
@@ -96,7 +102,7 @@ function Sidebar(props: SidebarProps) {
                 </div>
                 <p>{entry.author}</p>
                 <p>{`${entry.chapterCount} caps - ${entry.wordCount} palabras`}</p>
-                <div className="library-actions">
+                <div className="library-actions library-actions-compact">
                   <button
                     type="button"
                     title="Abrir este libro en el editor."
@@ -104,36 +110,43 @@ function Sidebar(props: SidebarProps) {
                   >
                     Abrir
                   </button>
-                  <button
-                    type="button"
-                    title="Abrir chat del libro completo."
-                    onClick={(event) => runLibraryAction(event, () => props.onOpenLibraryBookChat(entry.path))}
-                  >
-                    Chat
-                  </button>
-                  <button
-                    type="button"
-                    title="Abrir la seccion Amazon de este libro."
-                    onClick={(event) => runLibraryAction(event, () => props.onOpenLibraryBookAmazon(entry.path))}
-                  >
-                    Amazon
-                  </button>
-                  <button
-                    type="button"
-                    title="Eliminar este libro de la biblioteca y del disco."
-                    onClick={(event) => runLibraryAction(event, () => props.onDeleteLibraryBook(entry.path))}
-                  >
-                    Eliminar
-                  </button>
-                  <button
-                    type="button"
-                    title="Cambiar estado entre publicado y no publicado."
-                    onClick={(event) =>
-                      runLibraryAction(event, () => props.onSetBookPublished(entry.path, entry.status !== 'publicado'))
-                    }
-                  >
-                    {entry.status === 'publicado' ? 'Despublicar' : 'Publicar'}
-                  </button>
+                  <details className="library-options-menu" onClick={stopLibraryTogglePropagation}>
+                    <summary onClick={stopLibraryTogglePropagation} title="Ver acciones avanzadas de este libro.">
+                      Opciones
+                    </summary>
+                    <div className="library-options-dropdown">
+                      <button
+                        type="button"
+                        title="Abrir chat del libro completo."
+                        onClick={(event) => runLibraryAction(event, () => props.onOpenLibraryBookChat(entry.path))}
+                      >
+                        Chat
+                      </button>
+                      <button
+                        type="button"
+                        title="Abrir la seccion Amazon de este libro."
+                        onClick={(event) => runLibraryAction(event, () => props.onOpenLibraryBookAmazon(entry.path))}
+                      >
+                        Amazon
+                      </button>
+                      <button
+                        type="button"
+                        title="Cambiar estado entre publicado y no publicado."
+                        onClick={(event) =>
+                          runLibraryAction(event, () => props.onSetBookPublished(entry.path, entry.status !== 'publicado'))
+                        }
+                      >
+                        {entry.status === 'publicado' ? 'Despublicar' : 'Publicar'}
+                      </button>
+                      <button
+                        type="button"
+                        title="Eliminar este libro de la biblioteca y del disco."
+                        onClick={(event) => runLibraryAction(event, () => props.onDeleteLibraryBook(entry.path))}
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  </details>
                 </div>
               </article>
             ))}
@@ -255,6 +268,16 @@ function Sidebar(props: SidebarProps) {
             >
               <ListTree size={16} />
               <span>Vista general</span>
+            </button>
+            <button
+              className={`icon-button ${props.currentView === 'search' ? 'is-active' : ''}`}
+              type="button"
+              onClick={props.onShowSearch}
+              disabled={!props.hasBook}
+              title="Busqueda global y reemplazo en capitulo o libro completo."
+            >
+              <Search size={16} />
+              <span>Buscar</span>
             </button>
             <button
               className={`icon-button ${props.currentView === 'cover' ? 'is-active' : ''}`}

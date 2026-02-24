@@ -78,6 +78,7 @@ function HelpPanel(props: HelpPanelProps) {
           <article>
             <h3>Atajos</h3>
             <ul>
+              <li>`Ctrl + F`: abrir busqueda global del libro.</li>
               <li>`Ctrl + Shift + H`: abrir/cerrar esta ayuda.</li>
               <li>`Ctrl + Shift + F`: activar/desactivar modo foco.</li>
               <li>`Ctrl + S`: guardado manual inmediato.</li>
