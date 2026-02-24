@@ -353,7 +353,12 @@ $checks = @(
     category = "tauri"
     name = "Cargo metadata"
     run = {
-      $result = Invoke-ExternalCommand -FileName "cargo" -Arguments @("metadata", "--no-deps", "--format-version", "1") -WorkingDirectory $projectRoot
+      $manifestPath = Join-Path $projectRoot "src-tauri\Cargo.toml"
+      if (-not (Test-Path -LiteralPath $manifestPath)) {
+        return @{ status = "FAIL"; summary = "No se encontro src-tauri/Cargo.toml."; details = $manifestPath }
+      }
+
+      $result = Invoke-ExternalCommand -FileName "cargo" -Arguments @("metadata", "--no-deps", "--format-version", "1", "--manifest-path", $manifestPath) -WorkingDirectory $projectRoot
       if ($result.ExitCode -eq 0) {
         return @{ status = "PASS"; summary = "Cargo metadata OK."; details = "workspace resolvible" }
       }
