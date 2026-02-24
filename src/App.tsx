@@ -8,6 +8,7 @@ import AmazonPanel from './components/AmazonPanel';
 import BookFoundationPanel from './components/BookFoundationPanel';
 import CoverView from './components/CoverView';
 import EditorPane from './components/EditorPane';
+import HelpPanel from './components/HelpPanel';
 import OutlineView from './components/OutlineView';
 import SettingsPanel from './components/SettingsPanel';
 import Sidebar from './components/Sidebar';
@@ -175,6 +176,23 @@ function extractDialogPath(value: unknown): string | null {
   return null;
 }
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tagName = target.tagName.toLowerCase();
+  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+    return true;
+  }
+
+  if (target.isContentEditable) {
+    return true;
+  }
+
+  return Boolean(target.closest('[contenteditable="true"]'));
+}
+
 function App() {
   const editorRef = useRef<TiptapEditorHandle | null>(null);
   const dirtyRef = useRef(false);
@@ -198,6 +216,8 @@ function App() {
     updatedAt: getNowIso(),
   });
   const [libraryExpanded, setLibraryExpanded] = useState(true);
+  const [focusMode, setFocusMode] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [promptModal, setPromptModal] = useState<{
     title: string;
     label: string;
@@ -265,6 +285,10 @@ function App() {
     },
     [],
   );
+
+  const toggleFocusMode = useCallback(() => {
+    setFocusMode((previous) => !previous);
+  }, []);
 
   useEffect(() => {
     void refreshLibrary();
@@ -475,6 +499,7 @@ function App() {
     setBook(null);
     setActiveChapterId(null);
     setMainView('editor');
+    setFocusMode(false);
     setFeedback('');
     setChatScope('chapter');
     refreshCovers(null);
@@ -910,6 +935,63 @@ function App() {
     },
     [book, syncBookToLibrary],
   );
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      const ctrlOrMeta = event.ctrlKey || event.metaKey;
+      const shift = event.shiftKey;
+
+      if (ctrlOrMeta && shift && key === 'h') {
+        event.preventDefault();
+        setHelpOpen((previous) => !previous);
+        return;
+      }
+
+      if (ctrlOrMeta && shift && key === 'f') {
+        event.preventDefault();
+        setFocusMode((previous) => !previous);
+        return;
+      }
+
+      if (ctrlOrMeta && key === 's') {
+        event.preventDefault();
+        void flushChapterSave();
+        setStatus('Guardado manual solicitado.');
+        return;
+      }
+
+      if (promptModal) {
+        return;
+      }
+
+      if (ctrlOrMeta && shift && key === 'n') {
+        event.preventDefault();
+        void handleCreateChapter();
+        return;
+      }
+
+      if (!activeChapterId || isEditableTarget(event.target)) {
+        return;
+      }
+
+      if (event.altKey && key === 'arrowup') {
+        event.preventDefault();
+        void handleMoveChapter(activeChapterId, 'up');
+        return;
+      }
+
+      if (event.altKey && key === 'arrowdown') {
+        event.preventDefault();
+        void handleMoveChapter(activeChapterId, 'down');
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [activeChapterId, flushChapterSave, handleCreateChapter, handleMoveChapter, promptModal]);
 
   const persistScopeMessages = useCallback(
     async (scope: ChatScope, messages: ChatMessage[]) => {
@@ -1850,6 +1932,7 @@ function App() {
   return (
     <>
       <AppShell
+        focusMode={focusMode}
         sidebar={
           <Sidebar
             hasBook={Boolean(book)}
@@ -1894,13 +1977,47 @@ function App() {
           <div className="center-stack">
             {book ? (
               <header className="active-book-banner">
-                <h2>{book.metadata.title}</h2>
-                <p>{book.path}</p>
+                <div className="active-book-banner-row">
+                  <div>
+                    <h2>{book.metadata.title}</h2>
+                    <p>{book.path}</p>
+                  </div>
+                  <div className="active-book-banner-actions">
+                    <button
+                      type="button"
+                      onClick={toggleFocusMode}
+                      className={focusMode ? 'is-active' : ''}
+                      title="Oculta o muestra paneles laterales para escribir sin distracciones."
+                    >
+                      {focusMode ? 'Salir foco' : 'Modo foco'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHelpOpen(true)}
+                      title="Abre la guia con funciones, atajos y pasos recomendados."
+                    >
+                      Ayuda
+                    </button>
+                  </div>
+                </div>
               </header>
             ) : (
               <header className="active-book-banner is-empty">
-                <h2>Sin libro abierto</h2>
-                <p>Crea o abre una carpeta de libro para empezar.</p>
+                <div className="active-book-banner-row">
+                  <div>
+                    <h2>Sin libro abierto</h2>
+                    <p>Crea o abre una carpeta de libro para empezar.</p>
+                  </div>
+                  <div className="active-book-banner-actions">
+                    <button
+                      type="button"
+                      onClick={() => setHelpOpen(true)}
+                      title="Abre la guia con funciones, atajos y pasos recomendados."
+                    >
+                      Ayuda
+                    </button>
+                  </div>
+                </div>
               </header>
             )}
             {centerView}
@@ -1925,6 +2042,22 @@ function App() {
           />
         }
         status={book ? `Libro activo: ${book.metadata.title} | ${status}` : status}
+      />
+      <button
+        type="button"
+        className="help-fab"
+        onClick={() => setHelpOpen(true)}
+        title="Guia rapida de uso: funciones, atajos y flujo recomendado."
+      >
+        Ayuda
+      </button>
+      <HelpPanel
+        isOpen={helpOpen}
+        focusMode={focusMode}
+        onClose={() => setHelpOpen(false)}
+        onCreateBook={handleCreateBook}
+        onOpenBook={handleOpenBook}
+        onToggleFocusMode={toggleFocusMode}
       />
       {promptModal && (
         <PromptModal

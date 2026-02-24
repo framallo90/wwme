@@ -1,0 +1,83 @@
+.help-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(9, 19, 47, 0.55);
+  display: grid;
+  place-items: center;
+  z-index: 1200;
+  padding: 1rem;
+}
+
+.help-panel {
+  width: min(1080px, 100%);
+  max-height: min(92vh, 920px);
+  overflow: auto;
+  border: 1px solid rgba(30, 62, 125, 0.4);
+  border-radius: 16px;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.98), rgba(237, 247, 255, 0.98));
+  box-shadow: 0 22px 50px rgba(8, 18, 45, 0.34);
+  padding: 1rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.help-header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #102048;
+}
+
+.help-header button {
+  width: 2rem;
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: 999px;
+}
+
+.help-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.help-grid article {
+  border: 1px solid rgba(18, 45, 101, 0.2);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.75);
+  padding: 0.7rem;
+}
+
+.help-grid h3 {
+  margin: 0 0 0.45rem;
+  color: #123166;
+}
+
+.help-grid ul,
+.help-grid ol {
+  margin: 0;
+  padding-left: 1.15rem;
+  display: grid;
+  gap: 0.3rem;
+  color: #243963;
+}
+
+.help-actions {
+  display: flex;
+  gap: 0.45rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+  .help-grid {
+    grid-template-columns: 1fr;
+  }
+}

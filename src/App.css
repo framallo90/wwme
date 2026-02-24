@@ -94,6 +94,11 @@ select {
   padding: 0.85rem;
 }
 
+.app-shell.is-focus-mode {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: min(1800px, 100vw);
+}
+
 .left-sidebar,
 .center-stage,
 .ai-panel,
@@ -388,6 +393,25 @@ select {
 .active-book-banner.is-empty {
   background:
     linear-gradient(90deg, rgba(34, 211, 238, 0.66) 0, rgba(34, 211, 238, 0.55) 7px, rgba(255, 255, 255, 0.9) 8px);
+}
+
+.active-book-banner-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.active-book-banner-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.active-book-banner-actions button.is-active {
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.24), rgba(34, 211, 238, 0.1));
+  border-color: rgba(34, 211, 238, 0.88);
 }
 
 .editor-pane,
@@ -686,6 +710,18 @@ select {
   color: #26406f;
 }
 
+.help-fab {
+  position: fixed;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  z-index: 1150;
+  border-radius: 999px;
+  padding: 0.55rem 0.9rem;
+  font-weight: 600;
+  box-shadow: 0 10px 22px rgba(7, 22, 58, 0.25);
+}
+
 .icon-button {
   display: flex;
   align-items: center;
@@ -730,6 +766,15 @@ select {
     max-height: none;
   }
 
+  .active-book-banner-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .active-book-banner-actions {
+    justify-content: flex-start;
+  }
+
   .editor-header {
     flex-direction: column;
     align-items: stretch;
@@ -759,5 +804,12 @@ select {
   .cover-layout-grid {
     grid-template-columns: 1fr;
     min-height: auto;
+  }
+
+  .help-fab {
+    top: auto;
+    right: 10px;
+    bottom: 10px;
+    transform: none;
   }
 }
