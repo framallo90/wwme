@@ -8,6 +8,7 @@ import {
   Settings,
   FileText,
   ListTree,
+  BookOpenText,
   BookImage,
   Database,
   ShoppingCart,
@@ -40,6 +41,7 @@ interface SidebarProps {
   onSelectChapter: (chapterId: string) => void;
   onShowEditor: () => void;
   onShowOutline: () => void;
+  onShowPreview: () => void;
   onShowCover: () => void;
   onShowFoundation: () => void;
   onShowAmazon: () => void;
@@ -310,6 +312,16 @@ function Sidebar(props: SidebarProps) {
             >
               <ListTree size={16} />
               <span>Vista general</span>
+            </button>
+            <button
+              className={`icon-button ${props.currentView === 'preview' ? 'is-active' : ''}`}
+              type="button"
+              onClick={props.onShowPreview}
+              disabled={!props.hasBook}
+              title="Vista previa editorial del libro con formato de paginas."
+            >
+              <BookOpenText size={16} />
+              <span>Preview</span>
             </button>
             <button
               className={`icon-button ${props.currentView === 'search' ? 'is-active' : ''}`}

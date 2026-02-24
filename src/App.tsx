@@ -10,6 +10,7 @@ import CoverView from './components/CoverView';
 import EditorPane from './components/EditorPane';
 import HelpPanel from './components/HelpPanel';
 import OutlineView from './components/OutlineView';
+import PreviewView from './components/PreviewView';
 import SearchReplacePanel from './components/SearchReplacePanel';
 import SettingsPanel from './components/SettingsPanel';
 import Sidebar from './components/Sidebar';
@@ -41,6 +42,7 @@ import {
   duplicateChapter,
   getBackCoverAbsolutePath,
   getCoverAbsolutePath,
+  listChapterSnapshots,
   loadAppConfig,
   loadLibraryIndex,
   loadBookProject,
@@ -48,7 +50,6 @@ import {
   moveChapter,
   renameChapter,
   removeBookFromLibrary,
-  restoreLastSnapshot,
   saveAppConfig,
   saveBookMetadata,
   saveChapter,
@@ -309,6 +310,8 @@ function App() {
   const editorRef = useRef<TiptapEditorHandle | null>(null);
   const dirtyRef = useRef(false);
   const saveInFlightRef = useRef(false);
+  const snapshotUndoCursorRef = useRef<Record<string, number | undefined>>({});
+  const snapshotRedoStackRef = useRef<Record<string, BookProject['chapters'][string][]>>({});
 
   const [config, setConfig] = useState<AppConfig>(DEFAULT_APP_CONFIG);
   const [book, setBook] = useState<BookProject | null>(null);
@@ -337,6 +340,9 @@ function App() {
   const [searchBusy, setSearchBusy] = useState(false);
   const [searchMatches, setSearchMatches] = useState<ChapterSearchMatch[]>([]);
   const [searchTotalMatches, setSearchTotalMatches] = useState(0);
+  const [canUndoEdit, setCanUndoEdit] = useState(false);
+  const [canRedoEdit, setCanRedoEdit] = useState(false);
+  const [snapshotRedoNonce, setSnapshotRedoNonce] = useState(0);
   const [promptModal, setPromptModal] = useState<{
     title: string;
     label: string;
@@ -437,6 +443,40 @@ function App() {
 
     return Math.max(...Object.values(chapterPageMap).map((entry) => entry.end));
   }, [orderedChapters.length, chapterPageMap]);
+
+  const updateEditorHistoryState = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) {
+      setCanUndoEdit(false);
+      setCanRedoEdit(false);
+      return;
+    }
+
+    setCanUndoEdit(editor.canUndo());
+    setCanRedoEdit(editor.canRedo());
+  }, []);
+
+  const resetSnapshotNavigation = useCallback((chapterId: string | null) => {
+    if (!chapterId) {
+      return;
+    }
+
+    snapshotUndoCursorRef.current[chapterId] = undefined;
+    snapshotRedoStackRef.current[chapterId] = [];
+    setSnapshotRedoNonce((value) => value + 1);
+  }, []);
+
+  const canRedoSnapshots = useMemo(() => {
+    const refreshToken = snapshotRedoNonce;
+    void refreshToken;
+
+    if (!activeChapterId) {
+      return false;
+    }
+
+    const stack = snapshotRedoStackRef.current[activeChapterId] ?? [];
+    return stack.length > 0;
+  }, [activeChapterId, snapshotRedoNonce]);
 
   const enforceExpansionResult = useCallback(
     async (input: {
@@ -592,6 +632,16 @@ function App() {
     root.setAttribute('data-text-size', config.accessibilityLargeText ? 'large' : 'normal');
   }, [config.accessibilityHighContrast, config.accessibilityLargeText]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      updateEditorHistoryState();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [activeChapterId, activeChapter?.updatedAt, updateEditorHistoryState]);
+
   const flushChapterSave = useCallback(async () => {
     if (!book || !activeChapterId || !dirtyRef.current || saveInFlightRef.current) {
       return;
@@ -658,6 +708,11 @@ function App() {
       setFeedback('');
       refreshCovers(project);
       dirtyRef.current = false;
+      snapshotUndoCursorRef.current = {};
+      snapshotRedoStackRef.current = {};
+      setSnapshotRedoNonce((value) => value + 1);
+      setCanUndoEdit(false);
+      setCanRedoEdit(false);
     },
     [refreshCovers],
   );
@@ -792,7 +847,12 @@ function App() {
     setSearchMatches([]);
     setSearchTotalMatches(0);
     refreshCovers(null);
+    setCanUndoEdit(false);
+    setCanRedoEdit(false);
     dirtyRef.current = false;
+    snapshotUndoCursorRef.current = {};
+    snapshotRedoStackRef.current = {};
+    setSnapshotRedoNonce((value) => value + 1);
     setStatus('Libro cerrado.');
   }, [flushChapterSave, refreshCovers]);
 
@@ -803,6 +863,7 @@ function App() {
       }
 
       dirtyRef.current = true;
+      resetSnapshotNavigation(activeChapterId);
 
       setBook((previous) => {
         if (!previous || !activeChapterId) {
@@ -827,8 +888,9 @@ function App() {
           },
         };
       });
+      updateEditorHistoryState();
     },
-    [book, activeChapterId],
+    [book, activeChapterId, resetSnapshotNavigation, updateEditorHistoryState],
   );
 
   const handleChapterLengthPresetChange = useCallback(
@@ -1295,6 +1357,7 @@ function App() {
       setBook(nextProject);
       await syncBookToLibrary(nextProject);
       dirtyRef.current = false;
+      resetSnapshotNavigation(chapter.id);
 
       refreshSearchResults(nextProject, query, currentSearchOptions);
       setStatus(`Reemplazo aplicado en capitulo activo: ${updated.replacements} cambio/s.`);
@@ -1310,6 +1373,7 @@ function App() {
     replaceQuery,
     currentSearchOptions,
     config.autoVersioning,
+    resetSnapshotNavigation,
     syncBookToLibrary,
     refreshSearchResults,
   ]);
@@ -1374,6 +1438,9 @@ function App() {
       setBook(nextProject);
       await syncBookToLibrary(nextProject);
       dirtyRef.current = false;
+      for (const chapterId of book.metadata.chapterOrder) {
+        resetSnapshotNavigation(chapterId);
+      }
 
       refreshSearchResults(nextProject, query, currentSearchOptions);
       setStatus(`Reemplazo global aplicado: ${totalReplacements} cambio/s en ${changedChapters} capitulo/s.`);
@@ -1389,6 +1456,7 @@ function App() {
     currentSearchOptions,
     config.autoVersioning,
     refreshSearchResults,
+    resetSnapshotNavigation,
     syncBookToLibrary,
   ]);
 
@@ -1954,17 +2022,114 @@ function App() {
     [book, activeChapter, config, persistScopeMessages, syncBookToLibrary, enforceExpansionResult],
   );
 
-  const handleUndo = useCallback(async () => {
+  const persistEditorChapter = useCallback(
+    async (statusMessage: string) => {
+      if (!book || !activeChapterId) {
+        return;
+      }
+
+      const editor = editorRef.current;
+      if (!editor) {
+        return;
+      }
+
+      const chapter = book.chapters[activeChapterId];
+      if (!chapter) {
+        return;
+      }
+
+      const updatedChapter = {
+        ...chapter,
+        content: editor.getHTML(),
+        contentJson: editor.getJSON(),
+        updatedAt: getNowIso(),
+      };
+      const persistedChapter = await saveChapter(book.path, updatedChapter);
+
+      setBook((previous) => {
+        if (!previous || previous.path !== book.path) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          chapters: {
+            ...previous.chapters,
+            [persistedChapter.id]: persistedChapter,
+          },
+        };
+      });
+
+      await syncBookToLibrary({
+        ...book,
+        chapters: {
+          ...book.chapters,
+          [persistedChapter.id]: persistedChapter,
+        },
+      });
+      dirtyRef.current = false;
+      updateEditorHistoryState();
+      setStatus(statusMessage);
+    },
+    [book, activeChapterId, syncBookToLibrary, updateEditorHistoryState],
+  );
+
+  const handleUndoEdit = useCallback(async () => {
+    const editor = editorRef.current;
+    if (!editor || !editor.canUndo()) {
+      setStatus('No hay cambios para deshacer en el editor.');
+      return;
+    }
+
+    editor.undo();
+    await persistEditorChapter('Cambio deshecho.');
+  }, [persistEditorChapter]);
+
+  const handleRedoEdit = useCallback(async () => {
+    const editor = editorRef.current;
+    if (!editor || !editor.canRedo()) {
+      setStatus('No hay cambios para rehacer en el editor.');
+      return;
+    }
+
+    editor.redo();
+    await persistEditorChapter('Cambio rehecho.');
+  }, [persistEditorChapter]);
+
+  const handleUndoSnapshot = useCallback(async () => {
     if (!book || !activeChapter) {
       return;
     }
 
     try {
-      const restored = await restoreLastSnapshot(book.path, activeChapter.id);
-      if (!restored) {
+      const snapshots = await listChapterSnapshots(book.path, activeChapter.id);
+      if (snapshots.length === 0) {
         setStatus('No hay snapshots para restaurar.');
         return;
       }
+
+      const currentChapter = book.chapters[activeChapter.id];
+      if (!currentChapter) {
+        return;
+      }
+
+      const currentPointer = snapshotUndoCursorRef.current[activeChapter.id];
+      const targetIndex = currentPointer ?? snapshots.length - 1;
+
+      if (targetIndex < 0) {
+        setStatus('No hay snapshots anteriores para deshacer.');
+        return;
+      }
+
+      const targetSnapshot = snapshots[targetIndex];
+      const redoStack = snapshotRedoStackRef.current[activeChapter.id] ?? [];
+      snapshotRedoStackRef.current[activeChapter.id] = [...redoStack, currentChapter];
+      setSnapshotRedoNonce((value) => value + 1);
+
+      const restored = await saveChapter(book.path, {
+        ...targetSnapshot.chapter,
+        updatedAt: getNowIso(),
+      });
 
       setBook((previous) => {
         if (!previous || previous.path !== book.path) {
@@ -1979,6 +2144,7 @@ function App() {
           },
         };
       });
+
       await syncBookToLibrary({
         ...book,
         chapters: {
@@ -1987,10 +2153,64 @@ function App() {
         },
       });
 
+      snapshotUndoCursorRef.current[activeChapter.id] = targetIndex - 1;
       dirtyRef.current = false;
-      setStatus('Undo aplicado desde snapshot.');
+      setStatus(`Snapshot restaurado (v${targetSnapshot.version}).`);
     } catch (error) {
-      setStatus(`No se pudo restaurar snapshot: ${(error as Error).message}`);
+      setStatus(`No se pudo restaurar snapshot: ${formatUnknownError(error)}`);
+    }
+  }, [book, activeChapter, syncBookToLibrary]);
+
+  const handleRedoSnapshot = useCallback(async () => {
+    if (!book || !activeChapter) {
+      return;
+    }
+
+    try {
+      const stack = snapshotRedoStackRef.current[activeChapter.id] ?? [];
+      if (stack.length === 0) {
+        setStatus('No hay snapshot para rehacer.');
+        return;
+      }
+
+      const targetChapter = stack[stack.length - 1];
+      snapshotRedoStackRef.current[activeChapter.id] = stack.slice(0, -1);
+      setSnapshotRedoNonce((value) => value + 1);
+
+      const persisted = await saveChapter(book.path, {
+        ...targetChapter,
+        updatedAt: getNowIso(),
+      });
+
+      setBook((previous) => {
+        if (!previous || previous.path !== book.path) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          chapters: {
+            ...previous.chapters,
+            [persisted.id]: persisted,
+          },
+        };
+      });
+
+      await syncBookToLibrary({
+        ...book,
+        chapters: {
+          ...book.chapters,
+          [persisted.id]: persisted,
+        },
+      });
+
+      const snapshots = await listChapterSnapshots(book.path, activeChapter.id);
+      const currentPointer = snapshotUndoCursorRef.current[activeChapter.id] ?? -1;
+      snapshotUndoCursorRef.current[activeChapter.id] = Math.min(currentPointer + 1, snapshots.length - 1);
+      dirtyRef.current = false;
+      setStatus('Snapshot rehecho.');
+    } catch (error) {
+      setStatus(`No se pudo rehacer snapshot: ${formatUnknownError(error)}`);
     }
   }, [book, activeChapter, syncBookToLibrary]);
 
@@ -2272,6 +2492,11 @@ function App() {
           setChatScope('chapter');
           refreshCovers(null);
           dirtyRef.current = false;
+          snapshotUndoCursorRef.current = {};
+          snapshotRedoStackRef.current = {};
+          setSnapshotRedoNonce((value) => value + 1);
+          setCanUndoEdit(false);
+          setCanRedoEdit(false);
         }
 
         const nextIndex = await removeBookFromLibrary(bookPath, { deleteFiles: true });
@@ -2326,6 +2551,20 @@ function App() {
             setActiveChapterId(chapterId);
             setMainView('editor');
           }}
+        />
+      );
+    }
+
+    if (mainView === 'preview' && book) {
+      return (
+        <PreviewView
+          title={book.metadata.title}
+          author={book.metadata.author}
+          chapters={orderedChapters}
+          interiorFormat={interiorFormat}
+          coverSrc={coverSrc}
+          backCoverSrc={backCoverSrc}
+          chapterPageMap={chapterPageMap}
         />
       );
     }
@@ -2419,12 +2658,20 @@ function App() {
         chapter={activeChapter}
         interiorFormat={interiorFormat}
         autosaveIntervalMs={config.autosaveIntervalMs}
+        canUndoEdit={canUndoEdit}
+        canRedoEdit={canRedoEdit}
         chapterWordCount={chapterWordCount}
         chapterEstimatedPages={activeChapterPageRange?.pages ?? 0}
         chapterPageStart={activeChapterPageRange?.start ?? 0}
         chapterPageEnd={activeChapterPageRange?.end ?? 0}
         bookWordCount={bookWordCount}
         bookEstimatedPages={bookEstimatedPages}
+        onUndoEdit={() => {
+          void handleUndoEdit();
+        }}
+        onRedoEdit={() => {
+          void handleRedoEdit();
+        }}
         onLengthPresetChange={handleChapterLengthPresetChange}
         onContentChange={handleEditorChange}
         onBlur={() => {
@@ -2457,13 +2704,18 @@ function App() {
     handleSaveCoverData,
     handleSaveSettings,
     handleSpineTextChange,
+    handleUndoEdit,
+    handleRedoEdit,
     interiorFormat,
     mainView,
     orderedChapters,
+    chapterPageMap,
     chapterWordCount,
     activeChapterPageRange,
     bookWordCount,
     bookEstimatedPages,
+    canUndoEdit,
+    canRedoEdit,
     replaceQuery,
     searchBusy,
     searchCaseSensitive,
@@ -2507,6 +2759,7 @@ function App() {
             }}
             onShowEditor={() => setMainView('editor')}
             onShowOutline={() => setMainView('outline')}
+            onShowPreview={() => setMainView('preview')}
             onShowCover={() => setMainView('cover')}
             onShowFoundation={() => setMainView('foundation')}
             onShowAmazon={() => setMainView('amazon')}
@@ -2573,7 +2826,8 @@ function App() {
             actions={AI_ACTIONS}
             aiBusy={aiBusy}
             feedback={feedback}
-            canUndo={Boolean(book && activeChapter)}
+            canUndoSnapshots={Boolean(book && activeChapter)}
+            canRedoSnapshots={canRedoSnapshots}
             scope={chatScope}
             messages={currentMessages}
             autoApplyChatChanges={config.autoApplyChatChanges}
@@ -2583,7 +2837,8 @@ function App() {
             onScopeChange={setChatScope}
             onRunAction={handleRunAction}
             onSendChat={handleSendChat}
-            onUndo={handleUndo}
+            onUndoSnapshot={handleUndoSnapshot}
+            onRedoSnapshot={handleRedoSnapshot}
           />
         }
         status={book ? `Libro activo: ${book.metadata.title} | ${status}` : status}

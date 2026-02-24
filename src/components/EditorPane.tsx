@@ -10,12 +10,16 @@ interface EditorPaneProps {
   chapter: ChapterDocument | null;
   interiorFormat: InteriorFormat;
   autosaveIntervalMs: number;
+  canUndoEdit: boolean;
+  canRedoEdit: boolean;
   chapterWordCount: number;
   chapterEstimatedPages: number;
   chapterPageStart: number;
   chapterPageEnd: number;
   bookWordCount: number;
   bookEstimatedPages: number;
+  onUndoEdit: () => void;
+  onRedoEdit: () => void;
   onLengthPresetChange: (preset: ChapterLengthPreset) => void;
   onContentChange: (payload: { html: string; json: JSONContent }) => void;
   onBlur: () => void;
@@ -40,6 +44,24 @@ const EditorPane = forwardRef<TiptapEditorHandle, EditorPaneProps>((props, ref) 
         </div>
         <div className="editor-header-meta">
           <span>Auto-guardado {Math.round(props.autosaveIntervalMs / 1000)}s</span>
+          <div className="editor-history-actions">
+            <button
+              type="button"
+              onClick={props.onUndoEdit}
+              disabled={!props.canUndoEdit}
+              title="Deshace el ultimo cambio de texto (Ctrl+Z)."
+            >
+              Deshacer
+            </button>
+            <button
+              type="button"
+              onClick={props.onRedoEdit}
+              disabled={!props.canRedoEdit}
+              title="Rehace el cambio deshecho (Ctrl+Y)."
+            >
+              Rehacer
+            </button>
+          </div>
           <div className="editor-metrics" title="Conteo y paginacion estimada segun formato interior.">
             <span>Capitulo: {formatNumber(props.chapterWordCount)} palabras</span>
             <span>

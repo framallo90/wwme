@@ -15,6 +15,10 @@ export interface TiptapEditorHandle {
   replaceDocumentWithText: (value: string) => void;
   getHTML: () => string;
   getJSON: () => JSONContent | null;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+  undo: () => void;
+  redo: () => void;
   focus: () => void;
 }
 
@@ -108,6 +112,24 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
       },
       getHTML: () => editor?.getHTML() ?? '',
       getJSON: () => editor?.getJSON() ?? null,
+      canUndo: () => {
+        if (!editor) {
+          return false;
+        }
+        return editor.can().undo();
+      },
+      canRedo: () => {
+        if (!editor) {
+          return false;
+        }
+        return editor.can().redo();
+      },
+      undo: () => {
+        editor?.chain().focus().undo().run();
+      },
+      redo: () => {
+        editor?.chain().focus().redo().run();
+      },
       focus: () => {
         editor?.chain().focus().run();
       },

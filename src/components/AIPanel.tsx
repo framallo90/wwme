@@ -6,7 +6,8 @@ interface AIPanelProps {
   actions: AiAction[];
   aiBusy: boolean;
   feedback: string;
-  canUndo: boolean;
+  canUndoSnapshots: boolean;
+  canRedoSnapshots: boolean;
   scope: ChatScope;
   messages: ChatMessage[];
   autoApplyChatChanges: boolean;
@@ -16,7 +17,8 @@ interface AIPanelProps {
   onScopeChange: (scope: ChatScope) => void;
   onRunAction: (actionId: AiActionId) => void;
   onSendChat: (message: string, scope: ChatScope) => void;
-  onUndo: () => void;
+  onUndoSnapshot: () => void;
+  onRedoSnapshot: () => void;
 }
 
 function AIPanel(props: AIPanelProps) {
@@ -47,11 +49,19 @@ function AIPanel(props: AIPanelProps) {
               <h3>Acciones</h3>
               <button
                 type="button"
-                onClick={props.onUndo}
-                disabled={!props.canUndo || props.aiBusy}
-                title="Restaura la version anterior guardada en snapshots."
+                onClick={props.onUndoSnapshot}
+                disabled={!props.canUndoSnapshots || props.aiBusy}
+                title="Restaura el estado previo guardado en snapshots."
               >
-                Undo snapshot
+                Deshacer IA
+              </button>
+              <button
+                type="button"
+                onClick={props.onRedoSnapshot}
+                disabled={!props.canRedoSnapshots || props.aiBusy}
+                title="Reaplica el ultimo estado deshecho por snapshot."
+              >
+                Rehacer IA
               </button>
             </div>
             <div className="action-grid">

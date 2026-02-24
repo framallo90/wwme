@@ -1,4 +1,4 @@
-export type MainView = 'editor' | 'outline' | 'cover' | 'foundation' | 'amazon' | 'search' | 'settings';
+export type MainView = 'editor' | 'outline' | 'preview' | 'cover' | 'foundation' | 'amazon' | 'search' | 'settings';
 
 export type ChatScope = 'chapter' | 'book';
 export type BookStatus = 'recien_creado' | 'avanzado' | 'publicado';

@@ -902,13 +902,13 @@ export async function saveChapterSnapshot(
   return snapshot;
 }
 
-export async function restoreLastSnapshot(
+export async function listChapterSnapshots(
   bookPath: string,
   chapterId: string,
-): Promise<ChapterDocument | null> {
+): Promise<ChapterSnapshot[]> {
   const versionsPath = versionsDirPath(bookPath);
   if (!(await exists(versionsPath))) {
-    return null;
+    return [];
   }
 
   const entries = await readDir(versionsPath);
@@ -918,12 +918,29 @@ export async function restoreLastSnapshot(
     .filter((fileName) => parseVersion(fileName, chapterId) > 0)
     .sort((a, b) => parseVersion(a, chapterId) - parseVersion(b, chapterId));
 
-  if (versionFileNames.length === 0) {
+  const snapshots: ChapterSnapshot[] = [];
+  for (const fileName of versionFileNames) {
+    try {
+      const snapshot = await readJson<ChapterSnapshot>(joinPath(versionsPath, fileName));
+      snapshots.push(snapshot);
+    } catch {
+      // Ignora snapshots corruptos y sigue con los demas.
+    }
+  }
+
+  return snapshots;
+}
+
+export async function restoreLastSnapshot(
+  bookPath: string,
+  chapterId: string,
+): Promise<ChapterDocument | null> {
+  const snapshots = await listChapterSnapshots(bookPath, chapterId);
+  if (snapshots.length === 0) {
     return null;
   }
 
-  const latestFileName = versionFileNames[versionFileNames.length - 1];
-  const snapshot = await readJson<ChapterSnapshot>(joinPath(versionsPath, latestFileName));
+  const snapshot = snapshots[snapshots.length - 1];
 
   const restored: ChapterDocument = ensureChapterDocument({
     ...snapshot.chapter,
