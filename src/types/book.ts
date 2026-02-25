@@ -64,6 +64,15 @@ export interface AmazonContributor {
   name: string;
 }
 
+export type AmazonRoyaltyPlan = 35 | 70;
+
+export interface AmazonMarketPricing {
+  marketplace: string;
+  currency: string;
+  ebookPrice: number | null;
+  printPrice: number | null;
+}
+
 export interface AmazonKdpData {
   presetType: AmazonPresetType;
   marketplace: string;
@@ -79,6 +88,9 @@ export interface AmazonKdpData {
   isbn: string;
   enableDRM: boolean;
   enrollKDPSelect: boolean;
+  ebookRoyaltyPlan: AmazonRoyaltyPlan;
+  printCostEstimate: number;
+  marketPricing: AmazonMarketPricing[];
   keywords: string[];
   categories: string[];
   backCoverText: string;

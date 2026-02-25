@@ -6,8 +6,16 @@ import {
   categoriesAsLines,
   generateAmazonCopy,
   keywordsAsLines,
+  sanitizeKdpDescriptionHtml,
 } from '../lib/amazon';
+import { KDP_CATEGORY_CATALOG } from '../data/kdpCategories';
 import { buildInteriorCss } from '../lib/export';
+import {
+  estimateEbookRoyalty,
+  estimatePrintRoyalty,
+  getAmazonFieldCounters,
+  validateAmazonMetadata,
+} from '../lib/amazonValidation';
 import type { AmazonPresetType, BookMetadata, ChapterDocument } from '../types/book';
 
 interface AmazonPanelProps {
@@ -52,6 +60,21 @@ function AmazonPanel(props: AmazonPanelProps) {
     () => amazon.contributors.map((contributor) => `${contributor.role}: ${contributor.name}`).join('\n'),
     [amazon.contributors],
   );
+  const sanitizedLongDescription = useMemo(
+    () => sanitizeKdpDescriptionHtml(amazon.longDescription),
+    [amazon.longDescription],
+  );
+  const validation = useMemo(() => validateAmazonMetadata(props.metadata), [props.metadata]);
+  const counters = useMemo(() => getAmazonFieldCounters(props.metadata), [props.metadata]);
+
+  const parseNullableNumber = (value: string): number | null => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const parsed = Number.parseFloat(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
 
   const updateAmazon = (patch: Partial<BookMetadata['amazon']>) => {
     props.onChangeMetadata({
@@ -83,6 +106,33 @@ function AmazonPanel(props: AmazonPanelProps) {
     const next = [...amazon.categories];
     next[index] = value;
     updateAmazon({ categories: next });
+  };
+
+  const updateMarketPricing = (index: number, patch: Partial<BookMetadata['amazon']['marketPricing'][number]>) => {
+    const next = [...amazon.marketPricing];
+    const row = next[index];
+    if (!row) {
+      return;
+    }
+    next[index] = {
+      ...row,
+      ...patch,
+    };
+    updateAmazon({ marketPricing: next });
+  };
+
+  const addMarketPricing = () => {
+    updateAmazon({
+      marketPricing: [
+        ...amazon.marketPricing,
+        { marketplace: 'Amazon.', currency: 'USD', ebookPrice: null, printPrice: null },
+      ],
+    });
+  };
+
+  const removeMarketPricing = (index: number) => {
+    const next = amazon.marketPricing.filter((_, rowIndex) => rowIndex !== index);
+    updateAmazon({ marketPricing: next.length > 0 ? next : amazon.marketPricing });
   };
 
   const parseContributors = (raw: string) => {
@@ -144,9 +194,10 @@ function AmazonPanel(props: AmazonPanelProps) {
   };
 
   const kdpChecklist = [
-    '1) KDP > Kindle eBook Details: pegar Titulo, Subtitulo, Descripcion, Keywords y Categorias.',
-    '2) KDP > Content: subir manuscrito (MD/HTML convertido) y portada final.',
-    '3) KDP > Pricing: definir territorios, precio y publicar.',
+    '1) KDP > Kindle eBook Details: pegar Titulo, Subtitulo, Descripcion, Keywords, Categorias y Colaboradores.',
+    '2) KDP > Derechos y edad: confirmar derechos de publicacion y contenido +18.',
+    '3) KDP > Content: subir manuscrito (MD/HTML convertido) y portada final.',
+    '4) KDP > Pricing: definir plan de regalias, precios por marketplace, DRM y KDP Select.',
   ].join('\n');
 
   return (
@@ -155,6 +206,31 @@ function AmazonPanel(props: AmazonPanelProps) {
         <h2>Amazon KDP</h2>
         <p>Preset listo para copiar y pegar en la carga del libro.</p>
       </header>
+
+      <section className="amazon-validation-banner">
+        <p>
+          Readiness KDP: <strong>{validation.readinessScore}/100</strong> | Errores: {validation.errors.length} |
+          Warnings: {validation.warnings.length}
+        </p>
+        <p className={validation.isValid ? 'amazon-ok' : 'amazon-not-ready'}>
+          {validation.isValid ? 'Estado: listo para publicar' : 'Estado: faltan ajustes antes de publicar'}
+        </p>
+      </section>
+
+      {validation.issues.length > 0 ? (
+        <section className="amazon-section">
+          <div className="section-title-row">
+            <h3>Alertas de validacion</h3>
+          </div>
+          <ul className="amazon-validation-list">
+            {validation.issues.map((issue) => (
+              <li key={`${issue.level}-${issue.field}-${issue.message}`} className={`issue-${issue.level}`}>
+                <strong>{issue.level === 'error' ? 'Error' : 'Warning'}</strong> [{issue.field}] {issue.message}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <div className="amazon-toolbar">
         <label>
@@ -202,11 +278,17 @@ function AmazonPanel(props: AmazonPanelProps) {
         <label>
           Titulo KDP
           <input value={amazon.kdpTitle} onChange={(event) => updateAmazon({ kdpTitle: event.target.value })} />
+          <small className={counters.title.current > counters.title.max ? 'field-limit is-over' : 'field-limit'}>
+            {counters.title.current}/{counters.title.max}
+          </small>
         </label>
 
         <label>
           Subtitulo
           <input value={amazon.subtitle} onChange={(event) => updateAmazon({ subtitle: event.target.value })} />
+          <small className={counters.subtitle.current > counters.subtitle.max ? 'field-limit is-over' : 'field-limit'}>
+            {counters.subtitle.current}/{counters.subtitle.max}
+          </small>
         </label>
 
         <label>
@@ -300,6 +382,9 @@ function AmazonPanel(props: AmazonPanelProps) {
             Copiar
           </button>
         </div>
+        <p className={counters.shortDescription.current > counters.shortDescription.max ? 'field-limit is-over' : 'field-limit'}>
+          {counters.shortDescription.current}/{counters.shortDescription.max}
+        </p>
         <textarea
           rows={4}
           value={amazon.backCoverText}
@@ -314,6 +399,9 @@ function AmazonPanel(props: AmazonPanelProps) {
             Copiar
           </button>
         </div>
+        <p className={counters.longDescription.current > counters.longDescription.max ? 'field-limit is-over' : 'field-limit'}>
+          {counters.longDescription.current}/{counters.longDescription.max}
+        </p>
         <textarea
           rows={10}
           value={amazon.longDescription}
@@ -323,11 +411,21 @@ function AmazonPanel(props: AmazonPanelProps) {
 
       <section className="amazon-section">
         <div className="section-title-row">
+          <h3>Vista previa descripcion (HTML permitido KDP)</h3>
+        </div>
+        <div className="amazon-description-preview" dangerouslySetInnerHTML={{ __html: sanitizedLongDescription }} />
+      </section>
+
+      <section className="amazon-section">
+        <div className="section-title-row">
           <h3>Keywords (7)</h3>
           <button type="button" onClick={() => handleCopy('Keywords', keywordsAsLines(amazon))} title="Copia keywords separadas por linea.">
             Copiar lineas
           </button>
         </div>
+        <p className="field-limit">
+          Keywords completadas: {amazon.keywords.filter((keyword) => keyword.trim().length > 0).length}/7
+        </p>
         <div className="amazon-lines">
           {amazon.keywords.map((keyword, index) => (
             <input
@@ -347,6 +445,7 @@ function AmazonPanel(props: AmazonPanelProps) {
             Copiar lineas
           </button>
         </div>
+        <p className="field-limit">Catalogo local disponible: {KDP_CATEGORY_CATALOG.length} categorias</p>
         <div className="amazon-lines">
           {amazon.categories.map((category, index) => (
             <input
@@ -354,7 +453,111 @@ function AmazonPanel(props: AmazonPanelProps) {
               value={category}
               onChange={(event) => updateCategory(index, event.target.value)}
               placeholder={`Categoria ${index + 1}`}
+              list="kdp-category-catalog"
+              className={
+                category.trim() && !KDP_CATEGORY_CATALOG.some((entry) => entry.toLowerCase() === category.trim().toLowerCase())
+                  ? 'input-warning'
+                  : ''
+              }
             />
+          ))}
+        </div>
+        <datalist id="kdp-category-catalog">
+          {KDP_CATEGORY_CATALOG.map((category) => (
+            <option key={category} value={category} />
+          ))}
+        </datalist>
+      </section>
+
+      <section className="amazon-section">
+        <div className="section-title-row">
+          <h3>Pricing y regalias</h3>
+          <button type="button" onClick={addMarketPricing} title="Agregar marketplace para pricing.">
+            + Marketplace
+          </button>
+        </div>
+        <div className="amazon-grid">
+          <label>
+            Plan regalia eBook
+            <select
+              value={amazon.ebookRoyaltyPlan}
+              onChange={(event) =>
+                updateAmazon({ ebookRoyaltyPlan: Number.parseInt(event.target.value, 10) as 35 | 70 })
+              }
+            >
+              <option value={70}>70%</option>
+              <option value={35}>35%</option>
+            </select>
+          </label>
+          <label>
+            Costo estimado impresion
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={amazon.printCostEstimate}
+              onChange={(event) =>
+                updateAmazon({
+                  printCostEstimate: Number.parseFloat(event.target.value || '0'),
+                })
+              }
+            />
+          </label>
+        </div>
+
+        <div className="amazon-pricing-table">
+          <div className="amazon-pricing-head">
+            <span>Marketplace</span>
+            <span>Moneda</span>
+            <span>eBook</span>
+            <span>Regalia eBook</span>
+            <span>Print</span>
+            <span>Regalia print</span>
+            <span />
+          </div>
+          {amazon.marketPricing.map((row, index) => (
+            <div key={`${row.marketplace}-${row.currency}-${index}`} className="amazon-pricing-row">
+              <input
+                value={row.marketplace}
+                onChange={(event) => updateMarketPricing(index, { marketplace: event.target.value })}
+                placeholder="Amazon.com"
+              />
+              <input
+                value={row.currency}
+                onChange={(event) => updateMarketPricing(index, { currency: event.target.value.toUpperCase() })}
+                placeholder="USD"
+              />
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={row.ebookPrice ?? ''}
+                onChange={(event) => updateMarketPricing(index, { ebookPrice: parseNullableNumber(event.target.value) })}
+                placeholder="4.99"
+              />
+              <span className="pricing-estimate">
+                {estimateEbookRoyalty(row.ebookPrice, amazon.ebookRoyaltyPlan)?.toFixed(2) ?? '-'}
+              </span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={row.printPrice ?? ''}
+                onChange={(event) => updateMarketPricing(index, { printPrice: parseNullableNumber(event.target.value) })}
+                placeholder="12.99"
+              />
+              <span className="pricing-estimate">
+                {estimatePrintRoyalty(row.printPrice, amazon.printCostEstimate)?.toFixed(2) ?? '-'}
+              </span>
+              <button
+                type="button"
+                onClick={() => removeMarketPricing(index)}
+                disabled={amazon.marketPricing.length <= 1}
+                title="Eliminar fila de pricing."
+              >
+                X
+              </button>
+            </div>
           ))}
         </div>
       </section>
@@ -366,6 +569,9 @@ function AmazonPanel(props: AmazonPanelProps) {
             Copiar
           </button>
         </div>
+        <p className={counters.authorBio.current > counters.authorBio.max ? 'field-limit is-over' : 'field-limit'}>
+          {counters.authorBio.current}/{counters.authorBio.max}
+        </p>
         <textarea rows={4} value={amazon.authorBio} onChange={(event) => updateAmazon({ authorBio: event.target.value })} />
       </section>
 

@@ -13,11 +13,20 @@ import {
 } from '../../src/lib/language';
 import {
   buildAmazonCopyPack,
+  buildAmazonMetadataCsv,
   generateAmazonCopy,
   applyAmazonPreset,
   categoriesAsLines,
   keywordsAsLines,
+  sanitizeKdpDescriptionHtml,
 } from '../../src/lib/amazon';
+import {
+  AMAZON_LIMITS,
+  estimateEbookRoyalty,
+  estimatePrintRoyalty,
+  getAmazonFieldCounters,
+  validateAmazonMetadata,
+} from '../../src/lib/amazonValidation';
 import {
   buildActionPrompt,
   buildAutoRewritePrompt,
@@ -152,6 +161,11 @@ function createMetadata(): BookMetadata {
       isbn: '',
       enableDRM: false,
       enrollKDPSelect: false,
+      ebookRoyaltyPlan: 70,
+      printCostEstimate: 3.5,
+      marketPricing: [
+        { marketplace: 'Amazon.com', currency: 'USD', ebookPrice: 4.99, printPrice: 12.99 },
+      ],
       keywords: [],
       categories: [],
       backCoverText: '',
@@ -287,6 +301,94 @@ const tests: TestCase[] = [
       assert.ok(pack.includes('Descripcion larga (KDP):'));
       assert.ok(pack.includes('DRM eBook:'));
       assert.ok(pack.includes('KDP Select:'));
+    },
+  },
+  {
+    name: 'amazon: valida metadata, sanitiza html y exporta csv',
+    run: () => {
+      const metadata = createMetadata();
+      metadata.amazon.kdpTitle = 'Mi libro';
+      metadata.amazon.penName = 'Autor Demo';
+      metadata.amazon.longDescription = '<b>Descripcion</b>\n<script>alert(1)</script><ul><li>Item</li></ul>';
+      metadata.amazon.keywords = ['uno', 'dos', 'tres', '', '', '', ''];
+      metadata.amazon.categories = ['Libros > Literatura y ficcion > Ensayos'];
+      metadata.amazon.marketPricing = [
+        { marketplace: 'Amazon.com', currency: 'USD', ebookPrice: 4.99, printPrice: 12.99 },
+      ];
+
+      const result = validateAmazonMetadata(metadata);
+      assert.ok(result.isValid);
+      assert.ok(result.readinessScore > 70);
+
+      const sanitized = sanitizeKdpDescriptionHtml(metadata.amazon.longDescription);
+      assert.ok(!sanitized.includes('<script>'));
+      assert.ok(sanitized.includes('<b>Descripcion</b>'));
+
+      const csv = buildAmazonMetadataCsv(metadata);
+      assert.ok(csv.includes('field,value'));
+      assert.ok(csv.includes('pricing_Amazon.com_USD'));
+
+      assert.equal(estimateEbookRoyalty(4.99, 70), 3.49);
+      assert.equal(estimatePrintRoyalty(12.99, 3.5), 4.29);
+
+      metadata.amazon.longDescription = 'x'.repeat(AMAZON_LIMITS.longDescriptionMax + 10);
+      const invalidResult = validateAmazonMetadata(metadata);
+      assert.ok(!invalidResult.isValid);
+    },
+  },
+  {
+    name: 'amazon: contadores y advertencias de categorias/precios',
+    run: () => {
+      const metadata = createMetadata();
+      metadata.amazon.kdpTitle = 'Titulo KDP';
+      metadata.amazon.penName = 'Autor';
+      metadata.amazon.longDescription = 'x'.repeat(260);
+      metadata.amazon.keywords = ['clave 1', 'clave 2', '', '', '', '', ''];
+      metadata.amazon.categories = ['Categoria inventada'];
+      metadata.amazon.ownCopyright = false;
+      metadata.amazon.ebookRoyaltyPlan = 70;
+      metadata.amazon.marketPricing = [
+        { marketplace: 'Amazon.com', currency: 'USD', ebookPrice: 1.99, printPrice: 12.5 },
+      ];
+
+      const counters = getAmazonFieldCounters(metadata);
+      assert.equal(counters.title.current, 10);
+      assert.equal(counters.longDescription.max, AMAZON_LIMITS.longDescriptionMax);
+
+      const result = validateAmazonMetadata(metadata);
+      assert.ok(result.isValid);
+      assert.ok(result.warnings.some((warning) => warning.field.startsWith('categories.')));
+      assert.ok(result.warnings.some((warning) => warning.field === 'ownCopyright'));
+      assert.ok(result.warnings.some((warning) => warning.field === 'marketPricing'));
+      assert.ok(result.warnings.some((warning) => warning.field === 'isbn'));
+    },
+  },
+  {
+    name: 'amazon: sanitizado html fallback y csv escapa comillas/comas',
+    run: () => {
+      assert.equal(sanitizeKdpDescriptionHtml('   '), '<p>(sin descripcion)</p>');
+      const sanitized = sanitizeKdpDescriptionHtml(
+        '<P onclick="x()">Hola</P><img src="x"><br><script>alert(1)</script>',
+      );
+      assert.ok(sanitized.includes('<p>Hola</p>'));
+      assert.ok(sanitized.includes('<br>'));
+      assert.ok(!sanitized.includes('<img'));
+      assert.ok(!sanitized.includes('<script'));
+
+      const metadata = createMetadata();
+      metadata.amazon.kdpTitle = 'Mi, "Gran" libro';
+      metadata.amazon.penName = 'Autor';
+      metadata.amazon.longDescription = 'x'.repeat(250);
+      metadata.amazon.keywords = ['uno', '', '', '', '', '', ''];
+      metadata.amazon.categories = ['Libros > Literatura y ficcion > Ensayos'];
+      metadata.amazon.kdpNotes = 'nota 1\nnota 2';
+      metadata.amazon.marketPricing = [
+        { marketplace: 'Amazon.com', currency: 'USD', ebookPrice: 4.99, printPrice: null },
+      ];
+
+      const csv = buildAmazonMetadataCsv(metadata);
+      assert.ok(csv.includes('"Mi, ""Gran"" libro"'));
+      assert.ok(csv.includes('"nota 1\nnota 2"'));
     },
   },
   {

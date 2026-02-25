@@ -71,6 +71,13 @@ export function buildDefaultAmazon(bookTitle: string, author: string): AmazonKdp
     isbn: '',
     enableDRM: false,
     enrollKDPSelect: false,
+    ebookRoyaltyPlan: 70,
+    printCostEstimate: 3.5,
+    marketPricing: [
+      { marketplace: 'Amazon.com', currency: 'USD', ebookPrice: 4.99, printPrice: 12.99 },
+      { marketplace: 'Amazon.es', currency: 'EUR', ebookPrice: 4.99, printPrice: 12.99 },
+      { marketplace: 'Amazon.com.mx', currency: 'MXN', ebookPrice: 89, printPrice: 249 },
+    ],
     keywords: ['', '', '', '', '', '', ''],
     categories: [
       'Libros > Literatura y ficcion > Ensayos',
@@ -125,6 +132,59 @@ function ensureAmazonContributors(values: unknown): AmazonKdpData['contributors'
   return normalized;
 }
 
+function parseNullableNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const parsed = Number.parseFloat(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function ensureAmazonMarketPricing(values: unknown, defaults: AmazonKdpData['marketPricing']): AmazonKdpData['marketPricing'] {
+  if (!Array.isArray(values)) {
+    return defaults;
+  }
+
+  const normalized = values
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
+
+      const payload = entry as {
+        marketplace?: unknown;
+        currency?: unknown;
+        ebookPrice?: unknown;
+        printPrice?: unknown;
+      };
+
+      const marketplace = String(payload.marketplace ?? '').trim();
+      const currency = String(payload.currency ?? '').trim().toUpperCase();
+      if (!marketplace || !currency) {
+        return null;
+      }
+
+      return {
+        marketplace,
+        currency,
+        ebookPrice: parseNullableNumber(payload.ebookPrice),
+        printPrice: parseNullableNumber(payload.printPrice),
+      };
+    })
+    .filter((value): value is AmazonKdpData['marketPricing'][number] => Boolean(value));
+
+  return normalized.length > 0 ? normalized : defaults;
+}
+
 function ensureAmazonData(
   amazon: AmazonKdpData | null | undefined,
   bookTitle: string,
@@ -144,6 +204,9 @@ function ensureAmazonData(
     isbn: amazon.isbn ?? defaults.isbn,
     enableDRM: amazon.enableDRM ?? defaults.enableDRM,
     enrollKDPSelect: amazon.enrollKDPSelect ?? defaults.enrollKDPSelect,
+    ebookRoyaltyPlan: amazon.ebookRoyaltyPlan === 35 || amazon.ebookRoyaltyPlan === 70 ? amazon.ebookRoyaltyPlan : defaults.ebookRoyaltyPlan,
+    printCostEstimate: parseNullableNumber(amazon.printCostEstimate) ?? defaults.printCostEstimate,
+    marketPricing: ensureAmazonMarketPricing(amazon.marketPricing, defaults.marketPricing),
     keywords: ensureAmazonKeywords(amazon.keywords),
     categories: ensureAmazonCategories(amazon.categories, defaults.categories),
   };

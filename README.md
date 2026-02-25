@@ -196,4 +196,5 @@ Incluye:
 
 - Historial de versiones: `CHANGELOG.md`
 - Guia de releases y criterio de reversionado: `docs/versioning.md`
+- Operacion local, comandos y reportes de verificacion: `docs/operacion-local.md`
 - Regla operativa: todo cambio significativo se documenta y sube version.

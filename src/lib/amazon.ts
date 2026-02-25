@@ -1,5 +1,6 @@
 import type { AmazonKdpData, AmazonPresetType, BookMetadata, ChapterDocument } from '../types/book';
 import { stripHtml } from './text';
+import { estimateEbookRoyalty, estimatePrintRoyalty } from './amazonValidation';
 
 interface PresetDefinition {
   categories: string[];
@@ -228,4 +229,92 @@ export function keywordsAsLines(amazon: AmazonKdpData): string {
 
 export function categoriesAsLines(amazon: AmazonKdpData): string {
   return amazon.categories.join('\n');
+}
+
+function csvEscape(value: string): string {
+  const normalized = value.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (/[",\n]/.test(normalized)) {
+    return `"${normalized.replace(/"/g, '""')}"`;
+  }
+  return normalized;
+}
+
+function boolLabel(value: boolean): string {
+  return value ? 'yes' : 'no';
+}
+
+function normalizeAllowedTag(_match: string, slash: string, tagName: string): string {
+  const normalizedTag = tagName.toLowerCase();
+  if (normalizedTag === 'br') {
+    return '<br>';
+  }
+
+  return slash ? `</${normalizedTag}>` : `<${normalizedTag}>`;
+}
+
+export function sanitizeKdpDescriptionHtml(value: string): string {
+  if (!value.trim()) {
+    return '<p>(sin descripcion)</p>';
+  }
+
+  const placeholders: string[] = [];
+  const withPlaceholders = value.replace(
+    /<(\/?)\s*(b|strong|i|em|u|p|br|ul|ol|li)(?:\s+[^>]*)?>/gi,
+    (match, slash: string, tagName: string) => {
+      const token = `__KDP_TAG_${placeholders.length}__`;
+      placeholders.push(normalizeAllowedTag(match, slash, tagName));
+      return token;
+    },
+  );
+
+  const stripped = withPlaceholders.replace(/<[^>]+>/g, '');
+  const restored = placeholders.reduce((accumulator, tag, index) => {
+    return accumulator.replaceAll(`__KDP_TAG_${index}__`, tag);
+  }, stripped);
+
+  const withBreaks = restored.replace(/\n/g, '<br>');
+  return withBreaks.trim() || '<p>(sin descripcion)</p>';
+}
+
+export function buildAmazonMetadataCsv(metadata: BookMetadata): string {
+  const amazon = metadata.amazon;
+  const contributors = amazon.contributors
+    .map((contributor) => `${contributor.role}: ${contributor.name}`)
+    .join(' | ');
+  const keywords = amazon.keywords.filter(Boolean).join(' | ');
+  const categories = amazon.categories.filter(Boolean).join(' | ');
+
+  const rows: Array<[string, string]> = [
+    ['title', amazon.kdpTitle],
+    ['subtitle', amazon.subtitle],
+    ['pen_name', amazon.penName],
+    ['language', amazon.language],
+    ['series_name', amazon.seriesName],
+    ['edition', amazon.edition],
+    ['isbn', amazon.isbn],
+    ['contributors', contributors],
+    ['own_copyright', boolLabel(amazon.ownCopyright)],
+    ['adult_content', boolLabel(amazon.isAdultContent)],
+    ['enable_drm', boolLabel(amazon.enableDRM)],
+    ['enroll_kdp_select', boolLabel(amazon.enrollKDPSelect)],
+    ['ebook_royalty_plan', String(amazon.ebookRoyaltyPlan)],
+    ['print_cost_estimate', amazon.printCostEstimate.toFixed(2)],
+    ['keywords', keywords],
+    ['categories', categories],
+    ['back_cover_text', amazon.backCoverText],
+    ['long_description', amazon.longDescription],
+    ['author_bio', amazon.authorBio],
+    ['kdp_notes', amazon.kdpNotes],
+  ];
+
+  for (const row of amazon.marketPricing) {
+    rows.push([
+      `pricing_${row.marketplace}_${row.currency}`,
+      `ebook=${row.ebookPrice ?? ''};print=${row.printPrice ?? ''};ebook_royalty_est=${estimateEbookRoyalty(row.ebookPrice, amazon.ebookRoyaltyPlan) ?? ''};print_royalty_est=${estimatePrintRoyalty(row.printPrice, amazon.printCostEstimate) ?? ''}`,
+    ]);
+  }
+
+  const header = 'field,value';
+  const data = rows.map(([field, value]) => `${csvEscape(field)},${csvEscape(value)}`);
+  return [header, ...data].join('\n');
 }

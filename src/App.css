@@ -904,6 +904,46 @@ select {
   gap: 0.35rem;
 }
 
+.amazon-validation-banner {
+  border: 1px solid rgba(22, 49, 104, 0.24);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 0.5rem 0.6rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.amazon-validation-banner p {
+  margin: 0;
+}
+
+.amazon-ok {
+  color: #0a7a3c;
+}
+
+.amazon-not-ready {
+  color: #9b2b2b;
+}
+
+.amazon-validation-list {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.amazon-validation-list li {
+  font-size: 0.9rem;
+}
+
+.amazon-validation-list .issue-error {
+  color: #8f2626;
+}
+
+.amazon-validation-list .issue-warning {
+  color: #80500d;
+}
+
 .amazon-section details summary {
   cursor: pointer;
   color: #405067;
@@ -912,6 +952,72 @@ select {
 .amazon-lines {
   display: grid;
   gap: 0.35rem;
+}
+
+.amazon-pricing-table {
+  border: 1px solid rgba(22, 49, 104, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.93);
+  overflow: hidden;
+}
+
+.amazon-pricing-head,
+.amazon-pricing-row {
+  display: grid;
+  grid-template-columns: 1.4fr 0.7fr 0.8fr 0.7fr 0.8fr 0.7fr auto;
+  gap: 0.35rem;
+  align-items: center;
+  padding: 0.35rem 0.45rem;
+}
+
+.amazon-pricing-head {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #2a3f6e;
+  background: rgba(210, 228, 255, 0.45);
+}
+
+.amazon-pricing-row {
+  border-top: 1px solid rgba(22, 49, 104, 0.12);
+}
+
+.pricing-estimate {
+  font-size: 0.85rem;
+  color: #2b436f;
+  text-align: right;
+}
+
+.amazon-description-preview {
+  border: 1px solid rgba(22, 49, 104, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 0.55rem;
+  min-height: 90px;
+  line-height: 1.5;
+}
+
+.amazon-description-preview p {
+  margin: 0 0 0.45rem;
+}
+
+.amazon-description-preview ul,
+.amazon-description-preview ol {
+  margin: 0.2rem 0 0.45rem 1.2rem;
+}
+
+.field-limit {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #4f618b;
+}
+
+.field-limit.is-over {
+  color: #9b2b2b;
+}
+
+.input-warning {
+  border-color: rgba(200, 128, 20, 0.65);
+  background: rgba(255, 249, 236, 0.95);
 }
 
 .settings-view header h2 {
@@ -1183,6 +1289,18 @@ select {
 
   .amazon-grid {
     grid-template-columns: 1fr;
+  }
+
+  .amazon-pricing-head {
+    display: none;
+  }
+
+  .amazon-pricing-row {
+    grid-template-columns: 1fr;
+  }
+
+  .pricing-estimate {
+    text-align: left;
   }
 
   .cover-layout-grid {

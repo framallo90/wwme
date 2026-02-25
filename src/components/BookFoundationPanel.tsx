@@ -94,7 +94,7 @@ function BookFoundationPanel(props: BookFoundationPanelProps) {
         />
       </label>
 
-      <button onClick={props.onSave}>Guardar base del libro</button>
+      <button type="button" onClick={props.onSave}>Guardar base del libro</button>
     </section>
   );
 }

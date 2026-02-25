@@ -25,7 +25,9 @@ function OutlineView(props: OutlineViewProps) {
               <span>{getChapterWordCount(chapter)} palabras</span>
             </div>
             <p>{stripHtml(chapter.content).slice(0, 260) || 'Sin contenido'}</p>
-            <button onClick={() => props.onSelectChapter(chapter.id)}>Ir al editor</button>
+            <button type="button" onClick={() => props.onSelectChapter(chapter.id)}>
+              Ir al editor
+            </button>
           </article>
         ))}
       </div>

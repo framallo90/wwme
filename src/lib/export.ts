@@ -1,6 +1,7 @@
 import type { BookMetadata, ChapterDocument } from '../types/book';
+import { buildAmazonCopyPack, buildAmazonMetadataCsv } from './amazon';
+import { validateAmazonMetadata } from './amazonValidation';
 import { htmlToMarkdown, safeFileName, stripHtml } from './text';
-import { buildAmazonCopyPack } from './amazon';
 import { writeMarkdownExport, writeTextExport } from './storage';
 
 function resolveTrimSize(metadata: BookMetadata): { width: number; height: number } {
@@ -147,8 +148,38 @@ export async function exportBookAmazonBundle(
     `Line height: ${metadata.interiorFormat.lineHeight}`,
   ].join('\n');
   const packPath = await writeTextExport(bookPath, `${safeFileName(metadata.title)}-amazon-pack.txt`, amazonPack, 'txt');
+  const metadataCsvPath = await writeTextExport(
+    bookPath,
+    `${safeFileName(metadata.title)}-amazon-metadata.csv`,
+    buildAmazonMetadataCsv(metadata),
+    'csv',
+  );
+  const validation = validateAmazonMetadata(metadata);
+  const validationLines = [
+    'AMAZON KDP VALIDATION',
+    `Ready: ${validation.isValid ? 'YES' : 'NO'}`,
+    `Readiness score: ${validation.readinessScore}/100`,
+    `Errors: ${validation.errors.length}`,
+    `Warnings: ${validation.warnings.length}`,
+    '',
+    'Errors:',
+    ...(validation.errors.length > 0
+      ? validation.errors.map((issue) => `- [${issue.field}] ${issue.message}`)
+      : ['- (none)']),
+    '',
+    'Warnings:',
+    ...(validation.warnings.length > 0
+      ? validation.warnings.map((issue) => `- [${issue.field}] ${issue.message}`)
+      : ['- (none)']),
+  ];
+  const validationPath = await writeTextExport(
+    bookPath,
+    `${safeFileName(metadata.title)}-amazon-validation.txt`,
+    validationLines.join('\n'),
+    'txt',
+  );
 
-  return [markdownPath, interiorPath, packPath];
+  return [markdownPath, interiorPath, packPath, metadataCsvPath, validationPath];
 }
 
 export function getChapterWordCount(chapter: ChapterDocument): number {

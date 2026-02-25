@@ -18,9 +18,11 @@
     "../src/lib/chapterLength.ts",
     "../src/lib/language.ts",
     "../src/lib/amazon.ts",
+    "../src/lib/amazonValidation.ts",
     "../src/lib/prompts.ts",
     "../src/lib/text.ts",
     "../src/lib/metrics.ts",
+    "../src/data/kdpCategories.ts",
     "../src/types/book.ts"
   ]
 }
