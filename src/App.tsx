@@ -315,6 +315,7 @@ function App() {
   const editorRef = useRef<TiptapEditorHandle | null>(null);
   const dirtyRef = useRef(false);
   const saveInFlightRef = useRef(false);
+  const languageSaveResetTimerRef = useRef<number | null>(null);
   const snapshotUndoCursorRef = useRef<Record<string, number | undefined>>({});
   const snapshotRedoStackRef = useRef<Record<string, BookProject['chapters'][string][]>>({});
 
@@ -347,6 +348,12 @@ function App() {
   const [canUndoEdit, setCanUndoEdit] = useState(false);
   const [canRedoEdit, setCanRedoEdit] = useState(false);
   const [snapshotRedoNonce, setSnapshotRedoNonce] = useState(0);
+  const [savedLanguageState, setSavedLanguageState] = useState<{
+    bookPath: string;
+    configLanguage: string;
+    amazonLanguage: string;
+  } | null>(null);
+  const [languageSaveState, setLanguageSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [promptModal, setPromptModal] = useState<{
     title: string;
     label: string;
@@ -400,6 +407,24 @@ function App() {
   );
 
   const activeLanguage = useMemo(() => normalizeLanguageCode(config.language), [config.language]);
+  const amazonActiveLanguage = useMemo(
+    () => normalizeLanguageCode(book?.metadata.amazon.language ?? ''),
+    [book?.metadata.amazon.language],
+  );
+  const languageDirty = useMemo(() => {
+    if (!book) {
+      return false;
+    }
+
+    if (!savedLanguageState || savedLanguageState.bookPath !== book.path) {
+      return true;
+    }
+
+    return (
+      activeLanguage !== savedLanguageState.configLanguage ||
+      amazonActiveLanguage !== savedLanguageState.amazonLanguage
+    );
+  }, [book, savedLanguageState, activeLanguage, amazonActiveLanguage]);
 
   const interiorFormat = useMemo(
     () => book?.metadata.interiorFormat ?? FALLBACK_INTERIOR_FORMAT,
@@ -751,13 +776,35 @@ function App() {
     };
   }, [book, activeChapterId, config.autosaveIntervalMs, flushChapterSave]);
 
+  useEffect(() => {
+    return () => {
+      if (languageSaveResetTimerRef.current !== null) {
+        window.clearTimeout(languageSaveResetTimerRef.current);
+        languageSaveResetTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const applyOpenedProjectState = useCallback(
     (project: BookProject, loadedConfig: AppConfig) => {
+      const normalizedConfigLanguage = normalizeLanguageCode(loadedConfig.language);
+      const normalizedAmazonLanguage = normalizeLanguageCode(project.metadata.amazon.language);
+
       setBook(project);
       setConfig({
         ...loadedConfig,
-        language: normalizeLanguageCode(loadedConfig.language),
+        language: normalizedConfigLanguage,
       });
+      setSavedLanguageState({
+        bookPath: project.path,
+        configLanguage: normalizedConfigLanguage,
+        amazonLanguage: normalizedAmazonLanguage,
+      });
+      setLanguageSaveState('idle');
+      if (languageSaveResetTimerRef.current !== null) {
+        window.clearTimeout(languageSaveResetTimerRef.current);
+        languageSaveResetTimerRef.current = null;
+      }
       setActiveChapterId(project.metadata.chapterOrder[0] ?? null);
       setMainView('editor');
       setChatScope('chapter');
@@ -904,6 +951,12 @@ function App() {
     setCanUndoEdit(false);
     setCanRedoEdit(false);
     dirtyRef.current = false;
+    setSavedLanguageState(null);
+    setLanguageSaveState('idle');
+    if (languageSaveResetTimerRef.current !== null) {
+      window.clearTimeout(languageSaveResetTimerRef.current);
+      languageSaveResetTimerRef.current = null;
+    }
     snapshotUndoCursorRef.current = {};
     snapshotRedoStackRef.current = {};
     setSnapshotRedoNonce((value) => value + 1);
@@ -1015,9 +1068,11 @@ function App() {
   const handleSaveSettings = useCallback(async () => {
     if (!book) {
       setStatus('Abri un libro para guardar config en mi-libro/config.json.');
+      setLanguageSaveState('idle');
       return;
     }
 
+    setLanguageSaveState('saving');
     try {
       const normalizedConfig: AppConfig = {
         ...config,
@@ -1025,11 +1080,96 @@ function App() {
       };
       await saveAppConfig(book.path, normalizedConfig);
       setConfig(normalizedConfig);
+
+      const normalizedAmazonLanguage = normalizeLanguageCode(book.metadata.amazon.language);
+      if (normalizedAmazonLanguage !== activeLanguage) {
+        const metadataDraft = {
+          ...book.metadata,
+          amazon: {
+            ...book.metadata.amazon,
+            language: activeLanguage,
+          },
+        };
+        const savedMetadata = await saveBookMetadata(book.path, metadataDraft);
+        const nextProject: BookProject = {
+          ...book,
+          metadata: savedMetadata,
+        };
+        setBook((previous) => {
+          if (!previous || previous.path !== book.path) {
+            return previous;
+          }
+          return nextProject;
+        });
+        await syncBookToLibrary(nextProject);
+        setSavedLanguageState({
+          bookPath: book.path,
+          configLanguage: activeLanguage,
+          amazonLanguage: activeLanguage,
+        });
+        setLanguageSaveState('saved');
+        if (languageSaveResetTimerRef.current !== null) {
+          window.clearTimeout(languageSaveResetTimerRef.current);
+        }
+        languageSaveResetTimerRef.current = window.setTimeout(() => {
+          setLanguageSaveState('idle');
+          languageSaveResetTimerRef.current = null;
+        }, 2200);
+        setStatus('Settings guardados y idioma Amazon sincronizado en book.json.');
+        return;
+      }
+
+      setSavedLanguageState({
+        bookPath: book.path,
+        configLanguage: activeLanguage,
+        amazonLanguage: normalizedAmazonLanguage,
+      });
+      setLanguageSaveState('saved');
+      if (languageSaveResetTimerRef.current !== null) {
+        window.clearTimeout(languageSaveResetTimerRef.current);
+      }
+      languageSaveResetTimerRef.current = window.setTimeout(() => {
+        setLanguageSaveState('idle');
+        languageSaveResetTimerRef.current = null;
+      }, 2200);
       setStatus('Settings guardados en config.json del libro.');
     } catch (error) {
-      setStatus(`Error guardando settings: ${(error as Error).message}`);
+      setLanguageSaveState('idle');
+      setStatus(`Error guardando settings: ${formatUnknownError(error)}`);
     }
-  }, [book, config, activeLanguage]);
+  }, [book, config, activeLanguage, syncBookToLibrary]);
+
+  const handleLanguageChange = useCallback(
+    (language: string) => {
+      setLanguageSaveState('idle');
+      setConfig((previous) => ({
+        ...previous,
+        language,
+      }));
+
+      if (!book) {
+        return;
+      }
+
+      setBook((previous) => {
+        if (!previous || previous.path !== book.path) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          metadata: {
+            ...previous.metadata,
+            amazon: {
+              ...previous.metadata.amazon,
+              language,
+            },
+          },
+        };
+      });
+    },
+    [book],
+  );
 
   const handleFoundationChange = useCallback(
     (foundation: BookProject['metadata']['foundation']) => {
@@ -2799,7 +2939,17 @@ function App() {
     }
 
     if (mainView === 'language') {
-      return <LanguagePanel config={config} bookPath={book?.path ?? null} onChange={setConfig} onSave={handleSaveSettings} />;
+      return (
+        <LanguagePanel
+          config={config}
+          bookPath={book?.path ?? null}
+          amazonLanguage={book?.metadata.amazon.language ?? null}
+          onChangeLanguage={handleLanguageChange}
+          onSave={handleSaveSettings}
+          isDirty={languageDirty}
+          saveState={languageSaveState}
+        />
+      );
     }
 
     return (
@@ -2844,6 +2994,9 @@ function App() {
     handleAmazonMetadataChange,
     handleExportAmazonBundle,
     handleSaveAmazon,
+    handleLanguageChange,
+    languageDirty,
+    languageSaveState,
     handleReplaceInBook,
     handleReplaceInActiveChapter,
     handleRunBookSearch,

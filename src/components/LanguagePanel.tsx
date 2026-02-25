@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import {
   APP_LANGUAGE_OPTIONS,
   getLanguageDisplayName,
+  isLanguageCodeFormatValid,
+  normalizeLanguageCode,
   resolveLanguageSelectValue,
 } from '../lib/language';
 import type { AppConfig } from '../types/book';
@@ -9,51 +11,80 @@ import type { AppConfig } from '../types/book';
 interface LanguagePanelProps {
   config: AppConfig;
   bookPath: string | null;
-  onChange: (next: AppConfig) => void;
+  amazonLanguage: string | null;
+  onChangeLanguage: (language: string) => void;
   onSave: () => void;
+  isDirty: boolean;
+  saveState: 'idle' | 'saving' | 'saved';
 }
 
 function LanguagePanel(props: LanguagePanelProps) {
-  const languageInput = props.config.language;
-
+  const languageInput = typeof props.config.language === 'string' ? props.config.language : '';
   const selectValue = useMemo(() => resolveLanguageSelectValue(languageInput), [languageInput]);
+  const rawInput = languageInput.trim();
+  const showIsoWarning = rawInput.length > 0 && !isLanguageCodeFormatValid(rawInput);
+  const normalizedConfigLanguage = normalizeLanguageCode(languageInput);
+  const normalizedAmazonLanguage = normalizeLanguageCode(props.amazonLanguage ?? '');
+  const hasLanguageMismatch = Boolean(
+    props.bookPath &&
+      props.amazonLanguage !== null &&
+      normalizedConfigLanguage !== normalizedAmazonLanguage,
+  );
 
   const activeLabel = useMemo(() => {
-    const raw = languageInput.trim();
-    if (!raw) {
+    if (!rawInput) {
       return 'Personalizado (sin definir)';
     }
 
-    return getLanguageDisplayName(raw);
-  }, [languageInput]);
+    return getLanguageDisplayName(rawInput);
+  }, [rawInput]);
+
+  const applyLanguage = (language: string) => {
+    props.onChangeLanguage(language);
+  };
 
   return (
     <section className="settings-view">
       <header>
         <h2>Idioma</h2>
         <p>
-          Defini el idioma de trabajo para la IA y la salida editorial. El modelo va a responder y reescribir en
-          este idioma.
+          Define el idioma base para prompts de IA y para metadatos KDP. Al guardar se sincroniza en
+          <code>config.json</code> y <code>book.json</code>. Si `config.json` no existe, la app lo crea.
         </p>
         <p>
-          {props.bookPath
-            ? `Ruta: ${props.bookPath}/config.json`
-            : 'Abri un libro para guardar el idioma en mi-libro/config.json'}
+          {props.bookPath ? (
+            <>
+              Ruta config: {props.bookPath}/config.json
+              <br />
+              Ruta metadata (Amazon): {props.bookPath}/book.json
+            </>
+          ) : (
+            'Abri un libro para guardar idioma.'
+          )}
         </p>
+        <p className="muted">
+          Idioma Amazon actual: <strong>{props.amazonLanguage?.trim() || '(sin definir)'}</strong>
+        </p>
+        {hasLanguageMismatch && (
+          <p className="warning-text">
+            Advertencia: idioma base y Amazon no coinciden. Guarda para sincronizar metadatos.
+          </p>
+        )}
       </header>
 
       <label>
         Idioma principal
         <select
+          aria-describedby="language-help language-iso-hint"
           value={selectValue}
           onChange={(event) => {
             const value = event.target.value;
             if (value === 'custom') {
-              props.onChange({ ...props.config, language: '' });
+              applyLanguage('');
               return;
             }
 
-            props.onChange({ ...props.config, language: value });
+            applyLanguage(value);
           }}
         >
           {APP_LANGUAGE_OPTIONS.map((option) => (
@@ -68,28 +99,39 @@ function LanguagePanel(props: LanguagePanelProps) {
       <label>
         Codigo de idioma
         <input
+          aria-describedby="language-help language-iso-hint"
           value={languageInput}
           onChange={(event) => {
-            const rawValue = event.target.value;
-            props.onChange({ ...props.config, language: rawValue });
+            applyLanguage(event.target.value);
           }}
           placeholder="es, en, pt, fr, de, it..."
         />
       </label>
 
       <p className="muted">Idioma activo: {activeLabel}</p>
+      <p id="language-help" className="muted">
+        El selector rellena este campo automaticamente. Si eliges "Personalizado", puedes escribir el codigo manualmente.
+      </p>
+      <p id="language-iso-hint" className={`muted ${showIsoWarning ? 'warning-text' : ''}`}>
+        {showIsoWarning
+          ? "Usa codigos ISO: 'es', 'en', 'pt-BR', 'es-MX', 'en-US'."
+          : 'Formato recomendado: codigo ISO (2-3 letras) con region opcional.'}
+      </p>
 
       <button
         type="button"
         onClick={props.onSave}
-        disabled={!props.bookPath}
-        title="Guarda el idioma en config.json del libro activo."
+        disabled={!props.bookPath || !props.isDirty || props.saveState === 'saving'}
+        title="Guarda idioma en config.json y book.json."
       >
-        Guardar idioma
+        {props.saveState === 'saving'
+          ? 'Guardando...'
+          : props.saveState === 'saved'
+            ? 'Guardado OK'
+            : 'Guardar idioma'}
       </button>
     </section>
   );
 }
 
 export default LanguagePanel;
-

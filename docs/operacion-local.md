@@ -38,6 +38,11 @@ Get-ChildItem .\reports\verify |
   ForEach-Object { Get-Content $_.FullName }
 ```
 
+Notas de almacenamiento del libro:
+- `book.json` guarda metadatos del proyecto (sin historial de chat pesado).
+- `config.json` guarda configuracion persistente por libro.
+- `chats/book.json` y `chats/NN.json` guardan historial de chat por libro/capitulo.
+
 ## 3) Comandos clave y para que sirve cada uno
 
 | Comando | Uso |
@@ -61,6 +66,17 @@ Get-ChildItem .\reports\verify |
 3. `npx tsc -b`
 4. `npm run verify:local`
 5. Si todo da bien, recien ahi commit/push/tag.
+
+## 4.1) Checklist funcional rapido (manual)
+
+1. Abrir libro existente y validar carga de capitulo + editor.
+2. Ir a `Idioma`:
+   - cambiar idioma por selector (ej. `es` -> `en`)
+   - verificar que el estado Amazon cambie junto al idioma base
+   - guardar y confirmar feedback (`Guardando...` / `Guardado OK`)
+3. Ir a `Amazon`:
+   - revisar readiness score y lista de advertencias/errores
+   - exportar pack y validar salida de archivos (`.txt`, `.html`, `.md`, `.csv`, validacion `.txt`)
 
 ## 5) Troubleshooting rapido
 
@@ -114,4 +130,3 @@ Y que la API responda en `http://localhost:11434`.
 - Toda funcion nueva o cambio de comportamiento debe agregar/actualizar tests en `tests/unit/suite.ts`.
 - Cada cambio significativo debe quedar documentado en `CHANGELOG.md`.
 - Cuando corresponda una nueva version, se hace `commit + tag` (segun politica acordada de versionado).
-

@@ -82,6 +82,9 @@ Regla de calidad del proyecto:
   chapters/
     01.json
     02.json
+  chats/
+    book.json
+    01.json
   assets/
     cover.png
     back-cover.png
@@ -103,7 +106,11 @@ Regla de calidad del proyecto:
 - seccion Amazon/KDP (`amazon`)
 - formato interior para maquetado (`interiorFormat`)
 - estado de publicacion (`isPublished`, `publishedAt`)
-- historial de chat por libro y por capitulo
+
+`chats/`:
+- `book.json`: historial del chat de libro
+- `NN.json`: historial del chat por capitulo
+- se carga bajo demanda y no infla `book.json`
 
 Biblioteca global:
 - Se guarda en `%APPDATA%/library.json` (vía `appDataDir()` de Tauri).
@@ -146,8 +153,17 @@ Cada capitulo (`chapters/NN.json`) guarda:
   - modo auto-aplicar sin preguntar (iterativo)
   - agente continuo por rondas en chat de capitulo
 - Presets de trabajo en Settings (borrador, precision, revision final)
-- Solapa de idioma dedicada (seleccion + guardado persistente)
+- Solapa de idioma dedicada:
+  - seleccion o codigo manual (`es`, `en`, `pt-BR`, `es-MX`, etc.)
+  - sincronizacion de idioma base + Amazon/KDP
+  - validacion de formato ISO y aviso de desalineacion
+  - boton con estado (`Guardando...`, `Guardado OK`) y guardado solo con cambios
 - Presets Amazon (no ficcion reflexiva, ensayo practico, narrativa intima)
+- Validacion KDP en panel Amazon:
+  - readiness score
+  - lista de errores/advertencias por campo
+  - validacion de categorias contra catalogo local
+  - estimacion de regalias (eBook/print)
 - Snapshot antes de cambios IA + undo basico
 - Export Markdown:
   - capitulo individual
@@ -157,6 +173,8 @@ Cada capitulo (`chapters/NN.json`) guarda:
   - pack copy/paste (`.txt`)
   - interior maquetado para KDP (`.html`)
   - markdown completo del libro (`.md`)
+  - metadata para carga rapida (`.csv`)
+  - reporte de validacion (`.txt`)
 
 ## Chat auto-aplicar (sin confirmaciones)
 

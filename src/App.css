@@ -1137,6 +1137,11 @@ select {
   color: #5c6d92;
 }
 
+.warning-text {
+  color: #8e5b00;
+  font-weight: 600;
+}
+
 .status-bar {
   grid-column: 1 / -1;
   padding: 0.45rem 0.7rem;

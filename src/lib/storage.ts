@@ -11,12 +11,14 @@ import { appDataDir } from '@tauri-apps/api/path';
 
 import { resolveChapterLengthPreset } from './chapterLength';
 import { DEFAULT_APP_CONFIG } from './config';
+import { normalizeLanguageCode } from './language';
 import { getNowIso, joinPath, normalizePath, randomId, safeFileName, slugify } from './text';
 import type {
   AppConfig,
   AmazonKdpData,
   BookStatus,
   BookChats,
+  ChatMessage,
   BookFoundation,
   InteriorFormat,
   LibraryBookEntry,
@@ -31,6 +33,7 @@ const BOOK_FILE = 'book.json';
 const CHAPTERS_DIR = 'chapters';
 const ASSETS_DIR = 'assets';
 const VERSIONS_DIR = 'versions';
+const CHATS_DIR = 'chats';
 const EXPORTS_DIR = 'exports';
 const CONFIG_FILE = 'config.json';
 const LIBRARY_FILE = 'library.json';
@@ -59,7 +62,7 @@ export function buildDefaultAmazon(bookTitle: string, author: string): AmazonKdp
   return {
     presetType: 'non-fiction-reflexive',
     marketplace: 'Amazon.com',
-    language: 'Spanish',
+    language: 'es',
     kdpTitle: bookTitle,
     subtitle: '',
     penName: author,
@@ -198,6 +201,7 @@ function ensureAmazonData(
   return {
     ...defaults,
     ...amazon,
+    language: normalizeLanguageCode(amazon.language),
     contributors: ensureAmazonContributors(amazon.contributors),
     ownCopyright: amazon.ownCopyright ?? defaults.ownCopyright,
     isAdultContent: amazon.isAdultContent ?? defaults.isAdultContent,
@@ -246,6 +250,18 @@ function bookFilePath(bookPath: string): string {
 
 function configFilePath(bookPath: string): string {
   return joinPath(bookPath, CONFIG_FILE);
+}
+
+function chatsDirPath(bookPath: string): string {
+  return joinPath(bookPath, CHATS_DIR);
+}
+
+function bookChatFilePath(bookPath: string): string {
+  return joinPath(chatsDirPath(bookPath), 'book.json');
+}
+
+function chapterChatFilePath(bookPath: string, chapterId: string): string {
+  return joinPath(chatsDirPath(bookPath), `${chapterId}.json`);
 }
 
 function normalizeFolderPath(path: string): string {
@@ -410,6 +426,184 @@ function countWords(html: string): number {
   return plain.split(/\s+/).filter(Boolean).length;
 }
 
+function normalizeChatRole(value: unknown): ChatMessage['role'] {
+  return value === 'assistant' ? 'assistant' : 'user';
+}
+
+function normalizeChatScope(value: unknown, fallbackScope: ChatMessage['scope']): ChatMessage['scope'] {
+  return value === 'book' || value === 'chapter' ? value : fallbackScope;
+}
+
+function ensureChatMessages(values: unknown, fallbackScope: ChatMessage['scope']): ChatMessage[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  const messages: ChatMessage[] = [];
+  for (const entry of values) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    const payload = entry as Partial<ChatMessage>;
+    const content = String(payload.content ?? '').trim();
+    if (!content) {
+      continue;
+    }
+
+    messages.push({
+      id: typeof payload.id === 'string' && payload.id.trim() ? payload.id.trim() : randomId('msg'),
+      role: normalizeChatRole(payload.role),
+      scope: normalizeChatScope(payload.scope, fallbackScope),
+      content,
+      createdAt:
+        typeof payload.createdAt === 'string' && payload.createdAt.trim()
+          ? payload.createdAt.trim()
+          : getNowIso(),
+    });
+  }
+
+  return messages;
+}
+
+function ensureBookChats(chats: unknown): BookChats {
+  if (!chats || typeof chats !== 'object') {
+    return buildDefaultChats();
+  }
+
+  const payload = chats as { book?: unknown; chapters?: unknown };
+  const normalized: BookChats = {
+    book: ensureChatMessages(payload.book, 'book'),
+    chapters: {},
+  };
+
+  if (payload.chapters && typeof payload.chapters === 'object' && !Array.isArray(payload.chapters)) {
+    for (const [chapterId, chapterMessages] of Object.entries(payload.chapters as Record<string, unknown>)) {
+      const safeChapterId = chapterId.trim();
+      if (!safeChapterId) {
+        continue;
+      }
+      normalized.chapters[safeChapterId] = ensureChatMessages(chapterMessages, 'chapter');
+    }
+  }
+
+  return normalized;
+}
+
+function stripChatsFromMetadata(metadata: BookMetadata): Omit<BookMetadata, 'chats'> {
+  const payload = { ...metadata } as Partial<BookMetadata>;
+  delete payload.chats;
+  return payload as Omit<BookMetadata, 'chats'>;
+}
+
+async function loadChatsFromDisk(
+  bookPath: string,
+  chapterOrder: string[],
+  legacyChats: unknown,
+): Promise<BookChats> {
+  const fallback = ensureBookChats(legacyChats);
+  const result: BookChats = {
+    book: [...fallback.book],
+    chapters: { ...fallback.chapters },
+  };
+
+  const chatsDirectory = chatsDirPath(bookPath);
+  if (!(await exists(chatsDirectory))) {
+    return result;
+  }
+
+  const bookChatPath = bookChatFilePath(bookPath);
+  if (await exists(bookChatPath)) {
+    try {
+      const loadedBookMessages = await readJson<unknown>(bookChatPath);
+      result.book = ensureChatMessages(loadedBookMessages, 'book');
+    } catch {
+      // Mantiene fallback legado.
+    }
+  }
+
+  const knownChapterIds = new Set<string>([...chapterOrder, ...Object.keys(result.chapters)]);
+  for (const chapterId of knownChapterIds) {
+    const chapterPath = chapterChatFilePath(bookPath, chapterId);
+    if (!(await exists(chapterPath))) {
+      continue;
+    }
+
+    try {
+      const loadedChapterMessages = await readJson<unknown>(chapterPath);
+      result.chapters[chapterId] = ensureChatMessages(loadedChapterMessages, 'chapter');
+    } catch {
+      // Mantiene fallback legado.
+    }
+  }
+
+  try {
+    const entries = await readDir(chatsDirectory);
+    for (const entry of entries) {
+      if (!entry.isFile || !entry.name.toLowerCase().endsWith('.json')) {
+        continue;
+      }
+
+      if (entry.name.toLowerCase() === 'book.json') {
+        continue;
+      }
+
+      const chapterId = entry.name.replace(/\.json$/i, '').trim();
+      if (!chapterId || knownChapterIds.has(chapterId)) {
+        continue;
+      }
+
+      try {
+        const loadedChapterMessages = await readJson<unknown>(joinPath(chatsDirectory, entry.name));
+        result.chapters[chapterId] = ensureChatMessages(loadedChapterMessages, 'chapter');
+      } catch {
+        // Ignora archivos de chat corruptos.
+      }
+    }
+  } catch {
+    // Ignora errores de lectura de carpeta chats.
+  }
+
+  return result;
+}
+
+async function saveChatsToDisk(bookPath: string, chats: BookChats): Promise<BookChats> {
+  const normalizedChats = ensureBookChats(chats);
+  const chatsDirectory = chatsDirPath(bookPath);
+  await mkdir(chatsDirectory, { recursive: true });
+
+  await writeJson(bookChatFilePath(bookPath), normalizedChats.book);
+
+  const chapterIds = Object.keys(normalizedChats.chapters);
+  for (const chapterId of chapterIds) {
+    await writeJson(chapterChatFilePath(bookPath, chapterId), normalizedChats.chapters[chapterId]);
+  }
+
+  try {
+    const entries = await readDir(chatsDirectory);
+    for (const entry of entries) {
+      if (!entry.isFile || !entry.name.toLowerCase().endsWith('.json')) {
+        continue;
+      }
+
+      if (entry.name.toLowerCase() === 'book.json') {
+        continue;
+      }
+
+      const chapterId = entry.name.replace(/\.json$/i, '').trim();
+      if (!chapterId || chapterIds.includes(chapterId)) {
+        continue;
+      }
+
+      await remove(joinPath(chatsDirectory, entry.name));
+    }
+  } catch {
+    // Ignora limpieza fallida de chats obsoletos.
+  }
+
+  return normalizedChats;
+}
+
 function deriveBookStatus(
   metadata: BookMetadata,
   chapterCount: number,
@@ -520,6 +714,7 @@ async function ensureBookProjectFiles(
   await mkdir(joinPath(normalizedBookPath, CHAPTERS_DIR), { recursive: true });
   await mkdir(joinPath(normalizedBookPath, ASSETS_DIR), { recursive: true });
   await mkdir(joinPath(normalizedBookPath, VERSIONS_DIR), { recursive: true });
+  await mkdir(joinPath(normalizedBookPath, CHATS_DIR), { recursive: true });
 
   const chapterIdsFromDisk = await inferChapterIdsFromDisk(normalizedBookPath);
   const titleFromPath = inferTitleFromBookPath(normalizedBookPath);
@@ -580,7 +775,18 @@ async function ensureBookProjectFiles(
     await writeJson(chapterPath, chapter);
   }
 
-  await writeJson(bookFilePath(normalizedBookPath), metadata);
+  const loadedChats = await loadChatsFromDisk(
+    normalizedBookPath,
+    metadata.chapterOrder,
+    metadata.chats,
+  );
+  metadata = {
+    ...metadata,
+    chats: loadedChats,
+  };
+
+  await saveChatsToDisk(normalizedBookPath, loadedChats);
+  await writeJson(bookFilePath(normalizedBookPath), stripChatsFromMetadata(metadata));
   if (!(await exists(configFilePath(normalizedBookPath)))) {
     await writeJson(configFilePath(normalizedBookPath), DEFAULT_APP_CONFIG);
   }
@@ -640,7 +846,7 @@ function getNextChapterId(order: string[]): string {
 function ensureBookMetadata(metadata: BookMetadata): BookMetadata {
   return {
     ...metadata,
-    chats: metadata.chats ?? buildDefaultChats(),
+    chats: ensureBookChats(metadata.chats),
     coverImage: metadata.coverImage ?? null,
     backCoverImage: metadata.backCoverImage ?? null,
     spineText: metadata.spineText ?? metadata.title ?? '',
@@ -845,7 +1051,7 @@ export async function saveBookMetadata(
   const nextMetadata: BookMetadata = {
     ...metadata,
     updatedAt: getNowIso(),
-    chats: metadata.chats ?? buildDefaultChats(),
+    chats: ensureBookChats(metadata.chats),
     foundation: metadata.foundation ?? buildDefaultFoundation(),
     amazon: ensureAmazonData(metadata.amazon, metadata.title, metadata.author),
     backCoverImage: metadata.backCoverImage ?? null,
@@ -855,7 +1061,7 @@ export async function saveBookMetadata(
     publishedAt: metadata.publishedAt ?? null,
   };
 
-  await writeJson(bookFilePath(bookPath), nextMetadata);
+  await writeJson(bookFilePath(bookPath), stripChatsFromMetadata(nextMetadata));
   return nextMetadata;
 }
 
@@ -959,9 +1165,10 @@ export async function deleteChapter(
   }
 
   const nextOrder = metadata.chapterOrder.filter((item) => item !== chapterId);
+  const currentChats = ensureBookChats(metadata.chats);
   const nextChats = {
-    ...metadata.chats,
-    chapters: { ...metadata.chats.chapters },
+    ...currentChats,
+    chapters: { ...currentChats.chapters },
   };
   delete nextChats.chapters[chapterId];
 
@@ -972,6 +1179,7 @@ export async function deleteChapter(
     updatedAt: getNowIso(),
   };
 
+  await saveChatsToDisk(bookPath, nextChats);
   await saveBookMetadata(bookPath, nextMetadata);
   return nextMetadata;
 }
@@ -1028,7 +1236,11 @@ export async function saveChapterSnapshot(
     chapterId: chapter.id,
     reason,
     createdAt: getNowIso(),
-    chapter,
+    chapter: {
+      ...chapter,
+      // Guarda snapshot liviano: HTML como fuente de restauracion y JSON opcional en null.
+      contentJson: null,
+    },
   };
 
   const fileName = `${chapter.id}_v${nextVersion}.json`;
@@ -1180,9 +1392,10 @@ export async function updateBookChats(
   metadata: BookMetadata,
   chats: BookChats,
 ): Promise<BookMetadata> {
+  const normalizedChats = await saveChatsToDisk(bookPath, chats);
   const nextMetadata: BookMetadata = {
     ...metadata,
-    chats,
+    chats: normalizedChats,
     updatedAt: getNowIso(),
   };
 

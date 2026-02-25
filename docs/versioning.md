@@ -14,6 +14,7 @@
 - `src-tauri/Cargo.toml` -> `[package].version`
 - `README.md` -> `Version actual`
 - `CHANGELOG.md` -> new entry with date + key changes
+- `docs/operacion-local.md` -> update commands/checklists when verification workflow changes
 
 ## Release checklist
 
@@ -21,7 +22,8 @@
 2. Run `npx tsc -b`
 3. Run `npm run verify:local` when environment allows Rust/Tauri checks
 4. Confirm changelog entry
-5. Commit with clear release/feture message
+5. Confirm documentation consistency (`README.md`, `CHANGELOG.md`, `docs/operacion-local.md`)
+6. Commit with clear release/feature message
 
 ## Notes
 

@@ -8,6 +8,7 @@ import {
   APP_LANGUAGE_OPTIONS,
   getLanguageDisplayName,
   getLanguageInstruction,
+  isLanguageCodeFormatValid,
   normalizeLanguageCode,
   resolveLanguageSelectValue,
 } from '../../src/lib/language';
@@ -184,7 +185,7 @@ function createMetadata(): BookMetadata {
 
 function createChapters(): ChapterDocument[] {
   return [
-    {
+  {
       id: '01',
       title: 'Capitulo 1',
       content: '<p>El faro corta la niebla con una luz azul.</p><p>Aria avanza.</p>',
@@ -247,10 +248,19 @@ const tests: TestCase[] = [
       assert.ok(getChapterLengthInstruction('media').includes('1500-2200'));
     },
   },
-  {
+    {
     name: 'language: normaliza codigo, select value e instruccion',
     run: () => {
       assert.equal(normalizeLanguageCode(' ES '), 'es');
+      assert.equal(normalizeLanguageCode(undefined), 'es');
+      assert.equal(normalizeLanguageCode('Espanol'), 'es');
+      assert.equal(normalizeLanguageCode('Spanish'), 'es');
+      assert.equal(normalizeLanguageCode('Ingles'), 'en');
+      assert.equal(isLanguageCodeFormatValid('pt-BR'), true);
+      assert.equal(isLanguageCodeFormatValid('es-MX'), true);
+      assert.equal(isLanguageCodeFormatValid('en-US'), true);
+      assert.equal(isLanguageCodeFormatValid('Espanol'), false);
+      assert.equal(isLanguageCodeFormatValid('english'), false);
       assert.ok(APP_LANGUAGE_OPTIONS.length >= 5);
       assert.equal(resolveLanguageSelectValue(''), 'custom');
       assert.equal(resolveLanguageSelectValue(' es '), 'es');
@@ -509,4 +519,5 @@ if (failures > 0) {
 }
 
 console.log(`\nSuite OK: ${tests.length} tests`);
+
 
