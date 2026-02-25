@@ -5,7 +5,6 @@ import type { AiAction, AiActionId, ChatMessage, ChatScope } from '../types/book
 interface AIPanelProps {
   actions: AiAction[];
   aiBusy: boolean;
-  feedback: string;
   canUndoSnapshots: boolean;
   canRedoSnapshots: boolean;
   scope: ChatScope;
@@ -144,14 +143,6 @@ function AIPanel(props: AIPanelProps) {
         </details>
       </section>
 
-      <section className="feedback-section">
-        <details className="panel-collapsible">
-          <summary>Devolucion</summary>
-          <div className="collapsible-body">
-            <div className="feedback-box">{props.feedback || 'Todavia no hay devolucion.'}</div>
-          </div>
-        </details>
-      </section>
     </aside>
   );
 }

@@ -468,6 +468,38 @@ select {
   gap: 0.65rem;
 }
 
+.top-toolbar {
+  border: 1px solid rgba(22, 49, 104, 0.2);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+  padding: 0.45rem 0.55rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.top-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.top-toolbar-views {
+  border-top: 1px solid rgba(22, 49, 104, 0.16);
+  padding-top: 0.45rem;
+}
+
+.top-toolbar .icon-button {
+  min-height: 34px;
+  padding: 0.32rem 0.55rem;
+}
+
+.top-toolbar .icon-button.is-active {
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.22), rgba(34, 211, 238, 0.08));
+  border-color: rgba(34, 211, 238, 0.92);
+  color: #093061;
+}
+
 .active-book-banner {
   border: 1px solid rgba(22, 49, 104, 0.24);
   border-radius: 12px;
@@ -917,8 +949,7 @@ select {
 }
 
 .quick-actions,
-.chat-section,
-.feedback-section {
+.chat-section {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
@@ -974,20 +1005,6 @@ select {
 .chat-input-row {
   display: grid;
   gap: 0.35rem;
-}
-
-.feedback-section {
-  max-height: 32%;
-}
-
-.feedback-box {
-  border: 1px solid rgba(22, 49, 104, 0.2);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.95);
-  padding: 0.45rem;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  min-height: 90px;
 }
 
 .muted {
@@ -1076,9 +1093,17 @@ select {
     min-height: 420px;
   }
 
-  .quick-actions,
-  .feedback-section {
+  .quick-actions {
     max-height: none;
+  }
+
+  .top-toolbar {
+    padding: 0.42rem;
+  }
+
+  .top-toolbar-views {
+    border-top: 0;
+    padding-top: 0;
   }
 
   .active-book-banner-row {
@@ -1185,6 +1210,7 @@ select {
   .ai-panel,
   .status-bar,
   .active-book-banner,
+  .top-toolbar,
   .help-fab {
     display: none !important;
   }

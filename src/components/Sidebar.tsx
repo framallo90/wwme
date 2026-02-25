@@ -1,19 +1,5 @@
 import type { KeyboardEvent, MouseEvent } from 'react';
-import type { ChapterDocument, LibraryBookEntry, MainView } from '../types/book';
-import {
-  BookPlus,
-  FolderOpen,
-  BookX,
-  Search,
-  Settings,
-  Languages,
-  FileText,
-  ListTree,
-  BookOpenText,
-  BookImage,
-  Database,
-  ShoppingCart,
-} from 'lucide-react';
+import type { ChapterDocument, LibraryBookEntry } from '../types/book';
 import logoImage from '../assets/wwme-logo.png';
 
 interface SidebarProps {
@@ -24,31 +10,18 @@ interface SidebarProps {
   libraryBooks: LibraryBookEntry[];
   libraryExpanded: boolean;
   activeChapterId: string | null;
-  currentView: MainView;
   onToggleLibrary: () => void;
   onOpenLibraryBook: (bookPath: string) => void;
   onOpenLibraryBookChat: (bookPath: string) => void;
   onOpenLibraryBookAmazon: (bookPath: string) => void;
   onDeleteLibraryBook: (bookPath: string) => void;
   onSetBookPublished: (bookPath: string, published: boolean) => void;
-  onCreateBook: () => void;
-  onOpenBook: () => void;
-  onCloseBook: () => void;
   onCreateChapter: () => void;
   onRenameChapter: (chapterId: string) => void;
   onDuplicateChapter: (chapterId: string) => void;
   onDeleteChapter: (chapterId: string) => void;
   onMoveChapter: (chapterId: string, direction: 'up' | 'down') => void;
   onSelectChapter: (chapterId: string) => void;
-  onShowEditor: () => void;
-  onShowOutline: () => void;
-  onShowPreview: () => void;
-  onShowCover: () => void;
-  onShowFoundation: () => void;
-  onShowAmazon: () => void;
-  onShowSearch: () => void;
-  onShowSettings: () => void;
-  onShowLanguage: () => void;
   onExportChapter: () => void;
   onExportBookSingle: () => void;
   onExportBookSplit: () => void;
@@ -247,134 +220,6 @@ function Sidebar(props: SidebarProps) {
             ))}
           </div>
         </section>
-
-      <details className="sidebar-collapsible">
-        <summary>Opciones y vistas</summary>
-        <div className="collapsible-body">
-          <div className="sidebar-actions">
-            <button
-              type="button"
-              className="icon-button"
-              onClick={props.onCreateBook}
-              title="Crea un libro nuevo y abre el procesador de texto."
-            >
-              <BookPlus size={16} />
-              <span>Nuevo libro</span>
-            </button>
-            <button
-              type="button"
-              className="icon-button"
-              onClick={props.onOpenBook}
-              title="Abre una carpeta de libro existente."
-            >
-              <FolderOpen size={16} />
-              <span>Abrir libro</span>
-            </button>
-            <button
-              type="button"
-              className="icon-button"
-              onClick={props.onCloseBook}
-              disabled={!props.hasBook}
-              title="Cierra el libro activo sin salir de la app."
-            >
-              <BookX size={16} />
-              <span>Cerrar libro</span>
-            </button>
-            <button
-              type="button"
-              className="icon-button"
-              onClick={props.onShowSettings}
-              title="Abre la configuracion persistente del modelo, prompt y opciones."
-            >
-              <Settings size={16} />
-              <span>Settings</span>
-            </button>
-          </div>
-
-          <div className="sidebar-view-actions">
-            <button
-              className={`icon-button ${props.currentView === 'editor' ? 'is-active' : ''}`}
-              type="button"
-              onClick={props.onShowEditor}
-              disabled={!props.hasBook}
-              title="Vista principal para escribir y editar."
-            >
-              <FileText size={16} />
-              <span>Editor</span>
-            </button>
-            <button
-              className={`icon-button ${props.currentView === 'outline' ? 'is-active' : ''}`}
-              type="button"
-              onClick={props.onShowOutline}
-              disabled={!props.hasBook}
-              title="Muestra todos los capitulos con su resumen."
-            >
-              <ListTree size={16} />
-              <span>Vista general</span>
-            </button>
-            <button
-              className={`icon-button ${props.currentView === 'preview' ? 'is-active' : ''}`}
-              type="button"
-              onClick={props.onShowPreview}
-              disabled={!props.hasBook}
-              title="Vista previa editorial del libro con formato de paginas."
-            >
-              <BookOpenText size={16} />
-              <span>Preview</span>
-            </button>
-            <button
-              className={`icon-button ${props.currentView === 'search' ? 'is-active' : ''}`}
-              type="button"
-              onClick={props.onShowSearch}
-              disabled={!props.hasBook}
-              title="Busqueda global y reemplazo en capitulo o libro completo."
-            >
-              <Search size={16} />
-              <span>Buscar</span>
-            </button>
-            <button
-              className={`icon-button ${props.currentView === 'cover' ? 'is-active' : ''}`}
-              type="button"
-              onClick={props.onShowCover}
-              disabled={!props.hasBook}
-              title="Gestiona portada, contraportada y texto del lomo."
-            >
-              <BookImage size={16} />
-              <span>Portada</span>
-            </button>
-            <button
-              className={`icon-button ${props.currentView === 'foundation' ? 'is-active' : ''}`}
-              type="button"
-              onClick={props.onShowFoundation}
-              disabled={!props.hasBook}
-              title="Define base narrativa: idea central, voz y reglas de estilo."
-            >
-              <Database size={16} />
-              <span>Base</span>
-            </button>
-            <button
-              className={`icon-button ${props.currentView === 'language' ? 'is-active' : ''}`}
-              type="button"
-              onClick={props.onShowLanguage}
-              disabled={!props.hasBook}
-              title="Selecciona idioma de trabajo para IA y salidas."
-            >
-              <Languages size={16} />
-              <span>Idioma</span>
-            </button>
-            <button
-              className={`icon-button ${props.currentView === 'amazon' ? 'is-active' : ''}`}
-              type="button"
-              onClick={props.onShowAmazon}
-              disabled={!props.hasBook}
-              title="Completa metadatos y presets para publicar en Amazon."
-            >
-              <ShoppingCart size={16} />
-              <span>Amazon</span>
-            </button>
-          </div>
-        </div>
-      </details>
 
       <details className="sidebar-collapsible">
         <summary>Exportar</summary>

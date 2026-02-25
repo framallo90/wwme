@@ -15,6 +15,7 @@ import PreviewView from './components/PreviewView';
 import SearchReplacePanel from './components/SearchReplacePanel';
 import SettingsPanel from './components/SettingsPanel';
 import Sidebar from './components/Sidebar';
+import TopToolbar from './components/TopToolbar';
 import type { TiptapEditorHandle } from './components/TiptapEditor';
 import { formatChapterLengthLabel, resolveChapterLengthPreset } from './lib/chapterLength';
 import { DEFAULT_APP_CONFIG } from './lib/config';
@@ -323,7 +324,6 @@ function App() {
   const [mainView, setMainView] = useState<MainView>('editor');
   const [status, setStatus] = useState('Listo.');
   const [aiBusy, setAiBusy] = useState(false);
-  const [feedback, setFeedback] = useState('');
   const [chatScope, setChatScope] = useState<ChatScope>('chapter');
   const [coverSrc, setCoverSrc] = useState<string | null>(null);
   const [backCoverSrc, setBackCoverSrc] = useState<string | null>(null);
@@ -716,7 +716,6 @@ function App() {
       setActiveChapterId(project.metadata.chapterOrder[0] ?? null);
       setMainView('editor');
       setChatScope('chapter');
-      setFeedback('');
       refreshCovers(project);
       dirtyRef.current = false;
       snapshotUndoCursorRef.current = {};
@@ -853,7 +852,6 @@ function App() {
     setActiveChapterId(null);
     setMainView('editor');
     setFocusMode(false);
-    setFeedback('');
     setChatScope('chapter');
     setSearchMatches([]);
     setSearchTotalMatches(0);
@@ -2031,8 +2029,27 @@ function App() {
 
           setStatus(`Accion aplicada: ${action?.label ?? actionId}`);
         } else {
-          setFeedback(outputText);
-          setStatus(`Devolucion lista: ${action?.label ?? actionId}`);
+          const feedbackScope: ChatScope = actionId === 'feedback-book' ? 'book' : 'chapter';
+          if (feedbackScope === 'chapter' && !activeChapterId) {
+            throw new Error('No hay capitulo activo para guardar la devolucion.');
+          }
+
+          const history =
+            feedbackScope === 'book'
+              ? book.metadata.chats.book
+              : book.metadata.chats.chapters[activeChapter.id] ?? [];
+
+          const feedbackMessage: ChatMessage = {
+            id: randomId('msg'),
+            role: 'assistant',
+            scope: feedbackScope,
+            content: `Devolucion (${action?.label ?? actionId}):\n${outputText}`,
+            createdAt: getNowIso(),
+          };
+
+          await persistScopeMessages(feedbackScope, [...history, feedbackMessage]);
+          setChatScope(feedbackScope);
+          setStatus(`Devolucion enviada al chat: ${action?.label ?? actionId}`);
         }
       } catch (error) {
         setStatus(`Error IA: ${formatUnknownError(error)}`);
@@ -2040,7 +2057,16 @@ function App() {
         setAiBusy(false);
       }
     },
-    [book, activeChapter, config, persistScopeMessages, syncBookToLibrary, enforceExpansionResult, activeLanguage],
+    [
+      book,
+      activeChapter,
+      activeChapterId,
+      config,
+      persistScopeMessages,
+      syncBookToLibrary,
+      enforceExpansionResult,
+      activeLanguage,
+    ],
   );
 
   const persistEditorChapter = useCallback(
@@ -2509,7 +2535,6 @@ function App() {
           setBook(null);
           setActiveChapterId(null);
           setMainView('editor');
-          setFeedback('');
           setChatScope('chapter');
           refreshCovers(null);
           dirtyRef.current = false;
@@ -2763,16 +2788,12 @@ function App() {
             libraryBooks={libraryIndex.books}
             libraryExpanded={libraryExpanded}
             activeChapterId={activeChapterId}
-            currentView={mainView}
             onToggleLibrary={() => setLibraryExpanded((previous) => !previous)}
             onOpenLibraryBook={handleOpenLibraryBook}
             onOpenLibraryBookChat={handleOpenLibraryBookChat}
             onOpenLibraryBookAmazon={handleOpenLibraryBookAmazon}
             onDeleteLibraryBook={handleDeleteLibraryBook}
             onSetBookPublished={handleSetBookPublished}
-            onCreateBook={handleCreateBook}
-            onOpenBook={handleOpenBook}
-            onCloseBook={handleCloseBook}
             onCreateChapter={handleCreateChapter}
             onRenameChapter={handleRenameChapter}
             onDuplicateChapter={handleDuplicateChapter}
@@ -2782,15 +2803,6 @@ function App() {
               setActiveChapterId(chapterId);
               setMainView('editor');
             }}
-            onShowEditor={() => setMainView('editor')}
-            onShowOutline={() => setMainView('outline')}
-            onShowPreview={() => setMainView('preview')}
-            onShowCover={() => setMainView('cover')}
-            onShowFoundation={() => setMainView('foundation')}
-            onShowAmazon={() => setMainView('amazon')}
-            onShowSearch={() => setMainView('search')}
-            onShowSettings={() => setMainView('settings')}
-            onShowLanguage={() => setMainView('language')}
             onExportChapter={handleExportChapter}
             onExportBookSingle={handleExportBookSingle}
             onExportBookSplit={handleExportBookSplit}
@@ -2844,6 +2856,22 @@ function App() {
                 </div>
               </header>
             )}
+            <TopToolbar
+              hasBook={Boolean(book)}
+              currentView={mainView}
+              onCreateBook={handleCreateBook}
+              onOpenBook={handleOpenBook}
+              onCloseBook={handleCloseBook}
+              onShowEditor={() => setMainView('editor')}
+              onShowOutline={() => setMainView('outline')}
+              onShowPreview={() => setMainView('preview')}
+              onShowCover={() => setMainView('cover')}
+              onShowFoundation={() => setMainView('foundation')}
+              onShowAmazon={() => setMainView('amazon')}
+              onShowSearch={() => setMainView('search')}
+              onShowSettings={() => setMainView('settings')}
+              onShowLanguage={() => setMainView('language')}
+            />
             {centerView}
           </div>
         }
@@ -2851,7 +2879,6 @@ function App() {
           <AIPanel
             actions={AI_ACTIONS}
             aiBusy={aiBusy}
-            feedback={feedback}
             canUndoSnapshots={Boolean(book && activeChapter)}
             canRedoSnapshots={canRedoSnapshots}
             scope={chatScope}
