@@ -8,6 +8,8 @@ interface AIPanelProps {
   canUndoSnapshots: boolean;
   canRedoSnapshots: boolean;
   scope: ChatScope;
+  chapterLengthInfo: string;
+  bookLengthInfo: string;
   messages: ChatMessage[];
   autoApplyChatChanges: boolean;
   chatApplyIterations: number;
@@ -94,6 +96,10 @@ function AIPanel(props: AIPanelProps) {
                 <option value="chapter">Por capitulo</option>
                 <option value="book">Por libro</option>
               </select>
+            </div>
+            <div className="length-info-box">
+              <strong>Longitud objetivo</strong>
+              <p>{props.scope === 'chapter' ? props.chapterLengthInfo : props.bookLengthInfo}</p>
             </div>
             <p className="muted">
               {props.autoApplyChatChanges

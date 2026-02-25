@@ -119,6 +119,7 @@ export function buildFoundationBlock(foundation: BookFoundation): string {
 interface BuildActionPromptInput {
   actionId: AiActionId;
   selectedText: string;
+  ideaText?: string;
   chapterTitle: string;
   bookTitle: string;
   language: string;
@@ -131,6 +132,7 @@ interface BuildActionPromptInput {
 export function buildActionPrompt(input: BuildActionPromptInput): string {
   const instruction = ACTION_INSTRUCTIONS[input.actionId];
   const target = input.selectedText.trim();
+  const ideaText = input.ideaText?.trim() ?? '';
   const foundationBlock = buildFoundationBlock(input.foundation);
   const chapterLengthInstruction = getChapterLengthInstruction(input.chapterLengthPreset);
   const languageInstruction = getLanguageInstruction(input.language);
@@ -170,6 +172,9 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
       chapterLengthInstruction,
       `Accion: ${instruction}`,
       '',
+      'Idea del usuario para este capitulo:',
+      ideaText || '(sin idea explicita)',
+      '',
       'Texto actual del capitulo (si existe):',
       input.chapterContext ?? '(vacio)',
       '',
@@ -196,6 +201,7 @@ interface BuildChatPromptInput {
   bookTitle: string;
   language: string;
   foundation: BookFoundation;
+  bookLengthInstruction?: string;
   chapterTitle?: string;
   chapterLengthPreset?: ChapterLengthPreset;
   chapterText: string;
@@ -235,12 +241,14 @@ interface BuildContinuousChapterPromptInput {
 export function buildChatPrompt(input: BuildChatPromptInput): string {
   const chapterLengthInstruction =
     input.scope === 'chapter' ? getChapterLengthInstruction(input.chapterLengthPreset) : null;
+  const bookLengthInstruction = input.scope === 'book' ? input.bookLengthInstruction?.trim() : '';
   const languageInstruction = getLanguageInstruction(input.language);
 
   return [
     `Libro: ${input.bookTitle}`,
     buildFoundationBlock(input.foundation),
     languageInstruction,
+    ...(bookLengthInstruction ? [`Longitud objetivo del libro: ${bookLengthInstruction}`] : []),
     input.chapterTitle ? `Capitulo activo: ${input.chapterTitle}` : 'Sin capitulo activo',
     ...(chapterLengthInstruction ? [chapterLengthInstruction] : []),
     '',

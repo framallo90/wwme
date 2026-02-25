@@ -295,6 +295,20 @@ const tests: TestCase[] = [
       assert.ok(actionPrompt.includes('Idioma de salida obligatorio'));
       assert.ok(actionPrompt.includes('Objetivo de extension del capitulo'));
 
+      const draftPrompt = buildActionPrompt({
+        actionId: 'draft-from-idea',
+        selectedText: 'Aria conoce al dragon en el puerto.',
+        ideaText: 'Aria conoce al dragon en el puerto.',
+        chapterTitle: 'Capitulo 1',
+        bookTitle: 'Libro',
+        language: 'es',
+        foundation,
+        chapterLengthPreset: 'media',
+        chapterContext: '',
+      });
+      assert.ok(draftPrompt.includes('Idea del usuario para este capitulo:'));
+      assert.ok(draftPrompt.includes('Aria conoce al dragon en el puerto.'));
+
       const chatPrompt = buildChatPrompt({
         scope: 'chapter',
         message: 'Mejora el cierre',
@@ -309,6 +323,19 @@ const tests: TestCase[] = [
       });
       assert.ok(chatPrompt.includes('Historial reciente:'));
       assert.ok(chatPrompt.includes('Mensaje actual del usuario:'));
+
+      const bookChatPrompt = buildChatPrompt({
+        scope: 'book',
+        message: 'Reordena el libro completo',
+        bookTitle: 'Libro',
+        language: 'es',
+        foundation,
+        bookLengthInstruction: '8 capitulos, 12.000-17.000 palabras',
+        chapterText: '',
+        fullBookText: 'Texto del libro',
+        compactHistory: '',
+      });
+      assert.ok(bookChatPrompt.includes('Longitud objetivo del libro:'));
 
       const autoPrompt = buildAutoRewritePrompt({
         userInstruction: 'Expandir a 1800 palabras',

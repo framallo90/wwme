@@ -6,12 +6,15 @@ interface PromptModalProps {
   title: string;
   label: string;
   defaultValue?: string;
+  placeholder?: string;
+  multiline?: boolean;
+  confirmLabel?: string;
   onConfirm: (value: string) => void;
   onClose: () => void;
 }
 
 function PromptModal(props: PromptModalProps) {
-  const { isOpen, title, label, defaultValue, onConfirm, onClose } = props;
+  const { isOpen, title, label, defaultValue, placeholder, multiline, confirmLabel, onConfirm, onClose } = props;
   const [value, setValue] = useState(defaultValue ?? '');
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -113,18 +116,29 @@ function PromptModal(props: PromptModalProps) {
         </div>
         <label>
           {label}
-          <input
-            type="text"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            autoFocus
-          />
+          {multiline ? (
+            <textarea
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder={placeholder}
+              autoFocus
+              rows={7}
+            />
+          ) : (
+            <input
+              type="text"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder}
+              autoFocus
+            />
+          )}
         </label>
         <div className="prompt-modal-actions">
           <button type="button" onClick={onClose}>Cancelar</button>
           <button type="button" onClick={handleConfirm} disabled={!value.trim()}>
-            Aceptar
+            {confirmLabel ?? 'Aceptar'}
           </button>
         </div>
       </div>

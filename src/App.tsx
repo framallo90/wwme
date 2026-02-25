@@ -17,7 +17,7 @@ import SettingsPanel from './components/SettingsPanel';
 import Sidebar from './components/Sidebar';
 import TopToolbar from './components/TopToolbar';
 import type { TiptapEditorHandle } from './components/TiptapEditor';
-import { formatChapterLengthLabel, resolveChapterLengthPreset } from './lib/chapterLength';
+import { formatChapterLengthLabel, getChapterLengthProfile, resolveChapterLengthPreset } from './lib/chapterLength';
 import { DEFAULT_APP_CONFIG } from './lib/config';
 import {
   exportBookAmazonBundle,
@@ -25,7 +25,7 @@ import {
   exportBookMarkdownSingleFile,
   exportChapterMarkdown,
 } from './lib/export';
-import { countWordsFromHtml, countWordsFromPlainText, estimatePagesFromWords } from './lib/metrics';
+import { countWordsFromHtml, countWordsFromPlainText, estimatePagesFromWords, formatNumber } from './lib/metrics';
 import { generateWithOllama } from './lib/ollamaClient';
 import {
   AI_ACTIONS,
@@ -351,6 +351,9 @@ function App() {
     title: string;
     label: string;
     defaultValue?: string;
+    placeholder?: string;
+    multiline?: boolean;
+    confirmLabel?: string;
     onConfirm: (value: string) => void;
   } | null>(null);
 
@@ -449,6 +452,48 @@ function App() {
 
     return Math.max(...Object.values(chapterPageMap).map((entry) => entry.end));
   }, [orderedChapters.length, chapterPageMap]);
+
+  const chapterLengthInfo = useMemo(() => {
+    if (!activeChapter) {
+      return 'Sin capitulo activo.';
+    }
+
+    return formatChapterLengthLabel(activeChapter.lengthPreset);
+  }, [activeChapter]);
+
+  const bookLengthInfo = useMemo(() => {
+    if (orderedChapters.length === 0) {
+      return 'Sin capitulos cargados.';
+    }
+
+    let totalMinWords = 0;
+    let totalMaxWords = 0;
+    const presetCounts: Record<ChapterLengthPreset, number> = {
+      corta: 0,
+      media: 0,
+      larga: 0,
+    };
+
+    for (const chapter of orderedChapters) {
+      const profile = getChapterLengthProfile(chapter.lengthPreset);
+      totalMinWords += profile.minWords;
+      totalMaxWords += profile.maxWords;
+      presetCounts[profile.preset] += 1;
+    }
+
+    const breakdownParts: string[] = [];
+    if (presetCounts.corta > 0) {
+      breakdownParts.push(`${presetCounts.corta} corta`);
+    }
+    if (presetCounts.media > 0) {
+      breakdownParts.push(`${presetCounts.media} media`);
+    }
+    if (presetCounts.larga > 0) {
+      breakdownParts.push(`${presetCounts.larga} larga`);
+    }
+
+    return `${orderedChapters.length} capitulos | ${formatNumber(totalMinWords)}-${formatNumber(totalMaxWords)} palabras aprox (${breakdownParts.join(', ')}).`;
+  }, [orderedChapters]);
 
   const updateEditorHistoryState = useCallback(() => {
     const editor = editorRef.current;
@@ -1610,6 +1655,7 @@ function App() {
             bookTitle: book.metadata.title,
             language: activeLanguage,
             foundation: book.metadata.foundation,
+            bookLengthInstruction: scope === 'book' ? bookLengthInfo : undefined,
             chapterTitle: activeChapter?.title,
             chapterLengthPreset: activeChapter?.lengthPreset,
             chapterText,
@@ -1910,11 +1956,21 @@ function App() {
         setAiBusy(false);
       }
     },
-    [book, activeChapter, activeChapterId, config, persistScopeMessages, syncBookToLibrary, enforceExpansionResult, activeLanguage],
+    [
+      book,
+      activeChapter,
+      activeChapterId,
+      config,
+      persistScopeMessages,
+      syncBookToLibrary,
+      enforceExpansionResult,
+      activeLanguage,
+      bookLengthInfo,
+    ],
   );
 
-  const handleRunAction = useCallback(
-    async (actionId: (typeof AI_ACTIONS)[number]['id']) => {
+  const executeAction = useCallback(
+    async (actionId: (typeof AI_ACTIONS)[number]['id'], ideaText = '') => {
       if (!book || !activeChapter) {
         return;
       }
@@ -1926,15 +1982,25 @@ function App() {
 
       const allowEmptyTargetActions = new Set(['feedback-book', 'feedback-chapter', 'draft-from-idea']);
       const hasSelection = editor.hasSelection();
-      const selectedText = hasSelection ? editor.getSelectionText() : editor.getDocumentText();
-      if (!selectedText.trim() && !allowEmptyTargetActions.has(actionId)) {
+      const chapterText = editor.getDocumentText();
+      const selectedText = hasSelection ? editor.getSelectionText() : chapterText;
+      const normalizedIdea = ideaText.trim();
+      const promptTargetText = actionId === 'draft-from-idea' ? normalizedIdea : selectedText;
+
+      if (actionId === 'draft-from-idea' && !normalizedIdea) {
+        setStatus('Escribi una idea para generar el capitulo.');
+        return;
+      }
+
+      if (!promptTargetText.trim() && !allowEmptyTargetActions.has(actionId)) {
         setStatus('No hay texto para procesar.');
         return;
       }
 
       const prompt = buildActionPrompt({
         actionId,
-        selectedText,
+        selectedText: promptTargetText,
+        ideaText: normalizedIdea,
         chapterTitle: activeChapter.title,
         bookTitle: book.metadata.title,
         language: activeLanguage,
@@ -1945,7 +2011,7 @@ function App() {
       });
 
       setAiBusy(true);
-      setStatus('Aplicando accion IA...');
+      setStatus(actionId === 'draft-from-idea' ? 'Generando capitulo desde idea...' : 'Aplicando accion IA...');
 
       try {
         const action = AI_ACTIONS.find((item) => item.id === actionId);
@@ -1964,10 +2030,14 @@ function App() {
         let summaryText = parsedOutput.summaryText;
 
         if (action?.modifiesText) {
+          const expansionSourceText = actionId === 'draft-from-idea' ? chapterText : selectedText;
           const expansionResult = await enforceExpansionResult({
             actionId,
-            instruction: `${action.label}. ${action.description}`,
-            originalText: selectedText,
+            instruction:
+              actionId === 'draft-from-idea'
+                ? `Escribir desde idea. ${normalizedIdea}`
+                : `${action.label}. ${action.description}`,
+            originalText: expansionSourceText,
             candidateText: outputText,
             bookTitle: book.metadata.title,
             chapterTitle: activeChapter.title,
@@ -1977,10 +2047,10 @@ function App() {
         }
 
         if (action?.modifiesText) {
-          if (hasSelection) {
-            editor.replaceSelectionWithText(outputText);
-          } else {
+          if (actionId === 'draft-from-idea' || !hasSelection) {
             editor.replaceDocumentWithText(outputText);
+          } else {
+            editor.replaceSelectionWithText(outputText);
           }
 
           const nextHtml = editor.getHTML();
@@ -2027,7 +2097,9 @@ function App() {
             await persistScopeMessages('chapter', [...currentChapterMessages, summaryMessage]);
           }
 
-          setStatus(`Accion aplicada: ${action?.label ?? actionId}`);
+          setStatus(
+            actionId === 'draft-from-idea' ? 'Capitulo generado desde la idea ingresada.' : `Accion aplicada: ${action?.label ?? actionId}`,
+          );
         } else {
           const feedbackScope: ChatScope = actionId === 'feedback-book' ? 'book' : 'chapter';
           if (feedbackScope === 'chapter' && !activeChapterId) {
@@ -2067,6 +2139,34 @@ function App() {
       enforceExpansionResult,
       activeLanguage,
     ],
+  );
+
+  const handleRunAction = useCallback(
+    (actionId: (typeof AI_ACTIONS)[number]['id']) => {
+      if (actionId === 'draft-from-idea') {
+        if (!activeChapter) {
+          setStatus('No hay capitulo activo para generar desde idea.');
+          return;
+        }
+
+        setPromptModal({
+          title: `Escribir desde idea - ${activeChapter.title}`,
+          label: 'Idea del capitulo',
+          defaultValue: '',
+          placeholder: 'Describe que tiene que pasar en este capitulo, tono, conflicto y objetivo...',
+          multiline: true,
+          confirmLabel: 'Generar capitulo',
+          onConfirm: (ideaValue) => {
+            setPromptModal(null);
+            void executeAction(actionId, ideaValue);
+          },
+        });
+        return;
+      }
+
+      void executeAction(actionId);
+    },
+    [activeChapter, executeAction],
   );
 
   const persistEditorChapter = useCallback(
@@ -2882,6 +2982,8 @@ function App() {
             canUndoSnapshots={Boolean(book && activeChapter)}
             canRedoSnapshots={canRedoSnapshots}
             scope={chatScope}
+            chapterLengthInfo={chapterLengthInfo}
+            bookLengthInfo={bookLengthInfo}
             messages={currentMessages}
             autoApplyChatChanges={config.autoApplyChatChanges}
             chatApplyIterations={config.chatApplyIterations}
@@ -2919,6 +3021,9 @@ function App() {
           title={promptModal.title}
           label={promptModal.label}
           defaultValue={promptModal.defaultValue}
+          placeholder={promptModal.placeholder}
+          multiline={promptModal.multiline}
+          confirmLabel={promptModal.confirmLabel}
           onConfirm={promptModal.onConfirm}
           onClose={() => setPromptModal(null)}
         />

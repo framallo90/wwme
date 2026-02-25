@@ -971,6 +971,26 @@ select {
   flex: 1;
 }
 
+.length-info-box {
+  border: 1px solid rgba(22, 49, 104, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 0.45rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.length-info-box strong {
+  font-size: 0.84rem;
+  color: #1d3569;
+}
+
+.length-info-box p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #4a5b81;
+}
+
 .chat-history {
   flex: 1;
   min-height: 120px;
