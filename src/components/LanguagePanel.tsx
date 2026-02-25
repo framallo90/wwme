@@ -1,4 +1,9 @@
-import { APP_LANGUAGE_OPTIONS, getLanguageDisplayName, getLanguageOption, normalizeLanguageCode } from '../lib/language';
+import { useMemo } from 'react';
+import {
+  APP_LANGUAGE_OPTIONS,
+  getLanguageDisplayName,
+  resolveLanguageSelectValue,
+} from '../lib/language';
 import type { AppConfig } from '../types/book';
 
 interface LanguagePanelProps {
@@ -9,16 +14,26 @@ interface LanguagePanelProps {
 }
 
 function LanguagePanel(props: LanguagePanelProps) {
-  const normalizedLanguage = normalizeLanguageCode(props.config.language);
-  const isKnown = Boolean(getLanguageOption(normalizedLanguage));
+  const languageInput = props.config.language;
+
+  const selectValue = useMemo(() => resolveLanguageSelectValue(languageInput), [languageInput]);
+
+  const activeLabel = useMemo(() => {
+    const raw = languageInput.trim();
+    if (!raw) {
+      return 'Personalizado (sin definir)';
+    }
+
+    return getLanguageDisplayName(raw);
+  }, [languageInput]);
 
   return (
     <section className="settings-view">
       <header>
         <h2>Idioma</h2>
         <p>
-          Defini el idioma de trabajo para la IA y la salida editorial. El modelo va a responder y reescribir en este
-          idioma.
+          Defini el idioma de trabajo para la IA y la salida editorial. El modelo va a responder y reescribir en
+          este idioma.
         </p>
         <p>
           {props.bookPath
@@ -30,13 +45,14 @@ function LanguagePanel(props: LanguagePanelProps) {
       <label>
         Idioma principal
         <select
-          value={isKnown ? normalizedLanguage : 'custom'}
+          value={selectValue}
           onChange={(event) => {
             const value = event.target.value;
             if (value === 'custom') {
-              props.onChange({ ...props.config, language: normalizedLanguage });
+              props.onChange({ ...props.config, language: '' });
               return;
             }
+
             props.onChange({ ...props.config, language: value });
           }}
         >
@@ -52,13 +68,16 @@ function LanguagePanel(props: LanguagePanelProps) {
       <label>
         Codigo de idioma
         <input
-          value={props.config.language}
-          onChange={(event) => props.onChange({ ...props.config, language: normalizeLanguageCode(event.target.value) })}
+          value={languageInput}
+          onChange={(event) => {
+            const rawValue = event.target.value;
+            props.onChange({ ...props.config, language: rawValue });
+          }}
           placeholder="es, en, pt, fr, de, it..."
         />
       </label>
 
-      <p className="muted">Idioma activo: {getLanguageDisplayName(props.config.language)}</p>
+      <p className="muted">Idioma activo: {activeLabel}</p>
 
       <button
         type="button"
@@ -73,3 +92,4 @@ function LanguagePanel(props: LanguagePanelProps) {
 }
 
 export default LanguagePanel;
+

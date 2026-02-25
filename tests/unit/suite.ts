@@ -9,6 +9,7 @@ import {
   getLanguageDisplayName,
   getLanguageInstruction,
   normalizeLanguageCode,
+  resolveLanguageSelectValue,
 } from '../../src/lib/language';
 import {
   buildAmazonCopyPack,
@@ -227,10 +228,13 @@ const tests: TestCase[] = [
     },
   },
   {
-    name: 'language: normaliza codigo y genera instruccion',
+    name: 'language: normaliza codigo, select value e instruccion',
     run: () => {
       assert.equal(normalizeLanguageCode(' ES '), 'es');
       assert.ok(APP_LANGUAGE_OPTIONS.length >= 5);
+      assert.equal(resolveLanguageSelectValue(''), 'custom');
+      assert.equal(resolveLanguageSelectValue(' es '), 'es');
+      assert.equal(resolveLanguageSelectValue('es-ar'), 'custom');
       assert.ok(getLanguageDisplayName('fr').toLowerCase().includes('fran'));
       assert.ok(getLanguageInstruction('en').includes('English'));
     },
@@ -366,3 +370,4 @@ if (failures > 0) {
 }
 
 console.log(`\nSuite OK: ${tests.length} tests`);
+
