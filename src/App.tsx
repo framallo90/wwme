@@ -765,7 +765,7 @@ function App() {
         },
       });
     } catch (error) {
-      setStatus(`Error al guardar: ${(error as Error).message}`);
+      setStatus(`Error al guardar: ${formatUnknownError(error)}`);
     } finally {
       saveInFlightRef.current = false;
     }
@@ -1226,7 +1226,7 @@ function App() {
       });
       setStatus('Base del libro guardada.');
     } catch (error) {
-      setStatus(`No se pudo guardar la base: ${(error as Error).message}`);
+      setStatus(`No se pudo guardar la base: ${formatUnknownError(error)}`);
     }
   }, [book, syncBookToLibrary]);
 
@@ -1273,7 +1273,7 @@ function App() {
       });
       setStatus('Seccion Amazon guardada.');
     } catch (error) {
-      setStatus(`No se pudo guardar Amazon: ${(error as Error).message}`);
+      setStatus(`No se pudo guardar Amazon: ${formatUnknownError(error)}`);
     }
   }, [book, syncBookToLibrary]);
 
@@ -1319,7 +1319,7 @@ function App() {
           setMainView('editor');
           setStatus(`Capitulo creado: ${result.chapter.title}`);
         } catch (error) {
-          setStatus(`No se pudo crear el capitulo: ${(error as Error).message}`);
+          setStatus(`No se pudo crear el capitulo: ${formatUnknownError(error)}`);
         }
       },
     });
@@ -1368,7 +1368,7 @@ function App() {
             });
             setStatus('Capitulo renombrado.');
           } catch (error) {
-            setStatus(`No se pudo renombrar: ${(error as Error).message}`);
+            setStatus(`No se pudo renombrar: ${formatUnknownError(error)}`);
           }
         },
       });
@@ -1413,7 +1413,7 @@ function App() {
         });
         setStatus('Capitulo duplicado.');
       } catch (error) {
-        setStatus(`No se pudo duplicar: ${(error as Error).message}`);
+        setStatus(`No se pudo duplicar: ${formatUnknownError(error)}`);
       }
     },
     [book, syncBookToLibrary],
@@ -1460,7 +1460,7 @@ function App() {
 
         setStatus('Capitulo eliminado.');
       } catch (error) {
-        setStatus(`No se pudo eliminar: ${(error as Error).message}`);
+        setStatus(`No se pudo eliminar: ${formatUnknownError(error)}`);
       }
     },
     [book, activeChapterId, syncBookToLibrary],
@@ -1489,7 +1489,7 @@ function App() {
           metadata,
         });
       } catch (error) {
-        setStatus(`No se pudo mover: ${(error as Error).message}`);
+        setStatus(`No se pudo mover: ${formatUnknownError(error)}`);
       }
     },
     [book, syncBookToLibrary],
@@ -2560,7 +2560,7 @@ function App() {
       await syncBookToLibrary(updated);
       setStatus('Portada eliminada.');
     } catch (error) {
-      setStatus(`No se pudo quitar portada: ${(error as Error).message}`);
+      setStatus(`No se pudo quitar portada: ${formatUnknownError(error)}`);
     }
   }, [book, refreshCovers, syncBookToLibrary]);
 
@@ -2614,7 +2614,7 @@ function App() {
       await syncBookToLibrary(updated);
       setStatus('Contraportada eliminada.');
     } catch (error) {
-      setStatus(`No se pudo quitar contraportada: ${(error as Error).message}`);
+      setStatus(`No se pudo quitar contraportada: ${formatUnknownError(error)}`);
     }
   }, [book, refreshCovers, syncBookToLibrary]);
 
@@ -2656,7 +2656,7 @@ function App() {
       await syncBookToLibrary(updated);
       setStatus('Datos de portada guardados.');
     } catch (error) {
-      setStatus(`No se pudieron guardar los datos de portada: ${(error as Error).message}`);
+      setStatus(`No se pudieron guardar los datos de portada: ${formatUnknownError(error)}`);
     }
   }, [book, syncBookToLibrary]);
 
@@ -2669,7 +2669,7 @@ function App() {
       const path = await exportChapterMarkdown(book.path, activeChapter);
       setStatus(`Capitulo exportado: ${path}`);
     } catch (error) {
-      setStatus(`No se pudo exportar capitulo: ${(error as Error).message}`);
+      setStatus(`No se pudo exportar capitulo: ${formatUnknownError(error)}`);
     }
   }, [book, activeChapter]);
 
@@ -2682,7 +2682,7 @@ function App() {
       const path = await exportBookMarkdownSingleFile(book.path, book.metadata, orderedChapters);
       setStatus(`Libro exportado: ${path}`);
     } catch (error) {
-      setStatus(`No se pudo exportar libro: ${(error as Error).message}`);
+      setStatus(`No se pudo exportar libro: ${formatUnknownError(error)}`);
     }
   }, [book, orderedChapters]);
 
@@ -2695,7 +2695,7 @@ function App() {
       const files = await exportBookMarkdownByChapter(book.path, orderedChapters);
       setStatus(`Capitulos exportados: ${files.length} archivos`);
     } catch (error) {
-      setStatus(`No se pudo exportar libro: ${(error as Error).message}`);
+      setStatus(`No se pudo exportar libro: ${formatUnknownError(error)}`);
     }
   }, [book, orderedChapters]);
 
@@ -2708,7 +2708,7 @@ function App() {
       const files = await exportBookAmazonBundle(book.path, book.metadata, orderedChapters);
       setStatus(`Pack Amazon exportado (${files.length} archivos).`);
     } catch (error) {
-      setStatus(`No se pudo exportar pack Amazon: ${(error as Error).message}`);
+      setStatus(`No se pudo exportar pack Amazon: ${formatUnknownError(error)}`);
     }
   }, [book, orderedChapters]);
 
@@ -2798,7 +2798,7 @@ function App() {
         setLibraryIndex(nextIndex);
         setStatus(`Libro eliminado: ${title}`);
       } catch (error) {
-        setStatus(`No se pudo eliminar el libro: ${(error as Error).message}`);
+        setStatus(`No se pudo eliminar el libro: ${formatUnknownError(error)}`);
       }
     },
     [book, flushChapterSave, libraryIndex.books, refreshCovers],
@@ -2831,7 +2831,7 @@ function App() {
         await syncBookToLibrary(updatedProject);
         setStatus(published ? 'Libro marcado como publicado.' : 'Libro marcado como no publicado.');
       } catch (error) {
-        setStatus(`No se pudo actualizar estado de publicacion: ${(error as Error).message}`);
+        setStatus(`No se pudo actualizar estado de publicacion: ${formatUnknownError(error)}`);
       }
     },
     [book, libraryIndex.books, syncBookToLibrary],

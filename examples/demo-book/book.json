@@ -10,19 +10,6 @@
     "spineText":  "Libro Demo",
     "createdAt":  "2026-02-16T00:00:00.000Z",
     "updatedAt":  "2026-02-16T00:00:00.000Z",
-    "chats":  {
-                  "book":  [
-
-                           ],
-                  "chapters":  {
-                                   "01":  [
-
-                                          ],
-                                   "02":  [
-
-                                          ]
-                               }
-              },
     "foundation":  {
                        "centralIdea":  "Explorar como la escritura ordena el pensamiento y la experiencia.",
                        "promise":  "El lector termina con un metodo practico y sobrio para pensar mejor escribiendo.",
@@ -36,7 +23,7 @@
     "amazon":  {
                    "presetType":  "non-fiction-reflexive",
                    "marketplace":  "Amazon.com",
-                   "language":  "Spanish",
+                   "language":  "es",
                    "kdpTitle":  "Libro Demo",
                    "subtitle":  "",
                    "penName":  "WriteWMe",

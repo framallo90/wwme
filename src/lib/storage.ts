@@ -789,7 +789,10 @@ async function ensureBookProjectFiles(
   await saveChatsToDisk(normalizedBookPath, loadedChats);
   await writeJson(bookFilePath(normalizedBookPath), stripChatsFromMetadata(metadata));
   if (!(await exists(configFilePath(normalizedBookPath)))) {
-    await writeJson(configFilePath(normalizedBookPath), DEFAULT_APP_CONFIG);
+    await writeJson(configFilePath(normalizedBookPath), {
+      ...DEFAULT_APP_CONFIG,
+      language: normalizeLanguageCode(metadata.amazon.language),
+    });
   }
 
   return { metadata, chapters };
