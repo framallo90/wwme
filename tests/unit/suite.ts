@@ -244,8 +244,8 @@ const tests: TestCase[] = [
       assert.equal(resolveChapterLengthPreset('corta'), 'corta');
       assert.equal(resolveChapterLengthPreset('invalid'), 'media');
       const profile = getChapterLengthProfile('larga');
-      assert.equal(profile.maxWords, 3500);
-      assert.ok(getChapterLengthInstruction('media').includes('1500-2200'));
+      assert.equal(profile.maxWords, 7000);
+      assert.ok(getChapterLengthInstruction('media').includes('3000-4500'));
     },
   },
     {

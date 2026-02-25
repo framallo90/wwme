@@ -516,8 +516,17 @@ function App() {
     if (presetCounts.larga > 0) {
       breakdownParts.push(`${presetCounts.larga} larga`);
     }
+    const midpoint = Math.round((totalMinWords + totalMaxWords) / 2);
+    let targetScale = 'objetivo abierto';
+    if (midpoint >= 20000 && midpoint < 50000) {
+      targetScale = 'novela corta';
+    } else if (midpoint >= 50000 && midpoint < 90000) {
+      targetScale = 'novela mediana';
+    } else if (midpoint >= 100000 && midpoint <= 200000) {
+      targetScale = 'novela larga/epica';
+    }
 
-    return `${orderedChapters.length} capitulos | ${formatNumber(totalMinWords)}-${formatNumber(totalMaxWords)} palabras aprox (${breakdownParts.join(', ')}).`;
+    return `${orderedChapters.length} capitulos | ${formatNumber(totalMinWords)}-${formatNumber(totalMaxWords)} palabras aprox (${breakdownParts.join(', ')}) | escala estimada: ${targetScale}. Referencia: corta 20.000-50.000, mediana 50.000-90.000, larga 100.000-200.000.`;
   }, [orderedChapters]);
 
   const updateEditorHistoryState = useCallback(() => {

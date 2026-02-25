@@ -11,20 +11,20 @@ const CHAPTER_LENGTH_PROFILES: Record<ChapterLengthPreset, ChapterLengthProfile>
   corta: {
     preset: 'corta',
     label: 'Corta',
-    minWords: 900,
-    maxWords: 1300,
+    minWords: 1800,
+    maxWords: 2800,
   },
   media: {
     preset: 'media',
     label: 'Media',
-    minWords: 1500,
-    maxWords: 2200,
+    minWords: 3000,
+    maxWords: 4500,
   },
   larga: {
     preset: 'larga',
     label: 'Larga',
-    minWords: 2500,
-    maxWords: 3500,
+    minWords: 5000,
+    maxWords: 7000,
   },
 };
 
