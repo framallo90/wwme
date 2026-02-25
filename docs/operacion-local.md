@@ -40,7 +40,7 @@ Get-ChildItem .\reports\verify |
 
 Notas de almacenamiento del libro:
 - `book.json` guarda metadatos del proyecto (sin historial de chat pesado).
-- `config.json` guarda configuracion persistente por libro.
+- `config.json` guarda configuracion persistente por libro. Si no trae `language`, se toma `amazon.language` desde `book.json`.
 - `chats/book.json` y `chats/NN.json` guardan historial de chat por libro/capitulo.
 
 ## 3) Comandos clave y para que sirve cada uno

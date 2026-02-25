@@ -14,6 +14,8 @@ All notable changes to this project are documented in this file.
 - Language workflow is now synchronized between `config.json` and `book.json` (Amazon language).
 - Language input accepts ISO regional formats like `pt-BR`, `es-MX`, `en-US`.
 - Language panel UX now includes dirty-state save enablement and save feedback states.
+- Language panel now warns when selected language appears inconsistent with Amazon marketplace locale.
+- Config loading now inherits language from `book.json` (`amazon.language`) when `config.json` has no explicit `language`.
 - Snapshot files now store lightweight chapter payloads (HTML + `contentJson: null`) to reduce version storage footprint.
 
 ### Fixed

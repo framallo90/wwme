@@ -2953,6 +2953,7 @@ function App() {
           config={config}
           bookPath={book?.path ?? null}
           amazonLanguage={book?.metadata.amazon.language ?? null}
+          amazonMarketplace={book?.metadata.amazon.marketplace ?? null}
           onChangeLanguage={handleLanguageChange}
           onSave={handleSaveSettings}
           isDirty={languageDirty}

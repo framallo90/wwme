@@ -619,7 +619,8 @@ function deriveBookStatus(
 function ensureChapterDocument(chapter: ChapterDocument): ChapterDocument {
   return {
     ...chapter,
-    contentJson: chapter.contentJson ?? null,
+    // Persistimos HTML como fuente de verdad para reducir peso en disco.
+    contentJson: null,
     lengthPreset: resolveChapterLengthPreset(chapter.lengthPreset),
   };
 }
@@ -897,15 +898,39 @@ export async function loadAppConfig(bookPath: string): Promise<AppConfig> {
 
   await mkdir(normalizedBookPath, { recursive: true });
 
+  let bookLanguageHint = DEFAULT_APP_CONFIG.language;
+  const targetBookPath = bookFilePath(normalizedBookPath);
+  if (await exists(targetBookPath)) {
+    try {
+      const metadata = await readJson<Partial<BookMetadata> & { amazon?: Partial<AmazonKdpData> }>(
+        targetBookPath,
+      );
+      const amazonLanguage = metadata.amazon?.language;
+      if (typeof amazonLanguage === 'string' && amazonLanguage.trim()) {
+        bookLanguageHint = normalizeLanguageCode(amazonLanguage);
+      }
+    } catch {
+      // Ignora book.json corrupto para no bloquear carga de config.
+    }
+  }
+
   if (!(await exists(targetConfigPath))) {
-    await writeJson(targetConfigPath, DEFAULT_APP_CONFIG);
-    return DEFAULT_APP_CONFIG;
+    const createdConfig: AppConfig = {
+      ...DEFAULT_APP_CONFIG,
+      language: bookLanguageHint,
+    };
+    await writeJson(targetConfigPath, createdConfig);
+    return createdConfig;
   }
 
   const loaded = await readJson<Partial<AppConfig>>(targetConfigPath);
+  const hasExplicitLanguage = typeof loaded.language === 'string' && loaded.language.trim().length > 0;
   return {
     ...DEFAULT_APP_CONFIG,
     ...loaded,
+    language: hasExplicitLanguage
+      ? normalizeLanguageCode(loaded.language)
+      : bookLanguageHint,
     ollamaOptions: {
       ...DEFAULT_APP_CONFIG.ollamaOptions,
       ...(loaded.ollamaOptions ?? {}),

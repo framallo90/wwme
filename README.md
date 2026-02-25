@@ -118,7 +118,7 @@ Biblioteca global:
 
 `config.json` (persistente por libro):
 - `model` (default `llama3.2:3b`)
-- `language` (idioma de trabajo para prompts y salida IA)
+- `language` (idioma de trabajo para prompts y salida IA). Si falta, se hereda de `book.json` (`amazon.language`).
 - `temperature`
 - `systemPrompt`
 - `autoVersioning`
@@ -132,7 +132,7 @@ Biblioteca global:
 Cada capitulo (`chapters/NN.json`) guarda:
 - `id`, `title`
 - `content` (HTML TipTap)
-- `contentJson` (opcional)
+- `contentJson` (opcional, actualmente persistido en `null` para minimizar peso)
 - `createdAt`, `updatedAt`
 
 ## Funciones implementadas
@@ -157,6 +157,7 @@ Cada capitulo (`chapters/NN.json`) guarda:
   - seleccion o codigo manual (`es`, `en`, `pt-BR`, `es-MX`, etc.)
   - sincronizacion de idioma base + Amazon/KDP
   - validacion de formato ISO y aviso de desalineacion
+  - aviso para revisar marketplace/moneda si el idioma no coincide con el mercado Amazon principal
   - boton con estado (`Guardando...`, `Guardado OK`) y guardado solo con cambios
 - Presets Amazon (no ficcion reflexiva, ensayo practico, narrativa intima)
 - Validacion KDP en panel Amazon:
@@ -186,7 +187,7 @@ Cuando `autoApplyChatChanges` esta activo:
 ## Defaults recomendados
 
 - Modelo: `llama3.2:3b`
-- Formato de capitulo: HTML TipTap + `contentJson` opcional
+- Formato de capitulo: HTML TipTap como fuente principal (`contentJson` opcional para futuras extensiones)
 - Configuracion: `mi-libro/config.json`
 - Export: HTML -> Markdown (conversion simple)
 

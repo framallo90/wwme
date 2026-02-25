@@ -12,10 +12,26 @@ interface LanguagePanelProps {
   config: AppConfig;
   bookPath: string | null;
   amazonLanguage: string | null;
+  amazonMarketplace: string | null;
   onChangeLanguage: (language: string) => void;
   onSave: () => void;
   isDirty: boolean;
   saveState: 'idle' | 'saving' | 'saved';
+}
+
+function inferMarketplaceLanguageHint(marketplace: string | null): string | null {
+  const raw = (marketplace ?? '').trim().toLowerCase();
+  if (!raw) {
+    return null;
+  }
+
+  if (raw.endsWith('.com')) return 'en';
+  if (raw.endsWith('.es') || raw.endsWith('.com.mx')) return 'es';
+  if (raw.endsWith('.com.br')) return 'pt';
+  if (raw.endsWith('.fr')) return 'fr';
+  if (raw.endsWith('.de')) return 'de';
+  if (raw.endsWith('.it')) return 'it';
+  return null;
 }
 
 function LanguagePanel(props: LanguagePanelProps) {
@@ -25,10 +41,17 @@ function LanguagePanel(props: LanguagePanelProps) {
   const showIsoWarning = rawInput.length > 0 && !isLanguageCodeFormatValid(rawInput);
   const normalizedConfigLanguage = normalizeLanguageCode(languageInput);
   const normalizedAmazonLanguage = normalizeLanguageCode(props.amazonLanguage ?? '');
+  const marketplaceLanguageHint = inferMarketplaceLanguageHint(props.amazonMarketplace);
   const hasLanguageMismatch = Boolean(
     props.bookPath &&
       props.amazonLanguage !== null &&
       normalizedConfigLanguage !== normalizedAmazonLanguage,
+  );
+  const shouldReviewMarketplace = Boolean(
+    props.bookPath &&
+      marketplaceLanguageHint &&
+      normalizedConfigLanguage &&
+      !normalizedConfigLanguage.startsWith(marketplaceLanguageHint),
   );
 
   const activeLabel = useMemo(() => {
@@ -68,6 +91,11 @@ function LanguagePanel(props: LanguagePanelProps) {
         {hasLanguageMismatch && (
           <p className="warning-text">
             Advertencia: idioma base y Amazon no coinciden. Guarda para sincronizar metadatos.
+          </p>
+        )}
+        {shouldReviewMarketplace && (
+          <p className="warning-text">
+            Revisa marketplace y moneda en Amazon: el idioma actual puede no coincidir con el mercado principal.
           </p>
         )}
       </header>
