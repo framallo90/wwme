@@ -2,6 +2,8 @@
 
 Procesador de libro offline para crear, escribir, reescribir, revisar y modificar texto + portada/contraportada con IA local (Ollama).
 
+Version actual: `0.2.0`
+
 Stack:
 - Tauri + React + TypeScript + Vite
 - TipTap (editor WYSIWYG)
@@ -105,6 +107,7 @@ Biblioteca global:
 
 `config.json` (persistente por libro):
 - `model` (default `llama3.2:3b`)
+- `language` (idioma de trabajo para prompts y salida IA)
 - `temperature`
 - `systemPrompt`
 - `autoVersioning`
@@ -139,6 +142,7 @@ Cada capitulo (`chapters/NN.json`) guarda:
   - modo auto-aplicar sin preguntar (iterativo)
   - agente continuo por rondas en chat de capitulo
 - Presets de trabajo en Settings (borrador, precision, revision final)
+- Solapa de idioma dedicada (seleccion + guardado persistente)
 - Presets Amazon (no ficcion reflexiva, ensayo practico, narrativa intima)
 - Snapshot antes de cambios IA + undo basico
 - Export Markdown:
@@ -183,3 +187,9 @@ Incluye:
 - 100% local/offline (sin servicios pagos ni cloud).
 - Si Ollama no esta corriendo, la app muestra error claro para iniciarlo.
 - Export Markdown usa conversion simple; se puede mejorar despues.
+
+## Documentacion y versionado
+
+- Historial de versiones: `CHANGELOG.md`
+- Guia de releases y criterio de reversionado: `docs/versioning.md`
+- Regla operativa: todo cambio significativo se documenta y sube version.

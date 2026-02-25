@@ -1,4 +1,5 @@
 import { getChapterLengthInstruction } from './chapterLength';
+import { getLanguageInstruction } from './language';
 import type { AiAction, AiActionId, BookFoundation, ChapterLengthPreset } from '../types/book';
 
 export const DEFAULT_SYSTEM_PROMPT = `Sos un editor literario experto. Tu tono debe ser intimo, sobrio y reflexivo. No uses estilo de autoayuda ni new age.
@@ -120,6 +121,7 @@ interface BuildActionPromptInput {
   selectedText: string;
   chapterTitle: string;
   bookTitle: string;
+  language: string;
   foundation: BookFoundation;
   chapterLengthPreset?: ChapterLengthPreset;
   chapterContext?: string;
@@ -131,11 +133,13 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
   const target = input.selectedText.trim();
   const foundationBlock = buildFoundationBlock(input.foundation);
   const chapterLengthInstruction = getChapterLengthInstruction(input.chapterLengthPreset);
+  const languageInstruction = getLanguageInstruction(input.language);
 
   if (input.actionId === 'feedback-book') {
     return [
       `Libro: ${input.bookTitle}`,
       foundationBlock,
+      languageInstruction,
       `Accion: ${instruction}`,
       '',
       'Contenido del libro:',
@@ -148,6 +152,7 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
       `Libro: ${input.bookTitle}`,
       `Capitulo: ${input.chapterTitle}`,
       foundationBlock,
+      languageInstruction,
       chapterLengthInstruction,
       `Accion: ${instruction}`,
       '',
@@ -161,6 +166,7 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
       `Libro: ${input.bookTitle}`,
       `Capitulo: ${input.chapterTitle}`,
       foundationBlock,
+      languageInstruction,
       chapterLengthInstruction,
       `Accion: ${instruction}`,
       '',
@@ -175,6 +181,7 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
     `Libro: ${input.bookTitle}`,
     `Capitulo: ${input.chapterTitle}`,
     foundationBlock,
+    languageInstruction,
     chapterLengthInstruction,
     `Accion: ${instruction}`,
     '',
@@ -187,6 +194,7 @@ interface BuildChatPromptInput {
   scope: 'chapter' | 'book';
   message: string;
   bookTitle: string;
+  language: string;
   foundation: BookFoundation;
   chapterTitle?: string;
   chapterLengthPreset?: ChapterLengthPreset;
@@ -198,6 +206,7 @@ interface BuildChatPromptInput {
 interface BuildAutoRewritePromptInput {
   userInstruction: string;
   bookTitle: string;
+  language: string;
   foundation: BookFoundation;
   chapterTitle: string;
   chapterLengthPreset?: ChapterLengthPreset;
@@ -212,6 +221,7 @@ interface BuildAutoRewritePromptInput {
 interface BuildContinuousChapterPromptInput {
   userInstruction: string;
   bookTitle: string;
+  language: string;
   foundation: BookFoundation;
   chapterTitle: string;
   chapterLengthPreset?: ChapterLengthPreset;
@@ -225,10 +235,12 @@ interface BuildContinuousChapterPromptInput {
 export function buildChatPrompt(input: BuildChatPromptInput): string {
   const chapterLengthInstruction =
     input.scope === 'chapter' ? getChapterLengthInstruction(input.chapterLengthPreset) : null;
+  const languageInstruction = getLanguageInstruction(input.language);
 
   return [
     `Libro: ${input.bookTitle}`,
     buildFoundationBlock(input.foundation),
+    languageInstruction,
     input.chapterTitle ? `Capitulo activo: ${input.chapterTitle}` : 'Sin capitulo activo',
     ...(chapterLengthInstruction ? [chapterLengthInstruction] : []),
     '',
@@ -247,6 +259,7 @@ export function buildAutoRewritePrompt(input: BuildAutoRewritePromptInput): stri
   return [
     'MODO: reescritura automatica sin pedir confirmaciones.',
     `Libro: ${input.bookTitle}`,
+    getLanguageInstruction(input.language),
     buildFoundationBlock(input.foundation),
     `Capitulo: ${input.chapterTitle} (${input.chapterIndex}/${input.chapterTotal})`,
     getChapterLengthInstruction(input.chapterLengthPreset),
@@ -272,6 +285,7 @@ export function buildContinuousChapterPrompt(input: BuildContinuousChapterPrompt
   return [
     'MODO: agente continuo para capitulo, sin pedir confirmaciones.',
     `Libro: ${input.bookTitle}`,
+    getLanguageInstruction(input.language),
     buildFoundationBlock(input.foundation),
     `Capitulo: ${input.chapterTitle}`,
     getChapterLengthInstruction(input.chapterLengthPreset),

@@ -6,6 +6,7 @@ import {
   BookX,
   Search,
   Settings,
+  Languages,
   FileText,
   ListTree,
   BookOpenText,
@@ -47,6 +48,7 @@ interface SidebarProps {
   onShowAmazon: () => void;
   onShowSearch: () => void;
   onShowSettings: () => void;
+  onShowLanguage: () => void;
   onExportChapter: () => void;
   onExportBookSingle: () => void;
   onExportBookSplit: () => void;
@@ -349,6 +351,16 @@ function Sidebar(props: SidebarProps) {
             >
               <Database size={16} />
               <span>Base</span>
+            </button>
+            <button
+              className={`icon-button ${props.currentView === 'language' ? 'is-active' : ''}`}
+              type="button"
+              onClick={props.onShowLanguage}
+              disabled={!props.hasBook}
+              title="Selecciona idioma de trabajo para IA y salidas."
+            >
+              <Languages size={16} />
+              <span>Idioma</span>
             </button>
             <button
               className={`icon-button ${props.currentView === 'amazon' ? 'is-active' : ''}`}

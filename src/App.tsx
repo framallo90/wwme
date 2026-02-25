@@ -9,6 +9,7 @@ import BookFoundationPanel from './components/BookFoundationPanel';
 import CoverView from './components/CoverView';
 import EditorPane from './components/EditorPane';
 import HelpPanel from './components/HelpPanel';
+import LanguagePanel from './components/LanguagePanel';
 import OutlineView from './components/OutlineView';
 import PreviewView from './components/PreviewView';
 import SearchReplacePanel from './components/SearchReplacePanel';
@@ -32,6 +33,7 @@ import {
   buildChatPrompt,
   buildContinuousChapterPrompt,
 } from './lib/prompts';
+import { getLanguageInstruction, normalizeLanguageCode } from './lib/language';
 import PromptModal from './components/PromptModal';
 import {
   clearBackCoverImage,
@@ -277,6 +279,7 @@ function buildExpansionRecoveryPrompt(input: {
   instruction: string;
   bookTitle: string;
   chapterTitle: string;
+  language: string;
   minWords: number;
   originalText: string;
   candidateText: string;
@@ -285,6 +288,7 @@ function buildExpansionRecoveryPrompt(input: {
     'MODO: correccion de longitud.',
     `Libro: ${input.bookTitle}`,
     `Capitulo: ${input.chapterTitle}`,
+    getLanguageInstruction(input.language),
     `Objetivo minimo: ${input.minWords} palabras.`,
     '',
     'La salida previa redujo el texto y no cumplio la instruccion de expansion.',
@@ -391,6 +395,8 @@ function App() {
     }),
     [searchCaseSensitive, searchWholeWord],
   );
+
+  const activeLanguage = useMemo(() => normalizeLanguageCode(config.language), [config.language]);
 
   const interiorFormat = useMemo(
     () => book?.metadata.interiorFormat ?? FALLBACK_INTERIOR_FORMAT,
@@ -520,6 +526,7 @@ function App() {
         instruction: input.instruction,
         bookTitle: input.bookTitle,
         chapterTitle: input.chapterTitle,
+        language: activeLanguage,
         minWords: minimumWords,
         originalText: input.originalText,
         candidateText: cleanedCandidate,
@@ -555,7 +562,7 @@ function App() {
         corrected: false,
       };
     },
-    [config],
+    [config, activeLanguage],
   );
 
   const refreshCovers = useCallback((project: BookProject | null) => {
@@ -630,7 +637,8 @@ function App() {
     const root = document.documentElement;
     root.setAttribute('data-contrast', config.accessibilityHighContrast ? 'high' : 'normal');
     root.setAttribute('data-text-size', config.accessibilityLargeText ? 'large' : 'normal');
-  }, [config.accessibilityHighContrast, config.accessibilityLargeText]);
+    root.lang = activeLanguage;
+  }, [config.accessibilityHighContrast, config.accessibilityLargeText, activeLanguage]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -701,7 +709,10 @@ function App() {
   const applyOpenedProjectState = useCallback(
     (project: BookProject, loadedConfig: AppConfig) => {
       setBook(project);
-      setConfig(loadedConfig);
+      setConfig({
+        ...loadedConfig,
+        language: normalizeLanguageCode(loadedConfig.language),
+      });
       setActiveChapterId(project.metadata.chapterOrder[0] ?? null);
       setMainView('editor');
       setChatScope('chapter');
@@ -965,12 +976,17 @@ function App() {
     }
 
     try {
-      await saveAppConfig(book.path, config);
+      const normalizedConfig: AppConfig = {
+        ...config,
+        language: activeLanguage,
+      };
+      await saveAppConfig(book.path, normalizedConfig);
+      setConfig(normalizedConfig);
       setStatus('Settings guardados en config.json del libro.');
     } catch (error) {
       setStatus(`Error guardando settings: ${(error as Error).message}`);
     }
-  }, [book, config]);
+  }, [book, config, activeLanguage]);
 
   const handleFoundationChange = useCallback(
     (foundation: BookProject['metadata']['foundation']) => {
@@ -1594,6 +1610,7 @@ function App() {
             scope,
             message,
             bookTitle: book.metadata.title,
+            language: activeLanguage,
             foundation: book.metadata.foundation,
             chapterTitle: activeChapter?.title,
             chapterLengthPreset: activeChapter?.lengthPreset,
@@ -1651,6 +1668,7 @@ function App() {
               const prompt = buildContinuousChapterPrompt({
                 userInstruction: message,
                 bookTitle: book.metadata.title,
+                language: activeLanguage,
                 foundation: book.metadata.foundation,
                 chapterTitle: chapter.title,
                 chapterLengthPreset: chapter.lengthPreset,
@@ -1708,6 +1726,7 @@ function App() {
               const prompt = buildAutoRewritePrompt({
                 userInstruction: message,
                 bookTitle: book.metadata.title,
+                language: activeLanguage,
                 foundation: book.metadata.foundation,
                 chapterTitle: chapter.title,
                 chapterLengthPreset: chapter.lengthPreset,
@@ -1811,6 +1830,7 @@ function App() {
             const prompt = buildAutoRewritePrompt({
               userInstruction: message,
               bookTitle: book.metadata.title,
+              language: activeLanguage,
               foundation: book.metadata.foundation,
               chapterTitle: chapter.title,
               chapterLengthPreset: chapter.lengthPreset,
@@ -1892,7 +1912,7 @@ function App() {
         setAiBusy(false);
       }
     },
-    [book, activeChapter, activeChapterId, config, persistScopeMessages, syncBookToLibrary, enforceExpansionResult],
+    [book, activeChapter, activeChapterId, config, persistScopeMessages, syncBookToLibrary, enforceExpansionResult, activeLanguage],
   );
 
   const handleRunAction = useCallback(
@@ -1919,6 +1939,7 @@ function App() {
         selectedText,
         chapterTitle: activeChapter.title,
         bookTitle: book.metadata.title,
+        language: activeLanguage,
         foundation: book.metadata.foundation,
         chapterLengthPreset: activeChapter.lengthPreset,
         chapterContext: stripHtml(activeChapter.content),
@@ -2019,7 +2040,7 @@ function App() {
         setAiBusy(false);
       }
     },
-    [book, activeChapter, config, persistScopeMessages, syncBookToLibrary, enforceExpansionResult],
+    [book, activeChapter, config, persistScopeMessages, syncBookToLibrary, enforceExpansionResult, activeLanguage],
   );
 
   const persistEditorChapter = useCallback(
@@ -2652,6 +2673,10 @@ function App() {
       return <SettingsPanel config={config} bookPath={book?.path ?? null} onChange={setConfig} onSave={handleSaveSettings} />;
     }
 
+    if (mainView === 'language') {
+      return <LanguagePanel config={config} bookPath={book?.path ?? null} onChange={setConfig} onSave={handleSaveSettings} />;
+    }
+
     return (
       <EditorPane
         ref={editorRef}
@@ -2765,6 +2790,7 @@ function App() {
             onShowAmazon={() => setMainView('amazon')}
             onShowSearch={() => setMainView('search')}
             onShowSettings={() => setMainView('settings')}
+            onShowLanguage={() => setMainView('language')}
             onExportChapter={handleExportChapter}
             onExportBookSingle={handleExportBookSingle}
             onExportBookSplit={handleExportBookSplit}

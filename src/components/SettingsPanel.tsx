@@ -32,6 +32,15 @@ function SettingsPanel(props: SettingsPanelProps) {
       </label>
 
       <label>
+        Idioma de trabajo
+        <input
+          value={config.language}
+          onChange={(event) => props.onChange({ ...config, language: event.target.value.trim().toLowerCase() })}
+          placeholder="es"
+        />
+      </label>
+
+      <label>
         Temperatura
         <input
           type="number"
