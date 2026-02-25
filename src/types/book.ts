@@ -59,6 +59,11 @@ export interface BookFoundation {
 
 export type AmazonPresetType = 'non-fiction-reflexive' | 'practical-essay' | 'intimate-narrative';
 
+export interface AmazonContributor {
+  role: string;
+  name: string;
+}
+
 export interface AmazonKdpData {
   presetType: AmazonPresetType;
   marketplace: string;
@@ -68,6 +73,12 @@ export interface AmazonKdpData {
   penName: string;
   seriesName: string;
   edition: string;
+  contributors: AmazonContributor[];
+  ownCopyright: boolean;
+  isAdultContent: boolean;
+  isbn: string;
+  enableDRM: boolean;
+  enrollKDPSelect: boolean;
   keywords: string[];
   categories: string[];
   backCoverText: string;

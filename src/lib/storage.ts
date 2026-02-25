@@ -65,6 +65,12 @@ export function buildDefaultAmazon(bookTitle: string, author: string): AmazonKdp
     penName: author,
     seriesName: '',
     edition: '1',
+    contributors: [],
+    ownCopyright: true,
+    isAdultContent: false,
+    isbn: '',
+    enableDRM: false,
+    enrollKDPSelect: false,
     keywords: ['', '', '', '', '', '', ''],
     categories: [
       'Libros > Literatura y ficcion > Ensayos',
@@ -75,6 +81,71 @@ export function buildDefaultAmazon(bookTitle: string, author: string): AmazonKdp
     longDescription: '',
     authorBio: '',
     kdpNotes: '',
+  };
+}
+
+function ensureAmazonKeywords(values: unknown): string[] {
+  const source = Array.isArray(values) ? values : [];
+  const normalized = source.map((value) => String(value ?? '').trim());
+  while (normalized.length < 7) {
+    normalized.push('');
+  }
+  return normalized.slice(0, 7);
+}
+
+function ensureAmazonCategories(values: unknown, defaults: string[]): string[] {
+  const source = Array.isArray(values) ? values : [];
+  const normalized = source
+    .map((value) => String(value ?? '').trim())
+    .filter((value) => value.length > 0);
+  return normalized.length > 0 ? normalized : defaults;
+}
+
+function ensureAmazonContributors(values: unknown): AmazonKdpData['contributors'] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  const normalized: AmazonKdpData['contributors'] = [];
+  for (const entry of values) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    const payload = entry as { role?: unknown; name?: unknown };
+    const role = String(payload.role ?? '').trim() || 'Contribuidor';
+    const name = String(payload.name ?? '').trim();
+    if (!name) {
+      continue;
+    }
+
+    normalized.push({ role, name });
+  }
+
+  return normalized;
+}
+
+function ensureAmazonData(
+  amazon: AmazonKdpData | null | undefined,
+  bookTitle: string,
+  author: string,
+): AmazonKdpData {
+  const defaults = buildDefaultAmazon(bookTitle, author);
+  if (!amazon) {
+    return defaults;
+  }
+
+  return {
+    ...defaults,
+    ...amazon,
+    contributors: ensureAmazonContributors(amazon.contributors),
+    ownCopyright: amazon.ownCopyright ?? defaults.ownCopyright,
+    isAdultContent: amazon.isAdultContent ?? defaults.isAdultContent,
+    isbn: amazon.isbn ?? defaults.isbn,
+    enableDRM: amazon.enableDRM ?? defaults.enableDRM,
+    enrollKDPSelect: amazon.enrollKDPSelect ?? defaults.enrollKDPSelect,
+    keywords: ensureAmazonKeywords(amazon.keywords),
+    categories: ensureAmazonCategories(amazon.categories, defaults.categories),
   };
 }
 
@@ -511,7 +582,7 @@ function ensureBookMetadata(metadata: BookMetadata): BookMetadata {
     backCoverImage: metadata.backCoverImage ?? null,
     spineText: metadata.spineText ?? metadata.title ?? '',
     foundation: metadata.foundation ?? buildDefaultFoundation(),
-    amazon: metadata.amazon ?? buildDefaultAmazon(metadata.title, metadata.author),
+    amazon: ensureAmazonData(metadata.amazon, metadata.title, metadata.author),
     interiorFormat: metadata.interiorFormat ?? buildDefaultInteriorFormat(),
     isPublished: metadata.isPublished ?? false,
     publishedAt: metadata.publishedAt ?? null,
@@ -713,7 +784,7 @@ export async function saveBookMetadata(
     updatedAt: getNowIso(),
     chats: metadata.chats ?? buildDefaultChats(),
     foundation: metadata.foundation ?? buildDefaultFoundation(),
-    amazon: metadata.amazon ?? buildDefaultAmazon(metadata.title, metadata.author),
+    amazon: ensureAmazonData(metadata.amazon, metadata.title, metadata.author),
     backCoverImage: metadata.backCoverImage ?? null,
     spineText: metadata.spineText ?? metadata.title,
     interiorFormat: metadata.interiorFormat ?? buildDefaultInteriorFormat(),

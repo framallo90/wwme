@@ -146,6 +146,12 @@ function createMetadata(): BookMetadata {
       penName: '',
       seriesName: '',
       edition: '',
+      contributors: [],
+      ownCopyright: true,
+      isAdultContent: false,
+      isbn: '',
+      enableDRM: false,
+      enrollKDPSelect: false,
       keywords: [],
       categories: [],
       backCoverText: '',
@@ -261,6 +267,8 @@ const tests: TestCase[] = [
       assert.equal(presetApplied.penName, metadata.author);
       assert.equal(presetApplied.keywords.length, 7);
       assert.ok(presetApplied.categories.length >= 3);
+      assert.equal(presetApplied.ownCopyright, true);
+      assert.equal(presetApplied.isAdultContent, false);
     },
   },
   {
@@ -277,6 +285,8 @@ const tests: TestCase[] = [
       const pack = buildAmazonCopyPack({ ...metadata, amazon: generated });
       assert.ok(pack.includes('AMAZON KDP PACK'));
       assert.ok(pack.includes('Descripcion larga (KDP):'));
+      assert.ok(pack.includes('DRM eBook:'));
+      assert.ok(pack.includes('KDP Select:'));
     },
   },
   {

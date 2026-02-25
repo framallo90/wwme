@@ -48,6 +48,10 @@ function AmazonPanel(props: AmazonPanelProps) {
   const copyPack = useMemo(() => buildAmazonCopyPack(props.metadata), [props.metadata]);
   const interior = props.metadata.interiorFormat;
   const interiorCss = useMemo(() => buildInteriorCss(props.metadata), [props.metadata]);
+  const contributorsText = useMemo(
+    () => amazon.contributors.map((contributor) => `${contributor.role}: ${contributor.name}`).join('\n'),
+    [amazon.contributors],
+  );
 
   const updateAmazon = (patch: Partial<BookMetadata['amazon']>) => {
     props.onChangeMetadata({
@@ -79,6 +83,26 @@ function AmazonPanel(props: AmazonPanelProps) {
     const next = [...amazon.categories];
     next[index] = value;
     updateAmazon({ categories: next });
+  };
+
+  const parseContributors = (raw: string) => {
+    return raw
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const separatorIndex = line.indexOf(':');
+        if (separatorIndex < 0) {
+          return {
+            role: 'Contribuidor',
+            name: line,
+          };
+        }
+
+        const role = line.slice(0, separatorIndex).trim() || 'Contribuidor';
+        const name = line.slice(separatorIndex + 1).trim();
+        return { role, name };
+      });
   };
 
   const handleCopy = async (label: string, value: string) => {
@@ -152,7 +176,11 @@ function AmazonPanel(props: AmazonPanelProps) {
         <button type="button" onClick={autoGenerate} title="Genera textos sugeridos para descripcion, bio y notas.">
           Auto-completar textos
         </button>
-        <button type="button" onClick={props.onExportAmazonBundle} title="Exporta paquete TXT + HTML para carga en Amazon.">
+        <button
+          type="button"
+          onClick={props.onExportAmazonBundle}
+          title="Exporta paquete TXT + HTML para carga en Amazon."
+        >
           Export pack Amazon
         </button>
         <button type="button" onClick={() => props.onSave()} title="Guarda todos los campos Amazon dentro del libro.">
@@ -195,7 +223,75 @@ function AmazonPanel(props: AmazonPanelProps) {
           Edicion
           <input value={amazon.edition} onChange={(event) => updateAmazon({ edition: event.target.value })} />
         </label>
+
+        <label>
+          ISBN
+          <input
+            value={amazon.isbn}
+            onChange={(event) => updateAmazon({ isbn: event.target.value })}
+            placeholder="ISBN (print) o dejar vacio para eBook"
+          />
+        </label>
       </div>
+
+      <section className="amazon-section">
+        <div className="section-title-row">
+          <h3>Configuracion KDP obligatoria/recomendada</h3>
+        </div>
+        <div className="amazon-grid">
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={amazon.ownCopyright}
+              onChange={(event) => updateAmazon({ ownCopyright: event.target.checked })}
+            />
+            Poseo los derechos de publicacion
+          </label>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={amazon.isAdultContent}
+              onChange={(event) => updateAmazon({ isAdultContent: event.target.checked })}
+            />
+            Contenido para adultos (+18)
+          </label>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={amazon.enableDRM}
+              onChange={(event) => updateAmazon({ enableDRM: event.target.checked })}
+            />
+            Activar DRM para eBook
+          </label>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={amazon.enrollKDPSelect}
+              onChange={(event) => updateAmazon({ enrollKDPSelect: event.target.checked })}
+            />
+            Inscribir en KDP Select
+          </label>
+        </div>
+      </section>
+
+      <section className="amazon-section">
+        <div className="section-title-row">
+          <h3>Colaboradores (Contributors)</h3>
+          <button
+            type="button"
+            onClick={() => handleCopy('Colaboradores', contributorsText)}
+            title="Copia colaboradores por linea (Rol: Nombre)."
+          >
+            Copiar
+          </button>
+        </div>
+        <textarea
+          rows={5}
+          value={contributorsText}
+          onChange={(event) => updateAmazon({ contributors: parseContributors(event.target.value) })}
+          placeholder={'Editor: Nombre\nIlustrador: Nombre\nTraductor: Nombre'}
+        />
+      </section>
 
       <section className="amazon-section">
         <div className="section-title-row">

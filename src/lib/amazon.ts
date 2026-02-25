@@ -178,6 +178,11 @@ export function generateAmazonCopy(
 
 export function buildAmazonCopyPack(metadata: BookMetadata): string {
   const amazon = metadata.amazon;
+  const contributorsLines =
+    amazon.contributors.length > 0
+      ? amazon.contributors.map((contributor) => `- ${contributor.role}: ${contributor.name}`)
+      : ['(sin colaboradores)'];
+
   return [
     'AMAZON KDP PACK',
     `Marketplace: ${amazon.marketplace}`,
@@ -188,6 +193,14 @@ export function buildAmazonCopyPack(metadata: BookMetadata): string {
     `Autor / Pen Name: ${amazon.penName}`,
     `Serie: ${amazon.seriesName}`,
     `Edicion: ${amazon.edition}`,
+    `ISBN: ${amazon.isbn || '(sin definir)'}`,
+    `Derechos de publicacion: ${amazon.ownCopyright ? 'Poseo derechos' : 'Dominio publico'}`,
+    `Contenido para adultos (+18): ${amazon.isAdultContent ? 'Si' : 'No'}`,
+    `DRM eBook: ${amazon.enableDRM ? 'Activado' : 'Desactivado'}`,
+    `KDP Select: ${amazon.enrollKDPSelect ? 'Inscripto' : 'No inscripto'}`,
+    '',
+    'Colaboradores:',
+    ...contributorsLines,
     '',
     'Descripcion corta (contratapa):',
     amazon.backCoverText,
