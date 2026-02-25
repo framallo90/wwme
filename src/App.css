@@ -263,7 +263,7 @@ select {
   display: grid;
   gap: 0.45rem;
   overflow-y: auto;
-  max-height: 210px;
+  max-height: clamp(260px, 34vh, 360px);
 }
 
 .library-item {
