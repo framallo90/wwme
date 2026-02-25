@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "rootDir": "..",
+    "outDir": "../.tmp-tests",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  },
+  "include": [
+    "../tests/unit/**/*.ts",
+    "../src/lib/chapterLength.ts",
+    "../src/lib/language.ts",
+    "../src/lib/amazon.ts",
+    "../src/lib/prompts.ts",
+    "../src/lib/text.ts",
+    "../src/lib/metrics.ts",
+    "../src/types/book.ts"
+  ]
+}

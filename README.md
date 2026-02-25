@@ -34,6 +34,7 @@ npm run tauri dev
 Si queres validar solo frontend:
 
 ```bash
+npm run test
 npm run lint
 npm run build
 npm run dev
@@ -68,6 +69,9 @@ reports/verify/verify-YYYYMMDD-HHMMSS.json
 ```
 
 Para agregar futuras pruebas, sumas un nuevo entry en el array `$checks` de `scripts/verify_local.ps1`.
+
+Regla de calidad del proyecto:
+- Cada funcion nueva o cambio de comportamiento debe venir con un test nuevo o actualizado en `tests/unit/suite.ts`.
 
 ## Estructura de libro en disco
 

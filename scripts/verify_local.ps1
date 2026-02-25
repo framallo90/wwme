@@ -337,6 +337,18 @@ $checks = @(
     }
   },
   @{
+    id = "app.tests"
+    category = "app"
+    name = "Unit tests"
+    run = {
+      $result = Invoke-ExternalCommand -FileName "npm" -Arguments @("run", "test") -WorkingDirectory $projectRoot
+      if ($result.ExitCode -eq 0) {
+        return @{ status = "PASS"; summary = "Tests unitarios OK."; details = $result.StdOut }
+      }
+      return @{ status = "FAIL"; summary = "Tests unitarios con errores."; details = ($result.StdErr + "`n" + $result.StdOut).Trim() }
+    }
+  },
+  @{
     id = "app.a11y-contrast"
     category = "app"
     name = "A11y contrast (WCAG)"
