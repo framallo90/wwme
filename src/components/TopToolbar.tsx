@@ -3,14 +3,17 @@ import {
   BookOpenText,
   BookPlus,
   BookX,
+  ChartColumn,
   Database,
   FileText,
   FolderOpen,
+  GitCompare,
   Languages,
   ListTree,
   Search,
   Settings,
   ShoppingCart,
+  Users,
 } from 'lucide-react';
 import type { MainView } from '../types/book';
 
@@ -23,8 +26,11 @@ interface TopToolbarProps {
   onShowEditor: () => void;
   onShowOutline: () => void;
   onShowPreview: () => void;
+  onShowDiff: () => void;
+  onShowStyle: () => void;
   onShowCover: () => void;
   onShowFoundation: () => void;
+  onShowBible: () => void;
   onShowAmazon: () => void;
   onShowSearch: () => void;
   onShowSettings: () => void;
@@ -97,6 +103,26 @@ function TopToolbar(props: TopToolbarProps) {
         </button>
         <button
           type="button"
+          className={`icon-button ${props.currentView === 'diff' ? 'is-active' : ''}`}
+          onClick={props.onShowDiff}
+          disabled={!props.hasBook}
+          title="Control de cambios entre snapshots."
+        >
+          <GitCompare size={16} />
+          <span>Diff</span>
+        </button>
+        <button
+          type="button"
+          className={`icon-button ${props.currentView === 'style' ? 'is-active' : ''}`}
+          onClick={props.onShowStyle}
+          disabled={!props.hasBook}
+          title="Metricas de estilo y ritmo narrativo."
+        >
+          <ChartColumn size={16} />
+          <span>Estilo</span>
+        </button>
+        <button
+          type="button"
           className={`icon-button ${props.currentView === 'search' ? 'is-active' : ''}`}
           onClick={props.onShowSearch}
           disabled={!props.hasBook}
@@ -124,6 +150,16 @@ function TopToolbar(props: TopToolbarProps) {
         >
           <Database size={16} />
           <span>Base</span>
+        </button>
+        <button
+          type="button"
+          className={`icon-button ${props.currentView === 'bible' ? 'is-active' : ''}`}
+          onClick={props.onShowBible}
+          disabled={!props.hasBook}
+          title="Personajes, lugares y continuidad para IA."
+        >
+          <Users size={16} />
+          <span>Biblia</span>
         </button>
         <button
           type="button"

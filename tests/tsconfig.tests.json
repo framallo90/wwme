@@ -17,10 +17,13 @@
     "../tests/unit/**/*.ts",
     "../src/lib/chapterLength.ts",
     "../src/lib/language.ts",
+    "../src/lib/styleMetrics.ts",
     "../src/lib/amazon.ts",
     "../src/lib/amazonValidation.ts",
     "../src/lib/prompts.ts",
     "../src/lib/text.ts",
+    "../src/lib/diff.ts",
+    "../src/lib/zip.ts",
     "../src/lib/metrics.ts",
     "../src/data/kdpCategories.ts",
     "../src/types/book.ts"

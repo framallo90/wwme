@@ -549,6 +549,8 @@ select {
 .editor-pane,
 .outline-view,
 .preview-view,
+.diff-view,
+.style-view,
 .cover-view,
 .search-view,
 .settings-view {
@@ -557,6 +559,17 @@ select {
   flex-direction: column;
   gap: 0.7rem;
   min-height: 0;
+}
+
+.view-loading {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgba(20, 43, 92, 0.26);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #42557f;
+  font-size: 0.92rem;
 }
 
 .editor-pane.empty-state {
@@ -611,6 +624,28 @@ select {
 .chapter-length-control > span {
   font-size: 0.8rem;
   color: #4d5e85;
+}
+
+.editor-lazy-gate {
+  flex: 1;
+  min-height: 0;
+  border: 1px dashed rgba(22, 49, 104, 0.32);
+  border-radius: 12px;
+  padding: 0.85rem;
+  background: rgba(255, 255, 255, 0.9);
+  display: grid;
+  gap: 0.5rem;
+  align-content: center;
+  justify-items: start;
+}
+
+.editor-lazy-gate h3 {
+  margin: 0;
+}
+
+.editor-lazy-gate p {
+  margin: 0;
+  max-width: 68ch;
 }
 
 .tiptap-wrapper {
@@ -739,6 +774,242 @@ select {
 .preview-content p {
   margin: 0 0 0.4rem;
   text-indent: var(--editor-indent, 1.5em);
+}
+
+.diff-view header h2 {
+  margin: 0;
+}
+
+.diff-view header p {
+  margin: 0.2rem 0 0;
+  color: #4f5f83;
+}
+
+.diff-controls-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.diff-controls-grid label {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.diff-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.diff-meta-grid p {
+  margin: 0;
+}
+
+.diff-output-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid rgba(22, 49, 104, 0.24);
+  border-radius: 12px;
+  padding: 0.55rem;
+  background: rgba(255, 255, 255, 0.93);
+  display: grid;
+  gap: 0.45rem;
+}
+
+.diff-block {
+  border: 1px solid rgba(20, 43, 92, 0.22);
+  border-radius: 10px;
+  padding: 0.45rem 0.55rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.diff-block header {
+  font-family: Consolas, 'Courier New', monospace;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.diff-block p {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+
+.diff-equal {
+  background: rgba(237, 241, 250, 0.6);
+}
+
+.diff-delete {
+  background: rgba(255, 228, 228, 0.72);
+  border-color: rgba(173, 35, 35, 0.32);
+}
+
+.diff-delete header {
+  color: #8f2626;
+}
+
+.diff-insert {
+  background: rgba(222, 248, 232, 0.72);
+  border-color: rgba(22, 122, 62, 0.32);
+}
+
+.diff-insert header {
+  color: #0c7a3d;
+}
+
+.style-view {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.style-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+  align-items: flex-start;
+}
+
+.style-header h2 {
+  margin: 0;
+}
+
+.style-header p {
+  margin: 0.2rem 0 0;
+  color: #4f5f83;
+}
+
+.style-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.style-kpi-card {
+  border: 1px solid rgba(20, 43, 92, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 0.55rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.style-kpi-card h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.style-kpi-card p {
+  margin: 0;
+}
+
+.style-level-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid rgba(20, 43, 92, 0.24);
+  width: fit-content;
+}
+
+.style-level-badge.level-ok {
+  background: rgba(226, 247, 233, 0.9);
+  border-color: rgba(24, 128, 64, 0.4);
+  color: #0f6d34;
+}
+
+.style-level-badge.level-warn {
+  background: rgba(255, 244, 214, 0.95);
+  border-color: rgba(154, 112, 16, 0.45);
+  color: #7e5c00;
+}
+
+.style-level-badge.level-alert {
+  background: rgba(255, 228, 228, 0.92);
+  border-color: rgba(163, 37, 37, 0.45);
+  color: #8f2626;
+}
+
+.style-chapter-panel {
+  border: 1px solid rgba(20, 43, 92, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 0.6rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.style-chapter-panel label {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.style-selected-summary p {
+  margin: 0;
+}
+
+.style-badge-row {
+  margin-top: 0.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.style-badge-row span {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.style-selected-summary h4 {
+  margin: 0.5rem 0 0.3rem;
+}
+
+.style-repetition-list {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.style-chapter-table {
+  border: 1px solid rgba(20, 43, 92, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 0.6rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.style-chapter-table h3 {
+  margin: 0;
+}
+
+.style-table-head,
+.style-table-row {
+  display: grid;
+  grid-template-columns: 2fr 0.8fr 0.8fr 0.8fr 0.9fr;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.style-table-head {
+  font-size: 0.82rem;
+  color: #3d527d;
+  font-weight: 600;
+}
+
+.style-table-row {
+  border-top: 1px solid rgba(20, 43, 92, 0.14);
+  padding-top: 0.3rem;
 }
 
 .outline-list {
@@ -1020,6 +1291,53 @@ select {
   background: rgba(255, 249, 236, 0.95);
 }
 
+.bible-section {
+  border: 1px solid rgba(22, 49, 104, 0.2);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 0.6rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.bible-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.bible-section-head h3 {
+  margin: 0;
+}
+
+.bible-card-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.bible-card {
+  border: 1px solid rgba(22, 49, 104, 0.18);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0.5rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.bible-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.bible-two-col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
 .settings-view header h2 {
   margin: 0;
 }
@@ -1288,6 +1606,15 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .bible-section-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .bible-two-col {
+    grid-template-columns: 1fr;
+  }
+
   .amazon-toolbar {
     grid-template-columns: 1fr;
   }
@@ -1314,6 +1641,28 @@ select {
   }
 
   .search-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .diff-controls-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .diff-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .style-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .style-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .style-table-head,
+  .style-table-row {
     grid-template-columns: 1fr;
   }
 

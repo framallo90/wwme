@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "chapterId": "01",
+  "reason": "Reescribir tono",
+  "createdAt": "2026-02-24T04:33:48.920Z",
+  "chapter": {
+    "id": "01",
+    "title": "Capitulo 1 - El humo en el puerto",
+    "content": "<h2>El humo en el puerto</h2><p>La mañana empezó con olor a metal mojado y gasoil. Lena bajó del tren con una valija pequeña y la certeza de que no volvería a pedir permiso para existir.</p><p>En el muelle, una chimenea apagada dibujaba una columna gris sobre la niebla. Nadie la miraba, pero ella sintió que algo, allí, la estaba esperando.</p>",
+    "contentJson": null,
+    "createdAt": "2026-02-23T07:05:17.9844572Z",
+    "updatedAt": "2026-02-23T07:05:17.9844572Z"
+  }
+}

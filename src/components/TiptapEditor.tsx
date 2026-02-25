@@ -11,6 +11,7 @@ export interface TiptapEditorHandle {
   hasSelection: () => boolean;
   getSelectionText: () => string;
   getDocumentText: () => string;
+  previewSelectionReplacement: (value: string) => string;
   replaceSelectionWithText: (value: string) => void;
   replaceDocumentWithText: (value: string) => void;
   getHTML: () => string;
@@ -89,6 +90,22 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
         }
 
         return editor.state.doc.textBetween(0, editor.state.doc.content.size, '\n\n');
+      },
+      previewSelectionReplacement: (value: string) => {
+        if (!editor) {
+          return value;
+        }
+
+        if (editor.state.selection.empty) {
+          return value;
+        }
+
+        const { from, to } = editor.state.selection;
+        const before = editor.state.doc.textBetween(0, from, '\n\n').trim();
+        const after = editor.state.doc.textBetween(to, editor.state.doc.content.size, '\n\n').trim();
+        const replacement = value.trim();
+
+        return [before, replacement, after].filter((part) => part.length > 0).join('\n\n');
       },
       replaceSelectionWithText: (value: string) => {
         if (!editor) {

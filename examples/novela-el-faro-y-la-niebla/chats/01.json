@@ -1,0 +1,30 @@
+[
+  {
+    "id": "msg_r7a4m2z4",
+    "role": "user",
+    "scope": "chapter",
+    "content": "quiero agrandar el capitulo 1 a 100 palabras",
+    "createdAt": "2026-02-24T17:48:31.099Z"
+  },
+  {
+    "id": "msg_mdvyzs2r",
+    "role": "assistant",
+    "scope": "chapter",
+    "content": "Resumen de cambios:\nEl capítulo 1 ha sido ampliado a 100 palabras y se centra en la llegada de Lena al puerto, su sensación de atrapamiento y su búsqueda de respuestas sobre el pasado.",
+    "createdAt": "2026-02-24T17:48:39.373Z"
+  },
+  {
+    "id": "msg_zbv32ell",
+    "role": "assistant",
+    "scope": "chapter",
+    "content": "Resumen de cambios (Reescribir tono):\n- Añadió detalles sensoriales para enfatizar la atmósfera del puerto.\n- Incorporó metáforas (la niebla como una mujer) para agregar profundidad a las descripciones.\n- Utilizó frases más concisas y precisas para mantener el ritmo sostenido.\n- Añadió un nuevo propósito al diario, enfatizando su importancia en la historia de Lena.\n- Incorporó detalles sobre la ciudad y el muelle para agregar contexto a la trama.",
+    "createdAt": "2026-02-24T23:27:00.887Z"
+  },
+  {
+    "id": "msg_r2zmahxw",
+    "role": "assistant",
+    "scope": "chapter",
+    "content": "Resumen de cambios (Pulir estilo):\n- Se eliminaron las repeticiones y se mejoró la claridad del texto.\n- Se pulieron los estilos y se redujo el relleno innecesario.\n- Se mantuvieron el ritmo sostenido y la narrativa íntima.\n- Se enfatizó la conexión entre el pasado y presente a través de las imágenes y metáforas.\n- Se mantuvo el tono sobrio y reflexivo, sin introducir elementos new age o superfluos.",
+    "createdAt": "2026-02-24T23:28:15.206Z"
+  }
+]

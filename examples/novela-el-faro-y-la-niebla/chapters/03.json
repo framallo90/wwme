@@ -1,8 +1,9 @@
 {
-    "id":  "03",
-    "title":  "Capitulo 3 - Los hombres del dique",
-    "content":  "\u003ch2\u003eLos hombres del dique\u003c/h2\u003e\u003cp\u003eEn el bar del dique se hablaba poco y se medía todo: el vino, la distancia, la confianza. Mauro, capataz de manos cortadas por el frío, le ofreció trabajo sin preguntar de dónde venía.\u003c/p\u003e\u003cp\u003eCuando ella dijo su apellido, varios bajaron la vista. El pasado no estaba muerto; sólo había cambiado de turno.\u003c/p\u003e",
-    "contentJson":  null,
-    "createdAt":  "2026-02-23T07:05:17.9844572Z",
-    "updatedAt":  "2026-02-23T07:05:17.9844572Z"
+  "id": "03",
+  "title": "Capitulo 3 - Los hombres del dique",
+  "content": "<h2>Los hombres del dique</h2><p>En el bar del dique se hablaba poco y se medía todo: el vino, la distancia, la confianza. Mauro, capataz de manos cortadas por el frío, le ofreció trabajo sin preguntar de dónde venía.</p><p>Cuando ella dijo su apellido, varios bajaron la vista. El pasado no estaba muerto; sólo había cambiado de turno.</p>",
+  "contentJson": null,
+  "createdAt": "2026-02-23T07:05:17.9844572Z",
+  "updatedAt": "2026-02-23T07:05:17.9844572Z",
+  "lengthPreset": "media"
 }

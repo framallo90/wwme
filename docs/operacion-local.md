@@ -55,6 +55,8 @@ Notas de almacenamiento del libro:
 | `npx tsc -b` | Typecheck estricto del proyecto TypeScript. |
 | `npm run build` | Build de frontend para produccion. |
 | `npm run verify:local` | Verificacion integral (entorno, lint, typecheck, tests, build, tauri metadata, book structure). |
+| `npm run migrate:contentjson -- --book <ruta-libro>` | Dry-run de migracion para limpiar `contentJson` historico en `chapters/` y `versions/`. |
+| `npm run migrate:contentjson -- --book <ruta-libro> --apply --backup` | Aplica migracion y guarda backup de JSON previos. |
 | `powershell -ExecutionPolicy Bypass -File .\scripts\verify_local.ps1 -Only app.lint,app.typecheck` | Corre solo checks puntuales. |
 | `powershell -ExecutionPolicy Bypass -File .\scripts\verify_local.ps1 -Skip app.build,tauri.metadata` | Salta checks pesados para iterar mas rapido. |
 | `powershell -ExecutionPolicy Bypass -File .\scripts\verify_local.ps1 -BookPath .\examples\demo-book` | Verifica estructura de un libro especifico. |

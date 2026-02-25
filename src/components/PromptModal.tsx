@@ -9,23 +9,42 @@ interface PromptModalProps {
   placeholder?: string;
   multiline?: boolean;
   confirmLabel?: string;
+  secondaryLabel?: string;
+  onSecondary?: () => void;
   onConfirm: (value: string) => void;
   onClose: () => void;
 }
 
 function PromptModal(props: PromptModalProps) {
-  const { isOpen, title, label, defaultValue, placeholder, multiline, confirmLabel, onConfirm, onClose } = props;
+  const {
+    isOpen,
+    title,
+    label,
+    defaultValue,
+    placeholder,
+    multiline,
+    confirmLabel,
+    secondaryLabel,
+    onSecondary,
+    onConfirm,
+    onClose,
+  } = props;
   const [value, setValue] = useState(defaultValue ?? '');
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement | null>(null);
-  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
       return;
     }
-    closeButtonRef.current?.focus();
-  }, [isOpen]);
+    if (multiline) {
+      textareaRef.current?.focus();
+      return;
+    }
+    inputRef.current?.focus();
+  }, [isOpen, multiline]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -110,7 +129,7 @@ function PromptModal(props: PromptModalProps) {
       >
         <div className="prompt-modal-head">
           <h2 id={titleId}>{title}</h2>
-          <button ref={closeButtonRef} type="button" className="prompt-modal-close" onClick={onClose} aria-label="Cerrar">
+          <button type="button" className="prompt-modal-close" onClick={onClose} aria-label="Cerrar">
             X
           </button>
         </div>
@@ -118,6 +137,7 @@ function PromptModal(props: PromptModalProps) {
           {label}
           {multiline ? (
             <textarea
+              ref={textareaRef}
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder={placeholder}
@@ -126,6 +146,7 @@ function PromptModal(props: PromptModalProps) {
             />
           ) : (
             <input
+              ref={inputRef}
               type="text"
               value={value}
               onChange={(e) => setValue(e.target.value)}
@@ -137,6 +158,11 @@ function PromptModal(props: PromptModalProps) {
         </label>
         <div className="prompt-modal-actions">
           <button type="button" onClick={onClose}>Cancelar</button>
+          {onSecondary && secondaryLabel ? (
+            <button type="button" onClick={onSecondary}>
+              {secondaryLabel}
+            </button>
+          ) : null}
           <button type="button" onClick={handleConfirm} disabled={!value.trim()}>
             {confirmLabel ?? 'Aceptar'}
           </button>

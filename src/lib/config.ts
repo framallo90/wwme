@@ -11,6 +11,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   chatApplyIterations: 1,
   continuousAgentEnabled: true,
   continuousAgentMaxRounds: 3,
+  continuityGuardEnabled: false,
   autosaveIntervalMs: 5000,
   accessibilityHighContrast: false,
   accessibilityLargeText: false,

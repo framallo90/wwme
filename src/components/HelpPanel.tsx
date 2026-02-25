@@ -125,6 +125,9 @@ function HelpPanel(props: HelpPanelProps) {
               <li>Nuevo libro: crea carpeta estructurada y abre el procesador.</li>
               <li>Abrir libro: carga una carpeta valida con `book.json`.</li>
               <li>Capitulos (+): crea, renombra, duplica y reordena.</li>
+              <li>Estilo: revisa ritmo y repeticiones por capitulo/libro.</li>
+              <li>Biblia: define personajes/lugares y sus alias para dar contexto estable a IA.</li>
+              <li>Settings: activa "Bloqueo de continuidad IA" para revisar contradicciones antes de guardar.</li>
               <li>Undo snapshot: vuelve a la version anterior del capitulo.</li>
               <li>Acciones IA: reescribe o mejora seleccion/capitulo.</li>
             </ul>
@@ -148,7 +151,7 @@ function HelpPanel(props: HelpPanelProps) {
               <li>Haz clic en `Nuevo libro` y completa titulo y autor.</li>
               <li>Elige la carpeta padre donde guardar el proyecto.</li>
               <li>Se crea la estructura (`book.json`, `chapters`, `assets`, `versions`).</li>
-              <li>Se abre directo el editor y puedes escribir el capitulo 1.</li>
+              <li>Se abre en vista General; entra a Editor cuando quieras empezar a escribir.</li>
               <li>Usa IA para reescribir y snapshots para deshacer.</li>
             </ol>
           </article>

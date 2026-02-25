@@ -1,6 +1,6 @@
 import { getChapterLengthInstruction } from './chapterLength';
 import { getLanguageInstruction } from './language';
-import type { AiAction, AiActionId, BookFoundation, ChapterLengthPreset } from '../types/book';
+import type { AiAction, AiActionId, BookFoundation, ChapterLengthPreset, StoryBible } from '../types/book';
 
 export const DEFAULT_SYSTEM_PROMPT = `Sos un editor literario experto. Tu tono debe ser intimo, sobrio y reflexivo. No uses estilo de autoayuda ni new age.
 No pidas confirmaciones ni hagas preguntas: aplica los cambios directamente.
@@ -116,6 +116,236 @@ export function buildFoundationBlock(foundation: BookFoundation): string {
   ].join('\n');
 }
 
+function compactStoryValue(value: string): string {
+  const trimmed = value.trim();
+  return trimmed || '(sin definir)';
+}
+
+const STORY_TOKEN_PATTERN = /[\p{L}\p{N}']+/gu;
+const STORY_STOPWORDS = new Set<string>([
+  'a',
+  'al',
+  'algo',
+  'and',
+  'con',
+  'como',
+  'de',
+  'del',
+  'el',
+  'en',
+  'es',
+  'for',
+  'la',
+  'las',
+  'lo',
+  'los',
+  'of',
+  'para',
+  'por',
+  'que',
+  'se',
+  'sin',
+  'the',
+  'to',
+  'un',
+  'una',
+  'y',
+]);
+
+function normalizeToken(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function extractStoryTokens(value: string): string[] {
+  const raw = value.match(STORY_TOKEN_PATTERN);
+  if (!raw) {
+    return [];
+  }
+
+  return raw
+    .map(normalizeToken)
+    .filter((token) => token.length >= 3 && !STORY_STOPWORDS.has(token));
+}
+
+function parseAliasList(value: string): string[] {
+  return value
+    .split(/[,\n;|]+/g)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function scoreStoryEntry(
+  name: string,
+  aliases: string,
+  allText: string,
+  queryText: string,
+  queryTokens: Set<string>,
+  recentText: string,
+  recentTokens: Set<string>,
+  recencyWeight: number,
+): number {
+  let score = 0;
+  const normalizedName = normalizeToken(name);
+  if (normalizedName && queryText.includes(normalizedName)) {
+    score += 60;
+  }
+  if (normalizedName && recentText.includes(normalizedName)) {
+    score += Math.round(42 * recencyWeight);
+  }
+
+  for (const alias of parseAliasList(aliases)) {
+    const normalizedAlias = normalizeToken(alias);
+    if (normalizedAlias && queryText.includes(normalizedAlias)) {
+      score += 40;
+    }
+    if (normalizedAlias && recentText.includes(normalizedAlias)) {
+      score += Math.round(30 * recencyWeight);
+    }
+  }
+
+  for (const token of new Set(extractStoryTokens(allText))) {
+    if (queryTokens.has(token)) {
+      score += 4;
+    }
+    if (recentTokens.has(token)) {
+      score += Math.round(6 * recencyWeight);
+    }
+  }
+
+  return score;
+}
+
+function pickRelevantEntries<T>(
+  entries: T[],
+  queryText: string,
+  maxItems: number,
+  getName: (entry: T) => string,
+  getAliases: (entry: T) => string,
+  getAllText: (entry: T) => string,
+  recentText: string,
+  recencyWeight: number,
+): T[] {
+  if (entries.length <= maxItems) {
+    return entries;
+  }
+
+  const normalizedQuery = normalizeToken(queryText);
+  const queryTokens = new Set(extractStoryTokens(queryText));
+  const normalizedRecent = normalizeToken(recentText);
+  const recentTokens = new Set(extractStoryTokens(recentText));
+  const scored = entries.map((entry, index) => ({
+    entry,
+    index,
+    score: scoreStoryEntry(
+      getName(entry),
+      getAliases(entry),
+      getAllText(entry),
+      normalizedQuery,
+      queryTokens,
+      normalizedRecent,
+      recentTokens,
+      recencyWeight,
+    ),
+  }));
+
+  const withMatches = scored
+    .filter((item) => item.score > 0)
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+      return left.index - right.index;
+    })
+    .slice(0, maxItems)
+    .map((item) => item.entry);
+
+  if (withMatches.length > 0) {
+    return withMatches;
+  }
+
+  return entries.slice(0, maxItems);
+}
+
+interface StoryBibleSelectionOptions {
+  maxCharacters?: number;
+  maxLocations?: number;
+  recentText?: string;
+  recencyWeight?: number;
+}
+
+export function selectStoryBibleForPrompt(
+  storyBible: StoryBible,
+  queryText: string,
+  options?: StoryBibleSelectionOptions,
+): StoryBible {
+  const maxCharacters = Math.max(1, options?.maxCharacters ?? 6);
+  const maxLocations = Math.max(1, options?.maxLocations ?? 6);
+  const recentText = options?.recentText ?? '';
+  const recencyWeight = Math.min(2, Math.max(0, options?.recencyWeight ?? 1));
+
+  return {
+    continuityRules: storyBible.continuityRules,
+    characters: pickRelevantEntries(
+      storyBible.characters,
+      queryText,
+      maxCharacters,
+      (entry) => entry.name,
+      (entry) => entry.aliases,
+      (entry) => `${entry.name} ${entry.aliases} ${entry.role} ${entry.traits} ${entry.goal} ${entry.notes}`,
+      recentText,
+      recencyWeight,
+    ),
+    locations: pickRelevantEntries(
+      storyBible.locations,
+      queryText,
+      maxLocations,
+      (entry) => entry.name,
+      (entry) => entry.aliases,
+      (entry) => `${entry.name} ${entry.aliases} ${entry.description} ${entry.atmosphere} ${entry.notes}`,
+      recentText,
+      recencyWeight,
+    ),
+  };
+}
+
+export function buildStoryBibleBlock(storyBible: StoryBible): string {
+  const hasCharacters = storyBible.characters.length > 0;
+  const hasLocations = storyBible.locations.length > 0;
+  const hasContinuity = storyBible.continuityRules.trim().length > 0;
+
+  if (!hasCharacters && !hasLocations && !hasContinuity) {
+    return 'Biblia de la historia:\n- (sin definir)';
+  }
+
+  const lines: string[] = ['Biblia de la historia:'];
+  if (hasContinuity) {
+    lines.push(`- Reglas de continuidad: ${compactStoryValue(storyBible.continuityRules)}`);
+  }
+
+  if (hasCharacters) {
+    lines.push('- Personajes clave:');
+    for (const entry of storyBible.characters.slice(0, 12)) {
+      lines.push(
+        `  - ${compactStoryValue(entry.name)} | alias: ${compactStoryValue(entry.aliases)} | rol: ${compactStoryValue(entry.role)} | rasgos: ${compactStoryValue(entry.traits)} | objetivo: ${compactStoryValue(entry.goal)} | notas: ${compactStoryValue(entry.notes)}`,
+      );
+    }
+  }
+
+  if (hasLocations) {
+    lines.push('- Lugares clave:');
+    for (const entry of storyBible.locations.slice(0, 12)) {
+      lines.push(
+        `  - ${compactStoryValue(entry.name)} | alias: ${compactStoryValue(entry.aliases)} | descripcion: ${compactStoryValue(entry.description)} | atmosfera: ${compactStoryValue(entry.atmosphere)} | notas: ${compactStoryValue(entry.notes)}`,
+      );
+    }
+  }
+
+  return lines.join('\n');
+}
+
 interface BuildActionPromptInput {
   actionId: AiActionId;
   selectedText: string;
@@ -124,6 +354,7 @@ interface BuildActionPromptInput {
   bookTitle: string;
   language: string;
   foundation: BookFoundation;
+  storyBible: StoryBible;
   chapterLengthPreset?: ChapterLengthPreset;
   chapterContext?: string;
   fullBookContext?: string;
@@ -134,6 +365,7 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
   const target = input.selectedText.trim();
   const ideaText = input.ideaText?.trim() ?? '';
   const foundationBlock = buildFoundationBlock(input.foundation);
+  const storyBibleBlock = buildStoryBibleBlock(input.storyBible);
   const chapterLengthInstruction = getChapterLengthInstruction(input.chapterLengthPreset);
   const languageInstruction = getLanguageInstruction(input.language);
 
@@ -141,6 +373,7 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
     return [
       `Libro: ${input.bookTitle}`,
       foundationBlock,
+      storyBibleBlock,
       languageInstruction,
       `Accion: ${instruction}`,
       '',
@@ -154,6 +387,7 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
       `Libro: ${input.bookTitle}`,
       `Capitulo: ${input.chapterTitle}`,
       foundationBlock,
+      storyBibleBlock,
       languageInstruction,
       chapterLengthInstruction,
       `Accion: ${instruction}`,
@@ -168,6 +402,7 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
       `Libro: ${input.bookTitle}`,
       `Capitulo: ${input.chapterTitle}`,
       foundationBlock,
+      storyBibleBlock,
       languageInstruction,
       chapterLengthInstruction,
       `Accion: ${instruction}`,
@@ -186,6 +421,7 @@ export function buildActionPrompt(input: BuildActionPromptInput): string {
     `Libro: ${input.bookTitle}`,
     `Capitulo: ${input.chapterTitle}`,
     foundationBlock,
+    storyBibleBlock,
     languageInstruction,
     chapterLengthInstruction,
     `Accion: ${instruction}`,
@@ -201,6 +437,7 @@ interface BuildChatPromptInput {
   bookTitle: string;
   language: string;
   foundation: BookFoundation;
+  storyBible: StoryBible;
   bookLengthInstruction?: string;
   chapterTitle?: string;
   chapterLengthPreset?: ChapterLengthPreset;
@@ -214,6 +451,7 @@ interface BuildAutoRewritePromptInput {
   bookTitle: string;
   language: string;
   foundation: BookFoundation;
+  storyBible: StoryBible;
   chapterTitle: string;
   chapterLengthPreset?: ChapterLengthPreset;
   chapterText: string;
@@ -229,6 +467,7 @@ interface BuildContinuousChapterPromptInput {
   bookTitle: string;
   language: string;
   foundation: BookFoundation;
+  storyBible: StoryBible;
   chapterTitle: string;
   chapterLengthPreset?: ChapterLengthPreset;
   chapterText: string;
@@ -236,6 +475,17 @@ interface BuildContinuousChapterPromptInput {
   round: number;
   maxRounds: number;
   previousSummary?: string;
+}
+
+interface BuildContinuityGuardPromptInput {
+  userInstruction: string;
+  bookTitle: string;
+  language: string;
+  foundation: BookFoundation;
+  storyBible: StoryBible;
+  chapterTitle: string;
+  originalText: string;
+  candidateText: string;
 }
 
 export function buildChatPrompt(input: BuildChatPromptInput): string {
@@ -247,6 +497,7 @@ export function buildChatPrompt(input: BuildChatPromptInput): string {
   return [
     `Libro: ${input.bookTitle}`,
     buildFoundationBlock(input.foundation),
+    buildStoryBibleBlock(input.storyBible),
     languageInstruction,
     ...(bookLengthInstruction ? [`Longitud objetivo del libro: ${bookLengthInstruction}`] : []),
     input.chapterTitle ? `Capitulo activo: ${input.chapterTitle}` : 'Sin capitulo activo',
@@ -269,6 +520,7 @@ export function buildAutoRewritePrompt(input: BuildAutoRewritePromptInput): stri
     `Libro: ${input.bookTitle}`,
     getLanguageInstruction(input.language),
     buildFoundationBlock(input.foundation),
+    buildStoryBibleBlock(input.storyBible),
     `Capitulo: ${input.chapterTitle} (${input.chapterIndex}/${input.chapterTotal})`,
     getChapterLengthInstruction(input.chapterLengthPreset),
     `Iteracion: ${input.iteration}/${input.totalIterations}`,
@@ -295,6 +547,7 @@ export function buildContinuousChapterPrompt(input: BuildContinuousChapterPrompt
     `Libro: ${input.bookTitle}`,
     getLanguageInstruction(input.language),
     buildFoundationBlock(input.foundation),
+    buildStoryBibleBlock(input.storyBible),
     `Capitulo: ${input.chapterTitle}`,
     getChapterLengthInstruction(input.chapterLengthPreset),
     `Ronda: ${input.round}/${input.maxRounds}`,
@@ -317,4 +570,54 @@ export function buildContinuousChapterPrompt(input: BuildContinuousChapterPrompt
     'TEXTO:',
     '<texto final del capitulo>',
   ].join('\n');
+}
+
+export function buildContinuityGuardPrompt(input: BuildContinuityGuardPromptInput): string {
+  return [
+    'MODO: bloqueo de continuidad narrativa previo a guardado.',
+    `Libro: ${input.bookTitle}`,
+    `Capitulo: ${input.chapterTitle}`,
+    getLanguageInstruction(input.language),
+    buildFoundationBlock(input.foundation),
+    buildStoryBibleBlock(input.storyBible),
+    '',
+    'Instruccion original del usuario:',
+    input.userInstruction.trim() || '(sin instruccion explicita)',
+    '',
+    'Texto previo del capitulo (referencia):',
+    input.originalText.trim() || '(vacio)',
+    '',
+    'Texto candidato para guardar:',
+    input.candidateText.trim() || '(vacio)',
+    '',
+    'Tarea:',
+    '- Detecta contradicciones con continuidad, personajes y lugares.',
+    '- Si NO hay contradicciones, conserva EXACTAMENTE el texto candidato.',
+    '- Si SI hay contradicciones, corrige con cambios minimos y conserva intencion.',
+    '',
+    'Salida obligatoria exacta:',
+    'ESTADO: PASS o FAIL',
+    'RAZON: breve',
+    'TEXTO:',
+    '<texto final listo para guardar>',
+  ].join('\n');
+}
+
+export interface ContinuityGuardOutput {
+  status: 'PASS' | 'FAIL';
+  reason: string;
+  text: string;
+}
+
+export function parseContinuityGuardOutput(raw: string): ContinuityGuardOutput {
+  const normalized = raw.trim();
+  const statusMatch = normalized.match(/ESTADO:\s*(PASS|FAIL)/i);
+  const reasonMatch = normalized.match(/RAZON:\s*(.*)/i);
+  const textMatch = normalized.match(/TEXTO:\s*([\s\S]*)$/i);
+
+  return {
+    status: (statusMatch?.[1]?.toUpperCase() as ContinuityGuardOutput['status'] | undefined) ?? 'PASS',
+    reason: reasonMatch?.[1]?.trim() ?? '',
+    text: textMatch?.[1]?.trim() || normalized,
+  };
 }

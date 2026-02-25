@@ -1,8 +1,9 @@
 {
-    "id":  "06",
-    "title":  "Capitulo 6 - Archivos de sal",
-    "content":  "\u003ch2\u003eArchivos de sal\u003c/h2\u003e\u003cp\u003eEn la oficina de aduana, una empleada jubilada le abrió un armario oxidado. Las carpetas olían a sal y tinta seca, pero todavía podían contar una verdad.\u003c/p\u003e\u003cp\u003eAllí estaba el nombre de su padre, tachado en rojo junto a una orden: traslado preventivo. Sin destino.\u003c/p\u003e",
-    "contentJson":  null,
-    "createdAt":  "2026-02-23T07:05:17.9844572Z",
-    "updatedAt":  "2026-02-23T07:05:17.9844572Z"
+  "id": "06",
+  "title": "Capitulo 6 - Archivos de sal",
+  "content": "<h2>Archivos de sal</h2><p>En la oficina de aduana, una empleada jubilada le abrió un armario oxidado. Las carpetas olían a sal y tinta seca, pero todavía podían contar una verdad.</p><p>Allí estaba el nombre de su padre, tachado en rojo junto a una orden: traslado preventivo. Sin destino.</p>",
+  "contentJson": null,
+  "createdAt": "2026-02-23T07:05:17.9844572Z",
+  "updatedAt": "2026-02-23T07:05:17.9844572Z",
+  "lengthPreset": "media"
 }

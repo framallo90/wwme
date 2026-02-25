@@ -1,10 +1,12 @@
-import { forwardRef } from 'react';
+import { Suspense, forwardRef, lazy, useState } from 'react';
 import type { JSONContent } from '@tiptap/core';
 
 import { CHAPTER_LENGTH_OPTIONS, formatChapterLengthLabel, resolveChapterLengthPreset } from '../lib/chapterLength';
 import { formatNumber } from '../lib/metrics';
 import type { ChapterDocument, ChapterLengthPreset, InteriorFormat } from '../types/book';
-import TiptapEditor, { type TiptapEditorHandle } from './TiptapEditor';
+import type { TiptapEditorHandle } from './TiptapEditor';
+
+const LazyTiptapEditor = lazy(() => import('./TiptapEditor'));
 
 interface EditorPaneProps {
   chapter: ChapterDocument | null;
@@ -26,6 +28,8 @@ interface EditorPaneProps {
 }
 
 const EditorPane = forwardRef<TiptapEditorHandle, EditorPaneProps>((props, ref) => {
+  const [editorEnabled, setEditorEnabled] = useState(false);
+
   if (!props.chapter) {
     return (
       <section className="editor-pane empty-state">
@@ -88,13 +92,33 @@ const EditorPane = forwardRef<TiptapEditorHandle, EditorPaneProps>((props, ref) 
         </div>
       </header>
 
-      <TiptapEditor
-        ref={ref}
-        content={props.chapter.content}
-        interiorFormat={props.interiorFormat}
-        onChange={props.onContentChange}
-        onBlur={props.onBlur}
-      />
+      {editorEnabled ? (
+        <Suspense
+          fallback={
+            <section className="editor-lazy-gate" role="status" aria-live="polite">
+              <p className="muted">Cargando motor de edicion...</p>
+            </section>
+          }
+        >
+          <LazyTiptapEditor
+            ref={ref}
+            content={props.chapter.content}
+            interiorFormat={props.interiorFormat}
+            onChange={props.onContentChange}
+            onBlur={props.onBlur}
+          />
+        </Suspense>
+      ) : (
+        <section className="editor-lazy-gate" role="status" aria-live="polite">
+          <h3>Editor bajo demanda</h3>
+          <p className="muted">
+            Para acelerar el arranque, el motor de escritura se carga cuando vas a editar.
+          </p>
+          <button type="button" onClick={() => setEditorEnabled(true)}>
+            Activar editor
+          </button>
+        </section>
+      )}
     </section>
   );
 });

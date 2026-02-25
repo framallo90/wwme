@@ -32,8 +32,11 @@ import {
   buildActionPrompt,
   buildAutoRewritePrompt,
   buildChatPrompt,
+  buildContinuityGuardPrompt,
   buildContinuousChapterPrompt,
   buildFoundationBlock,
+  parseContinuityGuardOutput,
+  selectStoryBibleForPrompt,
 } from '../../src/lib/prompts';
 import {
   htmlToMarkdown,
@@ -50,7 +53,10 @@ import {
   estimatePagesFromWords,
   formatNumber,
 } from '../../src/lib/metrics';
-import type { BookFoundation, BookMetadata, ChapterDocument, InteriorFormat } from '../../src/types/book';
+import { diffTextBlocks, summarizeDiffOperations } from '../../src/lib/diff';
+import { createZipArchive } from '../../src/lib/zip';
+import { analyzePlainTextStyle, analyzeHtmlStyle, getStyleLevelLabel } from '../../src/lib/styleMetrics';
+import type { BookFoundation, BookMetadata, ChapterDocument, InteriorFormat, StoryBible } from '../../src/types/book';
 
 interface ElementLike {
   innerHTML: string;
@@ -138,6 +144,33 @@ function createInterior(trimSize: InteriorFormat['trimSize'] = '6x9'): InteriorF
   };
 }
 
+function createStoryBible(): StoryBible {
+  return {
+    characters: [
+      {
+        id: 'char-lena',
+        name: 'Lena',
+        aliases: 'Helena, la chica del faro',
+        role: 'Protagonista',
+        traits: 'cinica, observadora, impulsiva bajo presion',
+        goal: 'encontrar a su hermano desaparecido',
+        notes: 'evita confiar rapido en figuras de autoridad',
+      },
+    ],
+    locations: [
+      {
+        id: 'loc-bar',
+        name: 'Bar El Muelle',
+        aliases: 'bar del puerto, el muelle',
+        description: 'bar pequeño frente al puerto',
+        atmosphere: 'humo, tension, secretos',
+        notes: 'punto de encuentro de contrabandistas',
+      },
+    ],
+    continuityRules: 'Lena no revela su objetivo real hasta el capitulo 4.',
+  };
+}
+
 function createMetadata(): BookMetadata {
   return {
     title: 'El faro y la niebla',
@@ -147,6 +180,7 @@ function createMetadata(): BookMetadata {
     backCoverImage: null,
     spineText: 'El faro y la niebla',
     foundation: createFoundation(),
+    storyBible: createStoryBible(),
     amazon: {
       presetType: 'intimate-narrative',
       marketplace: 'amazon.com',
@@ -280,6 +314,58 @@ const tests: TestCase[] = [
     },
   },
   {
+    name: 'diff: detecta bloques iguales, insertados y eliminados',
+    run: () => {
+      const operations = diffTextBlocks(
+        'Parrafo uno.\n\nParrafo dos.',
+        'Parrafo uno.\n\nParrafo nuevo.\n\nParrafo dos.',
+      );
+      const summary = summarizeDiffOperations(operations);
+
+      assert.ok(operations.some((entry) => entry.type === 'insert'));
+      assert.equal(summary.insertCount, 1);
+      assert.ok(summary.equalCount >= 1);
+      assert.equal(summary.deleteCount, 0);
+    },
+  },
+  {
+    name: 'zip: genera contenedor PK con entradas y cierre',
+    run: () => {
+      const archive = createZipArchive([
+        { name: 'mimetype', data: 'application/test' },
+        { name: 'folder/file.txt', data: 'hola' },
+      ]);
+      const decoded = new TextDecoder().decode(archive);
+
+      assert.equal(archive[0], 0x50);
+      assert.equal(archive[1], 0x4b);
+      assert.ok(decoded.includes('mimetype'));
+      assert.ok(decoded.includes('folder/file.txt'));
+      assert.equal(archive[archive.length - 22], 0x50);
+      assert.equal(archive[archive.length - 21], 0x4b);
+      assert.equal(archive[archive.length - 20], 0x05);
+      assert.equal(archive[archive.length - 19], 0x06);
+    },
+  },
+  {
+    name: 'styleMetrics: calcula ritmo, repeticion y semaforo',
+    run: () => {
+      const plain = 'Lena camina bajo la niebla. Lena mira el faro. Lena escucha el puerto.';
+      const report = analyzePlainTextStyle(plain);
+      assert.equal(report.wordCount, 13);
+      assert.equal(report.sentenceCount, 3);
+      assert.ok(report.avgWordsPerSentence > 4);
+      assert.ok(report.readingMinutes >= 1);
+      assert.ok(report.topRepetitions.some((entry) => entry.term === 'lena'));
+      assert.ok(['ok', 'warn', 'alert'].includes(report.overallLevel));
+      assert.ok(getStyleLevelLabel(report.overallLevel).length > 0);
+
+      const htmlReport = analyzeHtmlStyle('<p>Lena vuelve.</p><p>Lena duda.</p>');
+      assert.equal(htmlReport.wordCount, 4);
+      assert.equal(htmlReport.sentenceCount, 2);
+    },
+  },
+  {
     name: 'amazon: aplica preset y completa campos vacios',
     run: () => {
       const metadata = createMetadata();
@@ -402,9 +488,57 @@ const tests: TestCase[] = [
     },
   },
   {
+    name: 'prompts: selecciona contexto de biblia por relevancia',
+    run: () => {
+      const storyBible = createStoryBible();
+      storyBible.characters.push({
+        id: 'char-bruno',
+        name: 'Bruno',
+        aliases: 'el hombre del abrigo',
+        role: 'Antagonista',
+        traits: 'frio',
+        goal: 'encubrir el contrabando',
+        notes: '',
+      });
+      storyBible.locations.push({
+        id: 'loc-faro',
+        name: 'Faro Norte',
+        aliases: 'torre norte',
+        description: 'torre abandonada',
+        atmosphere: 'viento y sal',
+        notes: '',
+      });
+
+      const scoped = selectStoryBibleForPrompt(
+        storyBible,
+        'Helena entra al bar del puerto para buscar pistas.',
+        { maxCharacters: 1, maxLocations: 1 },
+      );
+
+      assert.equal(scoped.characters.length, 1);
+      assert.equal(scoped.characters[0].name, 'Lena');
+      assert.equal(scoped.locations.length, 1);
+      assert.equal(scoped.locations[0].name, 'Bar El Muelle');
+      assert.ok(scoped.continuityRules.length > 0);
+
+      const scopedByRecency = selectStoryBibleForPrompt(
+        storyBible,
+        'Se intensifica el conflicto en el puerto.',
+        {
+          maxCharacters: 1,
+          maxLocations: 1,
+          recentText: 'Asistente: el hombre del abrigo entra al muelle.',
+          recencyWeight: 1.5,
+        },
+      );
+      assert.equal(scopedByRecency.characters[0].name, 'Bruno');
+    },
+  },
+  {
     name: 'prompts: action/chat/autorewrite/continuous incluyen reglas clave',
     run: () => {
       const foundation = createFoundation();
+      const storyBible = createStoryBible();
       const actionPrompt = buildActionPrompt({
         actionId: 'polish-style',
         selectedText: 'Texto base',
@@ -412,10 +546,13 @@ const tests: TestCase[] = [
         bookTitle: 'Libro',
         language: 'es',
         foundation,
+        storyBible,
         chapterLengthPreset: 'media',
       });
       assert.ok(actionPrompt.includes('Idioma de salida obligatorio'));
       assert.ok(actionPrompt.includes('Objetivo de extension del capitulo'));
+      assert.ok(actionPrompt.includes('Biblia de la historia:'));
+      assert.ok(actionPrompt.includes('Lena'));
 
       const draftPrompt = buildActionPrompt({
         actionId: 'draft-from-idea',
@@ -425,6 +562,7 @@ const tests: TestCase[] = [
         bookTitle: 'Libro',
         language: 'es',
         foundation,
+        storyBible,
         chapterLengthPreset: 'media',
         chapterContext: '',
       });
@@ -437,6 +575,7 @@ const tests: TestCase[] = [
         bookTitle: 'Libro',
         language: 'es',
         foundation,
+        storyBible,
         chapterTitle: 'Capitulo 1',
         chapterLengthPreset: 'media',
         chapterText: 'Texto del capitulo',
@@ -452,6 +591,7 @@ const tests: TestCase[] = [
         bookTitle: 'Libro',
         language: 'es',
         foundation,
+        storyBible,
         bookLengthInstruction: '8 capitulos, 12.000-17.000 palabras',
         chapterText: '',
         fullBookText: 'Texto del libro',
@@ -464,6 +604,7 @@ const tests: TestCase[] = [
         bookTitle: 'Libro',
         language: 'es',
         foundation,
+        storyBible,
         chapterTitle: 'Capitulo 1',
         chapterLengthPreset: 'media',
         chapterText: 'Texto',
@@ -480,6 +621,7 @@ const tests: TestCase[] = [
         bookTitle: 'Libro',
         language: 'es',
         foundation,
+        storyBible,
         chapterTitle: 'Capitulo 1',
         chapterLengthPreset: 'media',
         chapterText: 'Texto',
@@ -488,6 +630,31 @@ const tests: TestCase[] = [
         maxRounds: 3,
       });
       assert.ok(continuousPrompt.includes('ESTADO: DONE o CONTINUE'));
+
+      const continuityPrompt = buildContinuityGuardPrompt({
+        userInstruction: 'Mantener voz de Lena',
+        bookTitle: 'Libro',
+        language: 'es',
+        foundation,
+        storyBible,
+        chapterTitle: 'Capitulo 1',
+        originalText: 'Lena entra al bar.',
+        candidateText: 'Lena revela todo su plan en la primera escena.',
+      });
+      assert.ok(continuityPrompt.includes('MODO: bloqueo de continuidad'));
+      assert.ok(continuityPrompt.includes('ESTADO: PASS o FAIL'));
+      assert.ok(continuityPrompt.includes('TEXTO:'));
+
+      const parsedContinuity = parseContinuityGuardOutput(
+        'ESTADO: FAIL\nRAZON: Lena no puede revelar ese dato aun.\nTEXTO:\nLena evita hablar del plan real.',
+      );
+      assert.equal(parsedContinuity.status, 'FAIL');
+      assert.ok(parsedContinuity.reason.includes('Lena'));
+      assert.ok(parsedContinuity.text.includes('Lena evita'));
+
+      const parsedContinuityFallback = parseContinuityGuardOutput('Salida sin formato estructurado');
+      assert.equal(parsedContinuityFallback.status, 'PASS');
+      assert.equal(parsedContinuityFallback.text, 'Salida sin formato estructurado');
 
       const foundationBlock = buildFoundationBlock(foundation);
       assert.ok(foundationBlock.includes('Base fija del libro:'));

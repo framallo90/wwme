@@ -118,6 +118,15 @@ function SettingsPanel(props: SettingsPanelProps) {
       <label className="checkbox-row">
         <input
           type="checkbox"
+          checked={config.continuityGuardEnabled}
+          onChange={(event) => props.onChange({ ...config, continuityGuardEnabled: event.target.checked })}
+        />
+        Bloqueo de continuidad IA (revisa contradicciones antes de guardar)
+      </label>
+
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
           checked={config.accessibilityHighContrast}
           onChange={(event) => props.onChange({ ...config, accessibilityHighContrast: event.target.checked })}
         />
@@ -160,6 +169,7 @@ function SettingsPanel(props: SettingsPanelProps) {
               chatApplyIterations: 1,
               continuousAgentEnabled: false,
               continuousAgentMaxRounds: 2,
+              continuityGuardEnabled: false,
             })
           }
         >
@@ -175,6 +185,7 @@ function SettingsPanel(props: SettingsPanelProps) {
               chatApplyIterations: 2,
               continuousAgentEnabled: true,
               continuousAgentMaxRounds: 3,
+              continuityGuardEnabled: true,
             })
           }
         >
@@ -190,6 +201,7 @@ function SettingsPanel(props: SettingsPanelProps) {
               chatApplyIterations: 2,
               continuousAgentEnabled: true,
               continuousAgentMaxRounds: 4,
+              continuityGuardEnabled: true,
             })
           }
         >

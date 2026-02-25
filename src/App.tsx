@@ -1,30 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { confirm, open } from '@tauri-apps/plugin-dialog';
 
 import AppShell from './app/AppShell';
-import AIPanel from './components/AIPanel';
-import AmazonPanel from './components/AmazonPanel';
-import BookFoundationPanel from './components/BookFoundationPanel';
-import CoverView from './components/CoverView';
-import EditorPane from './components/EditorPane';
-import HelpPanel from './components/HelpPanel';
-import LanguagePanel from './components/LanguagePanel';
-import OutlineView from './components/OutlineView';
-import PreviewView from './components/PreviewView';
-import SearchReplacePanel from './components/SearchReplacePanel';
-import SettingsPanel from './components/SettingsPanel';
 import Sidebar from './components/Sidebar';
 import TopToolbar from './components/TopToolbar';
 import type { TiptapEditorHandle } from './components/TiptapEditor';
 import { formatChapterLengthLabel, getChapterLengthProfile, resolveChapterLengthPreset } from './lib/chapterLength';
 import { DEFAULT_APP_CONFIG } from './lib/config';
-import {
-  exportBookAmazonBundle,
-  exportBookMarkdownByChapter,
-  exportBookMarkdownSingleFile,
-  exportChapterMarkdown,
-} from './lib/export';
 import { countWordsFromHtml, countWordsFromPlainText, estimatePagesFromWords, formatNumber } from './lib/metrics';
 import { generateWithOllama } from './lib/ollamaClient';
 import {
@@ -32,7 +15,10 @@ import {
   buildActionPrompt,
   buildAutoRewritePrompt,
   buildChatPrompt,
+  buildContinuityGuardPrompt,
   buildContinuousChapterPrompt,
+  parseContinuityGuardOutput,
+  selectStoryBibleForPrompt,
 } from './lib/prompts';
 import { getLanguageInstruction, normalizeLanguageCode } from './lib/language';
 import PromptModal from './components/PromptModal';
@@ -49,18 +35,21 @@ import {
   loadAppConfig,
   loadLibraryIndex,
   loadBookProject,
+  loadBookChatMessages,
+  loadChapterChatMessages,
   resolveBookDirectory,
   moveChapter,
   renameChapter,
   removeBookFromLibrary,
   saveAppConfig,
   saveBookMetadata,
+  saveBookChatMessages,
   saveChapter,
+  saveChapterChatMessages,
   saveChapterSnapshot,
   setBackCoverImage,
   setCoverImage,
   upsertBookInLibrary,
-  updateBookChats,
 } from './lib/storage';
 import {
   buildBookSearchMatches,
@@ -71,6 +60,7 @@ import {
 import { getNowIso, normalizeAiOutput, plainTextToHtml, randomId, splitAiOutputAndSummary, stripHtml } from './lib/text';
 import type {
   AppConfig,
+  BookChats,
   BookProject,
   ChapterLengthPreset,
   ChatMessage,
@@ -80,6 +70,31 @@ import type {
 } from './types/book';
 
 import './App.css';
+
+const LazyAIPanel = lazy(() => import('./components/AIPanel'));
+const LazyAmazonPanel = lazy(() => import('./components/AmazonPanel'));
+const LazyBookFoundationPanel = lazy(() => import('./components/BookFoundationPanel'));
+const LazyCoverView = lazy(() => import('./components/CoverView'));
+const LazyEditorPane = lazy(() => import('./components/EditorPane'));
+const LazyHelpPanel = lazy(() => import('./components/HelpPanel'));
+const LazyLanguagePanel = lazy(() => import('./components/LanguagePanel'));
+const LazyOutlineView = lazy(() => import('./components/OutlineView'));
+const LazyPreviewView = lazy(() => import('./components/PreviewView'));
+const LazySearchReplacePanel = lazy(() => import('./components/SearchReplacePanel'));
+const LazySettingsPanel = lazy(() => import('./components/SettingsPanel'));
+const LazyStoryBiblePanel = lazy(() => import('./components/StoryBiblePanel'));
+const LazyStylePanel = lazy(() => import('./components/StylePanel'));
+const LazyVersionDiffView = lazy(() => import('./components/VersionDiffView'));
+
+let exportModulePromise: Promise<typeof import('./lib/export')> | null = null;
+
+async function loadExportModule(): Promise<typeof import('./lib/export')> {
+  if (!exportModulePromise) {
+    exportModulePromise = import('./lib/export');
+  }
+
+  return exportModulePromise;
+}
 
 function buildBookContext(book: BookProject, chaptersOverride?: BookProject['chapters']): string {
   const chapters = chaptersOverride ?? book.chapters;
@@ -231,6 +246,12 @@ interface ExpansionGuardResult {
   corrected: boolean;
 }
 
+interface ContinuityGuardResult {
+  text: string;
+  summaryText: string;
+  corrected: boolean;
+}
+
 function parseWordTarget(value: string): number | null {
   const match = value.match(WORD_TARGET_PATTERN);
   if (!match) {
@@ -318,6 +339,19 @@ function App() {
   const languageSaveResetTimerRef = useRef<number | null>(null);
   const snapshotUndoCursorRef = useRef<Record<string, number | undefined>>({});
   const snapshotRedoStackRef = useRef<Record<string, BookProject['chapters'][string][]>>({});
+  const chatMessagesRef = useRef<BookChats>({
+    book: [],
+    chapters: {},
+  });
+  const loadedChatScopesRef = useRef<{
+    bookPath: string | null;
+    book: boolean;
+    chapters: Record<string, boolean>;
+  }>({
+    bookPath: null,
+    book: false,
+    chapters: {},
+  });
 
   const [config, setConfig] = useState<AppConfig>(DEFAULT_APP_CONFIG);
   const [book, setBook] = useState<BookProject | null>(null);
@@ -326,6 +360,10 @@ function App() {
   const [status, setStatus] = useState('Listo.');
   const [aiBusy, setAiBusy] = useState(false);
   const [chatScope, setChatScope] = useState<ChatScope>('chapter');
+  const [chatMessages, setChatMessages] = useState<BookChats>({
+    book: [],
+    chapters: {},
+  });
   const [coverSrc, setCoverSrc] = useState<string | null>(null);
   const [backCoverSrc, setBackCoverSrc] = useState<string | null>(null);
   const [libraryIndex, setLibraryIndex] = useState<LibraryIndex>({
@@ -361,6 +399,8 @@ function App() {
     placeholder?: string;
     multiline?: boolean;
     confirmLabel?: string;
+    secondaryLabel?: string;
+    onSecondary?: () => void;
     onConfirm: (value: string) => void;
   } | null>(null);
 
@@ -388,15 +428,75 @@ function App() {
     }
 
     if (chatScope === 'book') {
-      return book.metadata.chats.book;
+      return chatMessages.book;
     }
 
     if (!activeChapterId) {
       return [] as ChatMessage[];
     }
 
-    return book.metadata.chats.chapters[activeChapterId] ?? [];
-  }, [book, chatScope, activeChapterId]);
+    return chatMessages.chapters[activeChapterId] ?? [];
+  }, [book, chatScope, activeChapterId, chatMessages]);
+
+  useEffect(() => {
+    chatMessagesRef.current = chatMessages;
+  }, [chatMessages]);
+
+  const ensureScopeMessagesLoaded = useCallback(
+    async (scope: ChatScope, chapterId?: string): Promise<ChatMessage[]> => {
+      if (!book) {
+        return [];
+      }
+
+      if (loadedChatScopesRef.current.bookPath !== book.path) {
+        loadedChatScopesRef.current = {
+          bookPath: book.path,
+          book: false,
+          chapters: {},
+        };
+      }
+
+      if (scope === 'book') {
+        if (loadedChatScopesRef.current.book) {
+          return chatMessagesRef.current.book;
+        }
+
+        const fallbackMessages =
+          chatMessagesRef.current.book.length > 0 ? chatMessagesRef.current.book : book.metadata.chats.book;
+        const loadedMessages = await loadBookChatMessages(book.path, fallbackMessages);
+        loadedChatScopesRef.current.book = true;
+        setChatMessages((previous) => ({
+          ...previous,
+          book: loadedMessages,
+        }));
+        return loadedMessages;
+      }
+
+      if (!chapterId) {
+        return [];
+      }
+
+      if (loadedChatScopesRef.current.chapters[chapterId]) {
+        return chatMessagesRef.current.chapters[chapterId] ?? [];
+      }
+
+      const fallbackMessages =
+        chatMessagesRef.current.chapters[chapterId] ??
+        book.metadata.chats.chapters[chapterId] ??
+        [];
+      const loadedMessages = await loadChapterChatMessages(book.path, chapterId, fallbackMessages);
+      loadedChatScopesRef.current.chapters[chapterId] = true;
+      setChatMessages((previous) => ({
+        ...previous,
+        chapters: {
+          ...previous.chapters,
+          [chapterId]: loadedMessages,
+        },
+      }));
+      return loadedMessages;
+    },
+    [book],
+  );
 
   const currentSearchOptions = useMemo<SearchReplaceOptions>(
     () => ({
@@ -644,6 +744,70 @@ function App() {
     [config, activeLanguage],
   );
 
+  const enforceContinuityResult = useCallback(
+    async (input: {
+      userInstruction: string;
+      originalText: string;
+      candidateText: string;
+      chapterTitle: string;
+      recentText?: string;
+    }): Promise<ContinuityGuardResult> => {
+      const parsedCandidate = splitAiOutputAndSummary(input.candidateText);
+      const cleanedCandidate = parsedCandidate.cleanText || input.candidateText;
+
+      if (!config.continuityGuardEnabled || !book) {
+        return {
+          text: cleanedCandidate,
+          summaryText: '',
+          corrected: false,
+        };
+      }
+
+      const storyBibleForGuard = selectStoryBibleForPrompt(
+        book.metadata.storyBible,
+        `${input.userInstruction}\n${input.chapterTitle}\n${input.originalText}\n${cleanedCandidate}`,
+        {
+          recentText: input.recentText ?? '',
+          recencyWeight: 1.3,
+        },
+      );
+      const guardPrompt = buildContinuityGuardPrompt({
+        userInstruction: input.userInstruction,
+        bookTitle: book.metadata.title,
+        language: activeLanguage,
+        foundation: book.metadata.foundation,
+        storyBible: storyBibleForGuard,
+        chapterTitle: input.chapterTitle,
+        originalText: input.originalText,
+        candidateText: cleanedCandidate,
+      });
+
+      const guardRaw = normalizeAiOutput(
+        await generateWithOllama({
+          config,
+          prompt: guardPrompt,
+        }),
+      );
+      const parsed = parseContinuityGuardOutput(guardRaw);
+      const parsedText = splitAiOutputAndSummary(parsed.text);
+      const guardedText = (parsedText.cleanText || parsed.text).trim();
+      const finalText = guardedText || cleanedCandidate;
+      const corrected = parsed.status === 'FAIL' || finalText !== cleanedCandidate;
+
+      return {
+        text: finalText,
+        summaryText:
+          parsed.status === 'FAIL'
+            ? parsed.reason
+              ? `Continuidad corregida: ${parsed.reason}`
+              : 'Continuidad corregida automaticamente.'
+            : '',
+        corrected,
+      };
+    },
+    [book, config, activeLanguage],
+  );
+
   const refreshCovers = useCallback((project: BookProject | null) => {
     if (!project) {
       setCoverSrc(null);
@@ -707,6 +871,21 @@ function App() {
       setActiveChapterId(book.metadata.chapterOrder[0] ?? null);
     }
   }, [book, activeChapterId]);
+
+  useEffect(() => {
+    if (!book) {
+      return;
+    }
+
+    if (chatScope === 'book') {
+      void ensureScopeMessagesLoaded('book');
+      return;
+    }
+
+    if (activeChapterId) {
+      void ensureScopeMessagesLoaded('chapter', activeChapterId);
+    }
+  }, [book, chatScope, activeChapterId, ensureScopeMessagesLoaded]);
 
   useEffect(() => {
     refreshSearchResults(book, searchQuery, currentSearchOptions);
@@ -798,8 +977,18 @@ function App() {
     (project: BookProject, loadedConfig: AppConfig) => {
       const normalizedConfigLanguage = normalizeLanguageCode(loadedConfig.language);
       const normalizedAmazonLanguage = normalizeLanguageCode(project.metadata.amazon.language);
+      const initialChats: BookChats = {
+        book: [...project.metadata.chats.book],
+        chapters: { ...project.metadata.chats.chapters },
+      };
 
       setBook(project);
+      setChatMessages(initialChats);
+      loadedChatScopesRef.current = {
+        bookPath: project.path,
+        book: false,
+        chapters: {},
+      };
       setConfig({
         ...loadedConfig,
         language: normalizedConfigLanguage,
@@ -815,7 +1004,7 @@ function App() {
         languageSaveResetTimerRef.current = null;
       }
       setActiveChapterId(project.metadata.chapterOrder[0] ?? null);
-      setMainView('editor');
+      setMainView('outline');
       setChatScope('chapter');
       refreshCovers(project);
       dirtyRef.current = false;
@@ -861,63 +1050,78 @@ function App() {
   );
 
   const handleCreateBook = useCallback(async () => {
-    setPromptModal({
-      title: 'Crear nuevo libro',
-      label: 'Titulo del libro',
-      defaultValue: 'Mi libro',
-      onConfirm: async (title) => {
-        setPromptModal({
-          title: 'Crear nuevo libro',
-          label: 'Autor',
-          defaultValue: 'Autor',
-          onConfirm: async (author) => {
-            setPromptModal(null);
-            try {
-              const selectedDirectoryResult = await open({
-                directory: true,
-                multiple: false,
-                recursive: true,
-                title: 'Selecciona carpeta padre del libro',
-              });
-              const selectedDirectory = extractDialogPath(selectedDirectoryResult);
+    function openTitleStep(defaultValue = 'Mi libro'): void {
+      setPromptModal({
+        title: 'Crear nuevo libro',
+        label: 'Titulo del libro',
+        defaultValue,
+        confirmLabel: 'Siguiente',
+        onConfirm: async (titleInput) => {
+          openAuthorStep(titleInput.trim() || 'Mi libro');
+        },
+      });
+    }
 
-              if (!selectedDirectory) {
-                setStatus('Crear libro: operacion cancelada.');
-                return;
-              }
+    function openAuthorStep(resolvedTitle: string): void {
+      setPromptModal({
+        title: 'Crear nuevo libro',
+        label: 'Autor',
+        defaultValue: 'Autor',
+        confirmLabel: 'Crear libro',
+        secondaryLabel: 'Atras',
+        onSecondary: () => {
+          openTitleStep(resolvedTitle);
+        },
+        onConfirm: async (authorInput) => {
+          setPromptModal(null);
+          try {
+            const selectedDirectoryResult = await open({
+              directory: true,
+              multiple: false,
+              recursive: true,
+              title: 'Selecciona carpeta padre del libro',
+            });
+            const selectedDirectory = extractDialogPath(selectedDirectoryResult);
 
-              setStatus('Crear libro: creando estructura del libro...');
-              const created = await createBookProject(selectedDirectory, title, author);
-
-              let loadedConfig: AppConfig = DEFAULT_APP_CONFIG;
-              try {
-                loadedConfig = await loadAppConfig(created.path);
-              } catch {
-                try {
-                  await saveAppConfig(created.path, DEFAULT_APP_CONFIG);
-                } catch {
-                  // Continua con defaults aunque falle la escritura.
-                }
-              }
-
-              applyOpenedProjectState(created, loadedConfig);
-              try {
-                await syncBookToLibrary(created, { markOpened: true });
-              } catch (error) {
-                setStatus(
-                  `Crear libro: ${created.metadata.title} (sin actualizar biblioteca: ${formatUnknownError(error)})`,
-                );
-                return;
-              }
-
-              setStatus(`Libro creado y abierto: ${created.metadata.title}`);
-            } catch (error) {
-              setStatus(`Crear libro: ${formatUnknownError(error)}`);
+            if (!selectedDirectory) {
+              setStatus('Crear libro: operacion cancelada.');
+              return;
             }
-          },
-        });
-      },
-    });
+
+            const author = authorInput.trim() || 'Autor';
+            setStatus('Crear libro: creando estructura del libro...');
+            const created = await createBookProject(selectedDirectory, resolvedTitle, author);
+
+            let loadedConfig: AppConfig = DEFAULT_APP_CONFIG;
+            try {
+              loadedConfig = await loadAppConfig(created.path);
+            } catch {
+              try {
+                await saveAppConfig(created.path, DEFAULT_APP_CONFIG);
+              } catch {
+                // Continua con defaults aunque falle la escritura.
+              }
+            }
+
+            applyOpenedProjectState(created, loadedConfig);
+            try {
+              await syncBookToLibrary(created, { markOpened: true });
+            } catch (error) {
+              setStatus(
+                `Crear libro: ${created.metadata.title} (sin actualizar biblioteca: ${formatUnknownError(error)})`,
+              );
+              return;
+            }
+
+            setStatus(`Libro creado y abierto: ${created.metadata.title}`);
+          } catch (error) {
+            setStatus(`Crear libro: ${formatUnknownError(error)}`);
+          }
+        },
+      });
+    }
+
+    openTitleStep();
   }, [applyOpenedProjectState, syncBookToLibrary]);
 
   const handleOpenBook = useCallback(async () => {
@@ -950,6 +1154,15 @@ function App() {
     }
 
     setBook(null);
+    setChatMessages({
+      book: [],
+      chapters: {},
+    });
+    loadedChatScopesRef.current = {
+      bookPath: null,
+      book: false,
+      chapters: {},
+    };
     setActiveChapterId(null);
     setMainView('editor');
     setFocusMode(false);
@@ -971,6 +1184,114 @@ function App() {
     setSnapshotRedoNonce((value) => value + 1);
     setStatus('Libro cerrado.');
   }, [flushChapterSave, refreshCovers]);
+
+  const handleRenameBookTitle = useCallback(() => {
+    if (!book) {
+      setStatus('Abri un libro para renombrar el titulo.');
+      return;
+    }
+
+    const currentTitle = book.metadata.title;
+    const currentKdpTitle = book.metadata.amazon.kdpTitle;
+    const currentSpineText = book.metadata.spineText;
+
+    setPromptModal({
+      title: 'Renombrar libro',
+      label: 'Nuevo titulo del libro',
+      defaultValue: currentTitle,
+      confirmLabel: 'Guardar titulo',
+      onConfirm: async (nextTitleInput) => {
+        const nextTitle = nextTitleInput.trim();
+        if (!nextTitle) {
+          return;
+        }
+
+        try {
+          const metadataDraft = {
+            ...book.metadata,
+            title: nextTitle,
+            spineText: currentSpineText.trim() === currentTitle.trim() ? nextTitle : currentSpineText,
+            amazon: {
+              ...book.metadata.amazon,
+              kdpTitle:
+                !currentKdpTitle.trim() || currentKdpTitle.trim() === currentTitle.trim()
+                  ? nextTitle
+                  : currentKdpTitle,
+            },
+          };
+          const savedMetadata = await saveBookMetadata(book.path, metadataDraft);
+          const updatedProject: BookProject = {
+            ...book,
+            metadata: savedMetadata,
+          };
+          setBook((previous) => {
+            if (!previous || previous.path !== book.path) {
+              return previous;
+            }
+            return updatedProject;
+          });
+          setPromptModal(null);
+          await syncBookToLibrary(updatedProject, { markOpened: true });
+          setStatus(`Titulo actualizado: ${nextTitle}`);
+        } catch (error) {
+          setStatus(`No se pudo renombrar libro: ${formatUnknownError(error)}`);
+        }
+      },
+    });
+  }, [book, syncBookToLibrary]);
+
+  const handleRenameBookAuthor = useCallback(() => {
+    if (!book) {
+      setStatus('Abri un libro para renombrar autor.');
+      return;
+    }
+
+    const currentAuthor = book.metadata.author;
+    const currentPenName = book.metadata.amazon.penName;
+
+    setPromptModal({
+      title: 'Renombrar autor',
+      label: 'Nuevo autor del libro',
+      defaultValue: currentAuthor,
+      confirmLabel: 'Guardar autor',
+      onConfirm: async (nextAuthorInput) => {
+        const nextAuthor = nextAuthorInput.trim();
+        if (!nextAuthor) {
+          return;
+        }
+
+        try {
+          const metadataDraft = {
+            ...book.metadata,
+            author: nextAuthor,
+            amazon: {
+              ...book.metadata.amazon,
+              penName:
+                !currentPenName.trim() || currentPenName.trim() === currentAuthor.trim()
+                  ? nextAuthor
+                  : currentPenName,
+            },
+          };
+          const savedMetadata = await saveBookMetadata(book.path, metadataDraft);
+          const updatedProject: BookProject = {
+            ...book,
+            metadata: savedMetadata,
+          };
+          setBook((previous) => {
+            if (!previous || previous.path !== book.path) {
+              return previous;
+            }
+            return updatedProject;
+          });
+          setPromptModal(null);
+          await syncBookToLibrary(updatedProject, { markOpened: true });
+          setStatus(`Autor actualizado: ${nextAuthor}`);
+        } catch (error) {
+          setStatus(`No se pudo renombrar autor: ${formatUnknownError(error)}`);
+        }
+      },
+    });
+  }, [book, syncBookToLibrary]);
 
   const handleEditorChange = useCallback(
     (payload: { html: string; json: unknown }) => {
@@ -1203,6 +1524,29 @@ function App() {
     [book],
   );
 
+  const handleStoryBibleChange = useCallback(
+    (storyBible: BookProject['metadata']['storyBible']) => {
+      if (!book) {
+        return;
+      }
+
+      setBook((previous) => {
+        if (!previous || previous.path !== book.path) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          metadata: {
+            ...previous.metadata,
+            storyBible,
+          },
+        };
+      });
+    },
+    [book],
+  );
+
   const handleSaveFoundation = useCallback(async () => {
     if (!book) {
       return;
@@ -1227,6 +1571,33 @@ function App() {
       setStatus('Base del libro guardada.');
     } catch (error) {
       setStatus(`No se pudo guardar la base: ${formatUnknownError(error)}`);
+    }
+  }, [book, syncBookToLibrary]);
+
+  const handleSaveStoryBible = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    try {
+      const savedMetadata = await saveBookMetadata(book.path, book.metadata);
+      setBook((previous) => {
+        if (!previous || previous.path !== book.path) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          metadata: savedMetadata,
+        };
+      });
+      await syncBookToLibrary({
+        ...book,
+        metadata: savedMetadata,
+      });
+      setStatus('Biblia de la historia guardada.');
+    } catch (error) {
+      setStatus(`No se pudo guardar la biblia: ${formatUnknownError(error)}`);
     }
   }, [book, syncBookToLibrary]);
 
@@ -1453,6 +1824,15 @@ function App() {
           metadata,
           chapters: nextChapters,
         });
+        setChatMessages((previous) => {
+          const nextChatChapters = { ...previous.chapters };
+          delete nextChatChapters[chapterId];
+          return {
+            ...previous,
+            chapters: nextChatChapters,
+          };
+        });
+        delete loadedChatScopesRef.current.chapters[chapterId];
 
         if (activeChapterId === chapterId) {
           setActiveChapterId(metadata.chapterOrder[0] ?? null);
@@ -1734,35 +2114,35 @@ function App() {
   }, [activeChapterId, book, flushChapterSave, handleCreateChapter, handleMoveChapter, promptModal]);
 
   const persistScopeMessages = useCallback(
-    async (scope: ChatScope, messages: ChatMessage[]) => {
+    async (scope: ChatScope, messages: ChatMessage[], chapterIdOverride?: string) => {
       if (!book) {
         return;
       }
 
-      const nextChats = {
-        ...book.metadata.chats,
-        chapters: {
-          ...book.metadata.chats.chapters,
-        },
-      };
-
       if (scope === 'book') {
-        nextChats.book = messages;
-      } else if (activeChapterId) {
-        nextChats.chapters[activeChapterId] = messages;
+        const persisted = await saveBookChatMessages(book.path, messages);
+        loadedChatScopesRef.current.book = true;
+        setChatMessages((previous) => ({
+          ...previous,
+          book: persisted,
+        }));
+        return;
       }
 
-      const nextMetadata = await updateBookChats(book.path, book.metadata, nextChats);
-      setBook((previous) => {
-        if (!previous || previous.path !== book.path) {
-          return previous;
-        }
+      const chapterId = chapterIdOverride ?? activeChapterId;
+      if (!chapterId) {
+        return;
+      }
 
-        return {
-          ...previous,
-          metadata: nextMetadata,
-        };
-      });
+      const persisted = await saveChapterChatMessages(book.path, chapterId, messages);
+      loadedChatScopesRef.current.chapters[chapterId] = true;
+      setChatMessages((previous) => ({
+        ...previous,
+        chapters: {
+          ...previous.chapters,
+          [chapterId]: persisted,
+        },
+      }));
     },
     [book, activeChapterId],
   );
@@ -1773,8 +2153,16 @@ function App() {
         return;
       }
 
+      if (scope === 'chapter' && !activeChapterId) {
+        setStatus('No hay capitulo activo para enviar mensaje en modo capitulo.');
+        return;
+      }
+
+      const scopeChapterId = scope === 'chapter' ? activeChapterId ?? undefined : undefined;
       const history =
-        scope === 'book' ? book.metadata.chats.book : book.metadata.chats.chapters[activeChapterId ?? ''] ?? [];
+        scope === 'book'
+          ? await ensureScopeMessagesLoaded('book')
+          : await ensureScopeMessagesLoaded('chapter', scopeChapterId);
 
       const userMessage: ChatMessage = {
         id: randomId('msg'),
@@ -1789,13 +2177,21 @@ function App() {
       setStatus('Consultando Ollama...');
 
       try {
-        await persistScopeMessages(scope, withUser);
+        await persistScopeMessages(scope, withUser, scopeChapterId);
 
         const chapterText = activeChapter ? stripHtml(activeChapter.content) : '';
         const compactHistory = history
           .slice(-8)
           .map((item) => `${item.role === 'user' ? 'Usuario' : 'Asistente'}: ${item.content}`)
           .join('\n');
+        const storyBibleForChat = selectStoryBibleForPrompt(
+          book.metadata.storyBible,
+          `${message}\n${activeChapter?.title ?? ''}\n${chapterText}\n${compactHistory}`,
+          {
+            recentText: compactHistory,
+            recencyWeight: 1.2,
+          },
+        );
 
         if (!config.autoApplyChatChanges) {
           const prompt = buildChatPrompt({
@@ -1804,6 +2200,7 @@ function App() {
             bookTitle: book.metadata.title,
             language: activeLanguage,
             foundation: book.metadata.foundation,
+            storyBible: storyBibleForChat,
             bookLengthInstruction: scope === 'book' ? bookLengthInfo : undefined,
             chapterTitle: activeChapter?.title,
             chapterLengthPreset: activeChapter?.lengthPreset,
@@ -1827,7 +2224,7 @@ function App() {
             createdAt: getNowIso(),
           };
 
-          await persistScopeMessages(scope, [...withUser, assistantMessage]);
+          await persistScopeMessages(scope, [...withUser, assistantMessage], scopeChapterId);
           setStatus('Respuesta IA recibida.');
           return;
         }
@@ -1858,11 +2255,20 @@ function App() {
               }
 
               const currentChapterText = stripHtml(chapter.content);
+              const storyBibleForChapter = selectStoryBibleForPrompt(
+                book.metadata.storyBible,
+                `${message}\n${chapter.title}\n${currentChapterText}`,
+                {
+                  recentText: compactHistory,
+                  recencyWeight: 1.2,
+                },
+              );
               const prompt = buildContinuousChapterPrompt({
                 userInstruction: message,
                 bookTitle: book.metadata.title,
                 language: activeLanguage,
                 foundation: book.metadata.foundation,
+                storyBible: storyBibleForChapter,
                 chapterTitle: chapter.title,
                 chapterLengthPreset: chapter.lengthPreset,
                 chapterText: currentChapterText,
@@ -1887,9 +2293,20 @@ function App() {
                 bookTitle: book.metadata.title,
                 chapterTitle: chapter.title,
               });
-              const nextChapterText = guardedResult.text;
+              const continuityResult = await enforceContinuityResult({
+                userInstruction: message,
+                originalText: currentChapterText,
+                candidateText: guardedResult.text,
+                chapterTitle: chapter.title,
+                recentText: compactHistory,
+              });
+              const nextChapterText = continuityResult.text;
               previousSummary = parsed.summary;
-              lastSummaryMessage = guardedResult.summaryText || parsed.summary || lastSummaryMessage;
+              lastSummaryMessage =
+                continuityResult.summaryText ||
+                guardedResult.summaryText ||
+                parsed.summary ||
+                lastSummaryMessage;
 
               const chapterDraft = {
                 ...chapter,
@@ -1916,11 +2333,20 @@ function App() {
               }
 
               const currentChapterText = stripHtml(chapter.content);
+              const storyBibleForChapter = selectStoryBibleForPrompt(
+                book.metadata.storyBible,
+                `${message}\n${chapter.title}\n${currentChapterText}`,
+                {
+                  recentText: compactHistory,
+                  recencyWeight: 1.2,
+                },
+              );
               const prompt = buildAutoRewritePrompt({
                 userInstruction: message,
                 bookTitle: book.metadata.title,
                 language: activeLanguage,
                 foundation: book.metadata.foundation,
+                storyBible: storyBibleForChapter,
                 chapterTitle: chapter.title,
                 chapterLengthPreset: chapter.lengthPreset,
                 chapterText: currentChapterText,
@@ -1945,8 +2371,15 @@ function App() {
                 bookTitle: book.metadata.title,
                 chapterTitle: chapter.title,
               });
-              const nextChapterText = guardedResult.text;
-              lastSummaryMessage = guardedResult.summaryText || lastSummaryMessage;
+              const continuityResult = await enforceContinuityResult({
+                userInstruction: message,
+                originalText: currentChapterText,
+                candidateText: guardedResult.text,
+                chapterTitle: chapter.title,
+                recentText: compactHistory,
+              });
+              const nextChapterText = continuityResult.text;
+              lastSummaryMessage = continuityResult.summaryText || guardedResult.summaryText || lastSummaryMessage;
 
               const chapterDraft = {
                 ...chapter,
@@ -1991,7 +2424,7 @@ function App() {
             createdAt: getNowIso(),
           };
 
-          await persistScopeMessages(scope, [...withUser, assistantMessage]);
+          await persistScopeMessages(scope, [...withUser, assistantMessage], scopeChapterId);
           setStatus(
             config.continuousAgentEnabled
               ? 'Chat aplicado con agente continuo al capitulo.'
@@ -2002,6 +2435,7 @@ function App() {
 
         let workingChapters: BookProject['chapters'] = { ...book.chapters };
         let extractedSummaries = 0;
+        let continuityCorrections = 0;
 
         for (let iteration = 1; iteration <= iterations; iteration += 1) {
           for (let index = 0; index < book.metadata.chapterOrder.length; index += 1) {
@@ -2020,11 +2454,20 @@ function App() {
             }
 
             const currentChapterText = stripHtml(chapter.content);
+            const storyBibleForChapter = selectStoryBibleForPrompt(
+              book.metadata.storyBible,
+              `${message}\n${chapter.title}\n${currentChapterText}`,
+              {
+                recentText: compactHistory,
+                recencyWeight: 1.2,
+              },
+            );
             const prompt = buildAutoRewritePrompt({
               userInstruction: message,
               bookTitle: book.metadata.title,
               language: activeLanguage,
               foundation: book.metadata.foundation,
+              storyBible: storyBibleForChapter,
               chapterTitle: chapter.title,
               chapterLengthPreset: chapter.lengthPreset,
               chapterText: currentChapterText,
@@ -2049,9 +2492,19 @@ function App() {
               bookTitle: book.metadata.title,
               chapterTitle: chapter.title,
             });
-            const nextChapterText = guardedResult.text;
+            const continuityResult = await enforceContinuityResult({
+              userInstruction: message,
+              originalText: currentChapterText,
+              candidateText: guardedResult.text,
+              chapterTitle: chapter.title,
+              recentText: compactHistory,
+            });
+            const nextChapterText = continuityResult.text;
             if (guardedResult.summaryText) {
               extractedSummaries += 1;
+            }
+            if (continuityResult.corrected) {
+              continuityCorrections += 1;
             }
 
             const chapterDraft = {
@@ -2093,11 +2546,11 @@ function App() {
           id: randomId('msg'),
           role: 'assistant',
           scope,
-          content: `Cambios aplicados automaticamente en todo el libro (${book.metadata.chapterOrder.length} capitulos, ${iterations} iteracion/es).${extractedSummaries > 0 ? ` Resumenes detectados: ${extractedSummaries}.` : ''}`,
+          content: `Cambios aplicados automaticamente en todo el libro (${book.metadata.chapterOrder.length} capitulos, ${iterations} iteracion/es).${extractedSummaries > 0 ? ` Resumenes detectados: ${extractedSummaries}.` : ''}${continuityCorrections > 0 ? ` Correcciones de continuidad: ${continuityCorrections}.` : ''}`,
           createdAt: getNowIso(),
         };
 
-        await persistScopeMessages(scope, [...withUser, assistantMessage]);
+        await persistScopeMessages(scope, [...withUser, assistantMessage], scopeChapterId);
         setStatus('Chat aplicado automaticamente al libro completo.');
       } catch (error) {
         setStatus(`Error de IA: ${formatUnknownError(error)}`);
@@ -2111,8 +2564,10 @@ function App() {
       activeChapterId,
       config,
       persistScopeMessages,
+      ensureScopeMessagesLoaded,
       syncBookToLibrary,
       enforceExpansionResult,
+      enforceContinuityResult,
       activeLanguage,
       bookLengthInfo,
     ],
@@ -2126,6 +2581,7 @@ function App() {
 
       const editor = editorRef.current;
       if (!editor) {
+        setStatus('Activa el editor para aplicar acciones IA en el capitulo.');
         return;
       }
 
@@ -2146,6 +2602,19 @@ function App() {
         return;
       }
 
+      const recentActionHistory = currentMessages
+        .slice(-8)
+        .map((item) => `${item.role === 'user' ? 'Usuario' : 'Asistente'}: ${item.content}`)
+        .join('\n');
+      const storyBibleForAction = selectStoryBibleForPrompt(
+        book.metadata.storyBible,
+        `${normalizedIdea}\n${promptTargetText}\n${activeChapter.title}\n${stripHtml(activeChapter.content)}`,
+        {
+          recentText: recentActionHistory,
+          recencyWeight: 1.15,
+        },
+      );
+
       const prompt = buildActionPrompt({
         actionId,
         selectedText: promptTargetText,
@@ -2154,6 +2623,7 @@ function App() {
         bookTitle: book.metadata.title,
         language: activeLanguage,
         foundation: book.metadata.foundation,
+        storyBible: storyBibleForAction,
         chapterLengthPreset: activeChapter.lengthPreset,
         chapterContext: stripHtml(activeChapter.content),
         fullBookContext: buildBookContext(book),
@@ -2164,6 +2634,10 @@ function App() {
 
       try {
         const action = AI_ACTIONS.find((item) => item.id === actionId);
+        const actionInstruction =
+          actionId === 'draft-from-idea'
+            ? `Escribir desde idea. ${normalizedIdea}`
+            : `${action?.label ?? actionId}. ${action?.description ?? ''}`.trim();
         if (action?.modifiesText && config.autoVersioning) {
           await saveChapterSnapshot(book.path, activeChapter, action.label);
         }
@@ -2182,10 +2656,7 @@ function App() {
           const expansionSourceText = actionId === 'draft-from-idea' ? chapterText : selectedText;
           const expansionResult = await enforceExpansionResult({
             actionId,
-            instruction:
-              actionId === 'draft-from-idea'
-                ? `Escribir desde idea. ${normalizedIdea}`
-                : `${action.label}. ${action.description}`,
+            instruction: actionInstruction,
             originalText: expansionSourceText,
             candidateText: outputText,
             bookTitle: book.metadata.title,
@@ -2196,8 +2667,23 @@ function App() {
         }
 
         if (action?.modifiesText) {
+          const candidateChapterText =
+            actionId === 'draft-from-idea' || !hasSelection
+              ? outputText
+              : editor.previewSelectionReplacement(outputText);
+          const continuityResult = await enforceContinuityResult({
+            userInstruction: actionInstruction,
+            originalText: chapterText,
+            candidateText: candidateChapterText,
+            chapterTitle: activeChapter.title,
+            recentText: recentActionHistory,
+          });
+          summaryText = continuityResult.summaryText || summaryText;
+
           if (actionId === 'draft-from-idea' || !hasSelection) {
-            editor.replaceDocumentWithText(outputText);
+            editor.replaceDocumentWithText(continuityResult.text);
+          } else if (continuityResult.corrected) {
+            editor.replaceDocumentWithText(continuityResult.text);
           } else {
             editor.replaceSelectionWithText(outputText);
           }
@@ -2235,7 +2721,7 @@ function App() {
           });
 
           if (summaryText) {
-            const currentChapterMessages = book.metadata.chats.chapters[activeChapter.id] ?? [];
+            const currentChapterMessages = await ensureScopeMessagesLoaded('chapter', activeChapter.id);
             const summaryMessage: ChatMessage = {
               id: randomId('msg'),
               role: 'assistant',
@@ -2243,7 +2729,7 @@ function App() {
               content: buildSummaryMessage(summaryText, `Resumen de cambios (${action?.label ?? actionId}):`),
               createdAt: getNowIso(),
             };
-            await persistScopeMessages('chapter', [...currentChapterMessages, summaryMessage]);
+            await persistScopeMessages('chapter', [...currentChapterMessages, summaryMessage], activeChapter.id);
           }
 
           setStatus(
@@ -2257,8 +2743,8 @@ function App() {
 
           const history =
             feedbackScope === 'book'
-              ? book.metadata.chats.book
-              : book.metadata.chats.chapters[activeChapter.id] ?? [];
+              ? await ensureScopeMessagesLoaded('book')
+              : await ensureScopeMessagesLoaded('chapter', activeChapter.id);
 
           const feedbackMessage: ChatMessage = {
             id: randomId('msg'),
@@ -2268,7 +2754,11 @@ function App() {
             createdAt: getNowIso(),
           };
 
-          await persistScopeMessages(feedbackScope, [...history, feedbackMessage]);
+          await persistScopeMessages(
+            feedbackScope,
+            [...history, feedbackMessage],
+            feedbackScope === 'chapter' ? activeChapter.id : undefined,
+          );
           setChatScope(feedbackScope);
           setStatus(`Devolucion enviada al chat: ${action?.label ?? actionId}`);
         }
@@ -2284,9 +2774,12 @@ function App() {
       activeChapterId,
       config,
       persistScopeMessages,
+      ensureScopeMessagesLoaded,
       syncBookToLibrary,
       enforceExpansionResult,
+      enforceContinuityResult,
       activeLanguage,
+      currentMessages,
     ],
   );
 
@@ -2666,6 +3159,7 @@ function App() {
     }
 
     try {
+      const { exportChapterMarkdown } = await loadExportModule();
       const path = await exportChapterMarkdown(book.path, activeChapter);
       setStatus(`Capitulo exportado: ${path}`);
     } catch (error) {
@@ -2679,6 +3173,7 @@ function App() {
     }
 
     try {
+      const { exportBookMarkdownSingleFile } = await loadExportModule();
       const path = await exportBookMarkdownSingleFile(book.path, book.metadata, orderedChapters);
       setStatus(`Libro exportado: ${path}`);
     } catch (error) {
@@ -2692,6 +3187,7 @@ function App() {
     }
 
     try {
+      const { exportBookMarkdownByChapter } = await loadExportModule();
       const files = await exportBookMarkdownByChapter(book.path, orderedChapters);
       setStatus(`Capitulos exportados: ${files.length} archivos`);
     } catch (error) {
@@ -2705,10 +3201,53 @@ function App() {
     }
 
     try {
+      const { exportBookAmazonBundle } = await loadExportModule();
       const files = await exportBookAmazonBundle(book.path, book.metadata, orderedChapters);
       setStatus(`Pack Amazon exportado (${files.length} archivos).`);
     } catch (error) {
       setStatus(`No se pudo exportar pack Amazon: ${formatUnknownError(error)}`);
+    }
+  }, [book, orderedChapters]);
+
+  const handleExportBookDocx = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    try {
+      const { exportBookDocx } = await loadExportModule();
+      const path = await exportBookDocx(book.path, book.metadata, orderedChapters);
+      setStatus(`DOCX editorial exportado: ${path}`);
+    } catch (error) {
+      setStatus(`No se pudo exportar DOCX: ${formatUnknownError(error)}`);
+    }
+  }, [book, orderedChapters]);
+
+  const handleExportBookEpub = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    try {
+      const { exportBookEpub } = await loadExportModule();
+      const path = await exportBookEpub(book.path, book.metadata, orderedChapters);
+      setStatus(`EPUB editorial exportado: ${path}`);
+    } catch (error) {
+      setStatus(`No se pudo exportar EPUB: ${formatUnknownError(error)}`);
+    }
+  }, [book, orderedChapters]);
+
+  const handleExportStyleReport = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    try {
+      const { exportBookStyleReport } = await loadExportModule();
+      const path = await exportBookStyleReport(book.path, book.metadata, orderedChapters);
+      setStatus(`Reporte de estilo exportado: ${path}`);
+    } catch (error) {
+      setStatus(`No se pudo exportar reporte de estilo: ${formatUnknownError(error)}`);
     }
   }, [book, orderedChapters]);
 
@@ -2718,7 +3257,7 @@ function App() {
       setStatus(`Abriendo libro: ${entry?.title ?? bookPath}`);
       try {
         await loadProject(bookPath);
-        setMainView('editor');
+        setMainView('outline');
       } catch (error) {
         setStatus(`Biblioteca abrir: ${formatUnknownError(error)}`);
       }
@@ -2733,7 +3272,7 @@ function App() {
       try {
         await loadProject(bookPath);
         setChatScope('book');
-        setMainView('editor');
+        setMainView('outline');
         setStatus('Libro abierto en modo chat de libro.');
       } catch (error) {
         setStatus(`Biblioteca chat: ${formatUnknownError(error)}`);
@@ -2840,7 +3379,7 @@ function App() {
   const centerView = useMemo(() => {
     if (mainView === 'outline') {
       return (
-        <OutlineView
+        <LazyOutlineView
           chapters={orderedChapters}
           onSelectChapter={(chapterId) => {
             setActiveChapterId(chapterId);
@@ -2852,7 +3391,7 @@ function App() {
 
     if (mainView === 'preview' && book) {
       return (
-        <PreviewView
+        <LazyPreviewView
           title={book.metadata.title}
           author={book.metadata.author}
           chapters={orderedChapters}
@@ -2864,9 +3403,31 @@ function App() {
       );
     }
 
+    if (mainView === 'diff') {
+      return (
+        <LazyVersionDiffView
+          bookPath={book?.path ?? null}
+          chapters={orderedChapters}
+          activeChapterId={activeChapterId}
+        />
+      );
+    }
+
+    if (mainView === 'style') {
+      return (
+        <LazyStylePanel
+          hasBook={Boolean(book)}
+          bookTitle={book?.metadata.title ?? ''}
+          chapters={orderedChapters}
+          activeChapterId={activeChapterId}
+          onExportReport={handleExportStyleReport}
+        />
+      );
+    }
+
     if (mainView === 'cover') {
       return (
-        <CoverView
+        <LazyCoverView
           coverSrc={coverSrc}
           backCoverSrc={backCoverSrc}
           spineText={book?.metadata.spineText ?? ''}
@@ -2882,7 +3443,7 @@ function App() {
 
     if (mainView === 'foundation') {
       return (
-        <BookFoundationPanel
+        <LazyBookFoundationPanel
           foundation={book?.metadata.foundation ?? {
             centralIdea: '',
             promise: '',
@@ -2899,9 +3460,23 @@ function App() {
       );
     }
 
+    if (mainView === 'bible') {
+      return (
+        <LazyStoryBiblePanel
+          storyBible={book?.metadata.storyBible ?? {
+            characters: [],
+            locations: [],
+            continuityRules: '',
+          }}
+          onChange={handleStoryBibleChange}
+          onSave={handleSaveStoryBible}
+        />
+      );
+    }
+
     if (mainView === 'amazon' && book) {
       return (
-        <AmazonPanel
+        <LazyAmazonPanel
           metadata={book.metadata}
           chapters={orderedChapters}
           onChangeMetadata={handleAmazonMetadataChange}
@@ -2913,7 +3488,7 @@ function App() {
 
     if (mainView === 'search') {
       return (
-        <SearchReplacePanel
+        <LazySearchReplacePanel
           hasBook={Boolean(book)}
           bookTitle={book?.metadata.title ?? ''}
           query={searchQuery}
@@ -2944,12 +3519,19 @@ function App() {
     }
 
     if (mainView === 'settings') {
-      return <SettingsPanel config={config} bookPath={book?.path ?? null} onChange={setConfig} onSave={handleSaveSettings} />;
+      return (
+        <LazySettingsPanel
+          config={config}
+          bookPath={book?.path ?? null}
+          onChange={setConfig}
+          onSave={handleSaveSettings}
+        />
+      );
     }
 
     if (mainView === 'language') {
       return (
-        <LanguagePanel
+        <LazyLanguagePanel
           config={config}
           bookPath={book?.path ?? null}
           amazonLanguage={book?.metadata.amazon.language ?? null}
@@ -2962,8 +3544,17 @@ function App() {
       );
     }
 
+    if (!activeChapter) {
+      return (
+        <section className="editor-pane empty-state">
+          <h2>Editor</h2>
+          <p>Abri o crea un libro para empezar.</p>
+        </section>
+      );
+    }
+
     return (
-      <EditorPane
+      <LazyEditorPane
         ref={editorRef}
         chapter={activeChapter}
         interiorFormat={interiorFormat}
@@ -3003,6 +3594,7 @@ function App() {
     handleEditorChange,
     handleAmazonMetadataChange,
     handleExportAmazonBundle,
+    handleExportStyleReport,
     handleSaveAmazon,
     handleLanguageChange,
     languageDirty,
@@ -3013,6 +3605,8 @@ function App() {
     handlePickBackCover,
     handleFoundationChange,
     handleSaveFoundation,
+    handleStoryBibleChange,
+    handleSaveStoryBible,
     handlePickCover,
     handleSaveCoverData,
     handleSaveSettings,
@@ -3070,6 +3664,8 @@ function App() {
             onExportBookSingle={handleExportBookSingle}
             onExportBookSplit={handleExportBookSplit}
             onExportAmazonBundle={handleExportAmazonBundle}
+            onExportBookDocx={handleExportBookDocx}
+            onExportBookEpub={handleExportBookEpub}
           />
         }
         center={
@@ -3082,6 +3678,20 @@ function App() {
                     <p>{book.path}</p>
                   </div>
                   <div className="active-book-banner-actions">
+                    <button
+                      type="button"
+                      onClick={handleRenameBookTitle}
+                      title="Renombra el titulo del libro activo."
+                    >
+                      Renombrar libro
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRenameBookAuthor}
+                      title="Renombra el autor del libro activo."
+                    >
+                      Renombrar autor
+                    </button>
                     <button
                       type="button"
                       onClick={toggleFocusMode}
@@ -3128,36 +3738,67 @@ function App() {
               onShowEditor={() => setMainView('editor')}
               onShowOutline={() => setMainView('outline')}
               onShowPreview={() => setMainView('preview')}
+              onShowDiff={() => setMainView('diff')}
+              onShowStyle={() => setMainView('style')}
               onShowCover={() => setMainView('cover')}
               onShowFoundation={() => setMainView('foundation')}
+              onShowBible={() => setMainView('bible')}
               onShowAmazon={() => setMainView('amazon')}
               onShowSearch={() => setMainView('search')}
               onShowSettings={() => setMainView('settings')}
               onShowLanguage={() => setMainView('language')}
             />
-            {centerView}
+            <Suspense
+              fallback={
+                <section className="view-loading" role="status" aria-live="polite">
+                  Cargando vista...
+                </section>
+              }
+            >
+              {centerView}
+            </Suspense>
           </div>
         }
         right={
-          <AIPanel
-            actions={AI_ACTIONS}
-            aiBusy={aiBusy}
-            canUndoSnapshots={Boolean(book && activeChapter)}
-            canRedoSnapshots={canRedoSnapshots}
-            scope={chatScope}
-            chapterLengthInfo={chapterLengthInfo}
-            bookLengthInfo={bookLengthInfo}
-            messages={currentMessages}
-            autoApplyChatChanges={config.autoApplyChatChanges}
-            chatApplyIterations={config.chatApplyIterations}
-            continuousAgentEnabled={config.continuousAgentEnabled}
-            continuousAgentMaxRounds={config.continuousAgentMaxRounds}
-            onScopeChange={setChatScope}
-            onRunAction={handleRunAction}
-            onSendChat={handleSendChat}
-            onUndoSnapshot={handleUndoSnapshot}
-            onRedoSnapshot={handleRedoSnapshot}
-          />
+          book ? (
+            <Suspense
+              fallback={
+                <section className="ai-panel" role="status" aria-live="polite">
+                  <header>
+                    <h2>Asistente IA</h2>
+                    <p className="muted">Cargando panel IA...</p>
+                  </header>
+                </section>
+              }
+            >
+              <LazyAIPanel
+                actions={AI_ACTIONS}
+                aiBusy={aiBusy}
+                canUndoSnapshots={Boolean(book && activeChapter)}
+                canRedoSnapshots={canRedoSnapshots}
+                scope={chatScope}
+                chapterLengthInfo={chapterLengthInfo}
+                bookLengthInfo={bookLengthInfo}
+                messages={currentMessages}
+                autoApplyChatChanges={config.autoApplyChatChanges}
+                chatApplyIterations={config.chatApplyIterations}
+                continuousAgentEnabled={config.continuousAgentEnabled}
+                continuousAgentMaxRounds={config.continuousAgentMaxRounds}
+                onScopeChange={setChatScope}
+                onRunAction={handleRunAction}
+                onSendChat={handleSendChat}
+                onUndoSnapshot={handleUndoSnapshot}
+                onRedoSnapshot={handleRedoSnapshot}
+              />
+            </Suspense>
+          ) : (
+            <section className="ai-panel">
+              <header>
+                <h2>Asistente IA</h2>
+                <p>Abri un libro para activar chat, acciones y snapshots IA.</p>
+              </header>
+            </section>
+          )
         }
         status={book ? `Libro activo: ${book.metadata.title} | ${status}` : status}
       />
@@ -3169,14 +3810,18 @@ function App() {
       >
         Ayuda
       </button>
-      <HelpPanel
-        isOpen={helpOpen}
-        focusMode={focusMode}
-        onClose={() => setHelpOpen(false)}
-        onCreateBook={handleCreateBook}
-        onOpenBook={handleOpenBook}
-        onToggleFocusMode={toggleFocusMode}
-      />
+      {helpOpen ? (
+        <Suspense fallback={null}>
+          <LazyHelpPanel
+            isOpen={helpOpen}
+            focusMode={focusMode}
+            onClose={() => setHelpOpen(false)}
+            onCreateBook={handleCreateBook}
+            onOpenBook={handleOpenBook}
+            onToggleFocusMode={toggleFocusMode}
+          />
+        </Suspense>
+      ) : null}
       {promptModal && (
         <PromptModal
           key={`${promptModal.title}-${promptModal.label}-${promptModal.defaultValue ?? ''}`}
@@ -3187,6 +3832,8 @@ function App() {
           placeholder={promptModal.placeholder}
           multiline={promptModal.multiline}
           confirmLabel={promptModal.confirmLabel}
+          secondaryLabel={promptModal.secondaryLabel}
+          onSecondary={promptModal.onSecondary}
           onConfirm={promptModal.onConfirm}
           onClose={() => setPromptModal(null)}
         />

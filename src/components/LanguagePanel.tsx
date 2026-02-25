@@ -35,23 +35,31 @@ function inferMarketplaceLanguageHint(marketplace: string | null): string | null
 }
 
 function LanguagePanel(props: LanguagePanelProps) {
-  const languageInput = typeof props.config.language === 'string' ? props.config.language : '';
+  const configLanguageInput = typeof props.config.language === 'string' ? props.config.language : '';
+  const amazonLanguageInput = typeof props.amazonLanguage === 'string' ? props.amazonLanguage : '';
+  const languageInput = configLanguageInput.trim() ? configLanguageInput : amazonLanguageInput;
   const selectValue = useMemo(() => resolveLanguageSelectValue(languageInput), [languageInput]);
   const rawInput = languageInput.trim();
   const showIsoWarning = rawInput.length > 0 && !isLanguageCodeFormatValid(rawInput);
-  const normalizedConfigLanguage = normalizeLanguageCode(languageInput);
-  const normalizedAmazonLanguage = normalizeLanguageCode(props.amazonLanguage ?? '');
+  const normalizedConfigLanguage = configLanguageInput.trim()
+    ? normalizeLanguageCode(configLanguageInput)
+    : '';
+  const normalizedAmazonLanguage = amazonLanguageInput.trim()
+    ? normalizeLanguageCode(amazonLanguageInput)
+    : '';
+  const normalizedActiveLanguage = normalizedConfigLanguage || normalizedAmazonLanguage;
   const marketplaceLanguageHint = inferMarketplaceLanguageHint(props.amazonMarketplace);
   const hasLanguageMismatch = Boolean(
     props.bookPath &&
-      props.amazonLanguage !== null &&
+      normalizedConfigLanguage &&
+      normalizedAmazonLanguage &&
       normalizedConfigLanguage !== normalizedAmazonLanguage,
   );
   const shouldReviewMarketplace = Boolean(
     props.bookPath &&
       marketplaceLanguageHint &&
-      normalizedConfigLanguage &&
-      !normalizedConfigLanguage.startsWith(marketplaceLanguageHint),
+      normalizedActiveLanguage &&
+      !normalizedActiveLanguage.startsWith(marketplaceLanguageHint),
   );
 
   const activeLabel = useMemo(() => {
@@ -71,18 +79,10 @@ function LanguagePanel(props: LanguagePanelProps) {
       <header>
         <h2>Idioma</h2>
         <p>
-          Define el idioma base para prompts de IA y para metadatos KDP. Al guardar se sincroniza en
-          <code>config.json</code> y <code>book.json</code>. Si `config.json` no existe, la app lo crea.
-        </p>
-        <p>
           {props.bookPath ? (
-            <>
-              Ruta config: {props.bookPath}/config.json
-              <br />
-              Ruta metadata (Amazon): {props.bookPath}/book.json
-            </>
+            'Define el idioma base para prompts de IA y metadatos KDP. Si falta en config, se usa el idioma del libro.'
           ) : (
-            'Abri un libro para guardar idioma.'
+            'Abri un libro para configurar idioma.'
           )}
         </p>
         <p className="muted">

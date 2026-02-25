@@ -37,7 +37,15 @@ Si queres validar solo frontend:
 npm run test
 npm run lint
 npm run build
+npm run build:report
 npm run dev
+```
+
+`npm run build` ahora tambien genera reporte de pesos en:
+
+```text
+reports/build/build-size-YYYYMMDDTHHMMSSZ.json
+reports/build/build-size-latest.json
 ```
 
 ## Verificacion local automatica
@@ -52,6 +60,13 @@ Auditoria especifica de contraste (WCAG):
 
 ```bash
 npm run verify:a11y-contrast
+```
+
+Migracion de historial para limpiar `contentJson` en `chapters/` y `versions/`:
+
+```bash
+npm run migrate:contentjson -- --book ./examples/demo-book
+npm run migrate:contentjson -- --book ./examples/demo-book --apply --backup
 ```
 
 Opciones utiles (PowerShell):
@@ -103,6 +118,7 @@ Regla de calidad del proyecto:
 - contraportada (`backCoverImage`)
 - texto de lomo (`spineText`)
 - base fija del libro (`foundation`)
+- biblia de historia (`storyBible`: personajes/lugares con alias y reglas de continuidad)
 - seccion Amazon/KDP (`amazon`)
 - formato interior para maquetado (`interiorFormat`)
 - estado de publicacion (`isPublished`, `publishedAt`)
@@ -126,6 +142,7 @@ Biblioteca global:
 - `chatApplyIterations`
 - `continuousAgentEnabled`
 - `continuousAgentMaxRounds`
+- `continuityGuardEnabled` (si esta activo, valida/corrige continuidad antes de guardar cambios IA)
 - `autosaveIntervalMs`
 - `ollamaOptions`
 
@@ -141,7 +158,15 @@ Cada capitulo (`chapters/NN.json`) guarda:
 - Biblioteca de libros expandible con estados y accesos rapidos (Abrir, Chat, Amazon, Publicar)
 - CRUD de capitulos (crear, renombrar, duplicar, borrar, mover)
 - Vista general de libro
+- Control de cambios visual entre snapshots (comparacion por capitulo)
+- Panel de analisis de estilo (ritmo, repeticion, lectura estimada y semaforo por capitulo/libro)
 - Vista y edicion de base fija del libro
+- Solapa de biblia de historia (personajes, lugares y reglas de continuidad)
+  - aliases por entidad para detectar variantes de nombre en prompts (RAG-light)
+- Carga diferida del panel IA (`AIPanel`): no se descarga/renderiza hasta abrir un libro, para acelerar arranque inicial.
+- Carga bajo demanda del pipeline de exportacion (`lib/export`): se importa solo cuando ejecutas una exportacion.
+- Apertura de libro optimizada: no reescribe masivamente `chapters/` ni `chats/` en cada carga; solo guarda cuando hay normalizacion/migracion real.
+- Carga de chats por demanda (scope activo): al abrir libro no se leen todos los historiales, solo `book` o el capitulo activo cuando hace falta.
 - Portada y contraportada (ver/cambiar/quitar) + texto de lomo
 - Seccion Amazon/KDP con presets listos para copiar y pegar
 - Formato interior editable (trim size, margenes, sangria, interlineado)
@@ -152,6 +177,10 @@ Cada capitulo (`chapters/NN.json`) guarda:
   - chat por capitulo o por libro
   - modo auto-aplicar sin preguntar (iterativo)
   - agente continuo por rondas en chat de capitulo
+  - bloqueo opcional de continuidad antes de persistir texto generado por IA
+  - inyeccion automatica de `foundation` + `storyBible` en prompts (sin repetir contexto manual)
+  - filtrado contextual tipo RAG-light de personajes/lugares segun instruccion y capitulo activo
+  - priorizacion por recencia de menciones (chat/contexto reciente) para mejorar seleccion de entidades
 - Presets de trabajo en Settings (borrador, precision, revision final)
 - Solapa de idioma dedicada:
   - seleccion o codigo manual (`es`, `en`, `pt-BR`, `es-MX`, etc.)
@@ -170,6 +199,11 @@ Cada capitulo (`chapters/NN.json`) guarda:
   - capitulo individual
   - libro en archivo unico
   - libro en archivos por capitulo
+- Export editorial:
+  - manuscrito `.docx` (editorial)
+  - eBook `.epub`
+- Export de estilo:
+  - reporte `.txt` con resumen del libro y detalle por capitulo
 - Export Amazon:
   - pack copy/paste (`.txt`)
   - interior maquetado para KDP (`.html`)
@@ -183,6 +217,7 @@ Cuando `autoApplyChatChanges` esta activo:
 - Scope `Por capitulo`: reescribe el capitulo activo automaticamente.
 - Scope `Por libro`: aplica la instruccion a todos los capitulos.
 - `chatApplyIterations` define cuantas pasadas hace sin preguntar.
+- Si `continuityGuardEnabled` esta activo, cada resultado IA pasa por un chequeo/correccion de continuidad antes de persistirse en disco.
 
 ## Defaults recomendados
 
@@ -216,4 +251,5 @@ Incluye:
 - Historial de versiones: `CHANGELOG.md`
 - Guia de releases y criterio de reversionado: `docs/versioning.md`
 - Operacion local, comandos y reportes de verificacion: `docs/operacion-local.md`
+- Roadmap de producto B/F (Timeline + Analisis de estilo): `docs/roadmap-bf.md`
 - Regla operativa: todo cambio significativo se documenta y sube version.

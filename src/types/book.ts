@@ -2,8 +2,11 @@ export type MainView =
   | 'editor'
   | 'outline'
   | 'preview'
+  | 'diff'
+  | 'style'
   | 'cover'
   | 'foundation'
+  | 'bible'
   | 'amazon'
   | 'search'
   | 'settings'
@@ -55,6 +58,31 @@ export interface BookFoundation {
   structureNotes: string;
   glossaryPreferred: string;
   glossaryAvoid: string;
+}
+
+export interface StoryCharacter {
+  id: string;
+  name: string;
+  aliases: string;
+  role: string;
+  traits: string;
+  goal: string;
+  notes: string;
+}
+
+export interface StoryLocation {
+  id: string;
+  name: string;
+  aliases: string;
+  description: string;
+  atmosphere: string;
+  notes: string;
+}
+
+export interface StoryBible {
+  characters: StoryCharacter[];
+  locations: StoryLocation[];
+  continuityRules: string;
 }
 
 export type AmazonPresetType = 'non-fiction-reflexive' | 'practical-essay' | 'intimate-narrative';
@@ -119,6 +147,7 @@ export interface BookMetadata {
   backCoverImage: string | null;
   spineText: string;
   foundation: BookFoundation;
+  storyBible: StoryBible;
   amazon: AmazonKdpData;
   interiorFormat: InteriorFormat;
   isPublished: boolean;
@@ -168,6 +197,7 @@ export interface AppConfig {
   chatApplyIterations: number;
   continuousAgentEnabled: boolean;
   continuousAgentMaxRounds: number;
+  continuityGuardEnabled: boolean;
   ollamaOptions: Record<string, number | string | boolean>;
   autosaveIntervalMs: number;
   accessibilityHighContrast: boolean;

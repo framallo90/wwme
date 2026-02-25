@@ -5,6 +5,7 @@ import {
   readDir,
   readTextFile,
   remove,
+  writeFile,
   writeTextFile,
 } from '@tauri-apps/plugin-fs';
 import { appDataDir } from '@tauri-apps/api/path';
@@ -20,6 +21,9 @@ import type {
   BookChats,
   ChatMessage,
   BookFoundation,
+  StoryBible,
+  StoryCharacter,
+  StoryLocation,
   InteriorFormat,
   LibraryBookEntry,
   LibraryIndex,
@@ -37,6 +41,10 @@ const CHATS_DIR = 'chats';
 const EXPORTS_DIR = 'exports';
 const CONFIG_FILE = 'config.json';
 const LIBRARY_FILE = 'library.json';
+type BookLanguageSource = Partial<BookMetadata> & {
+  amazon?: Partial<AmazonKdpData>;
+  language?: unknown;
+};
 
 function buildDefaultChats(): BookChats {
   return {
@@ -55,6 +63,14 @@ export function buildDefaultFoundation(): BookFoundation {
     structureNotes: '',
     glossaryPreferred: '',
     glossaryAvoid: '',
+  };
+}
+
+export function buildDefaultStoryBible(): StoryBible {
+  return {
+    characters: [],
+    locations: [],
+    continuityRules: '',
   };
 }
 
@@ -214,6 +230,37 @@ function ensureAmazonData(
     keywords: ensureAmazonKeywords(amazon.keywords),
     categories: ensureAmazonCategories(amazon.categories, defaults.categories),
   };
+}
+
+function readAmazonLanguageHint(metadata: BookLanguageSource | null | undefined): string | null {
+  if (!metadata) {
+    return null;
+  }
+
+  const amazonLanguage = metadata.amazon?.language;
+  if (typeof amazonLanguage === 'string' && amazonLanguage.trim()) {
+    return normalizeLanguageCode(amazonLanguage);
+  }
+
+  return null;
+}
+
+function resolveBookLanguageHint(metadata: BookLanguageSource | null | undefined): string | null {
+  const amazonLanguage = readAmazonLanguageHint(metadata);
+  if (amazonLanguage) {
+    return amazonLanguage;
+  }
+
+  if (!metadata) {
+    return null;
+  }
+
+  const legacyLanguage = typeof metadata.language === 'string' ? metadata.language.trim() : '';
+  if (!legacyLanguage) {
+    return null;
+  }
+
+  return normalizeLanguageCode(legacyLanguage);
 }
 
 export function buildDefaultInteriorFormat(): InteriorFormat {
@@ -490,81 +537,105 @@ function ensureBookChats(chats: unknown): BookChats {
   return normalized;
 }
 
+function hasChatContent(chats: BookChats): boolean {
+  if (chats.book.length > 0) {
+    return true;
+  }
+
+  return Object.values(chats.chapters).some((messages) => messages.length > 0);
+}
+
+function normalizeStoryText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function ensureStoryCharacters(values: unknown): StoryCharacter[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  const normalized: StoryCharacter[] = [];
+  for (const entry of values) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    const payload = entry as Partial<StoryCharacter>;
+    const character: StoryCharacter = {
+      id: normalizeStoryText(payload.id) || randomId('char'),
+      name: normalizeStoryText(payload.name),
+      aliases: normalizeStoryText(payload.aliases),
+      role: normalizeStoryText(payload.role),
+      traits: normalizeStoryText(payload.traits),
+      goal: normalizeStoryText(payload.goal),
+      notes: normalizeStoryText(payload.notes),
+    };
+
+    if (
+      !character.name &&
+      !character.aliases &&
+      !character.role &&
+      !character.traits &&
+      !character.goal &&
+      !character.notes
+    ) {
+      continue;
+    }
+
+    normalized.push(character);
+  }
+
+  return normalized;
+}
+
+function ensureStoryLocations(values: unknown): StoryLocation[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  const normalized: StoryLocation[] = [];
+  for (const entry of values) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    const payload = entry as Partial<StoryLocation>;
+    const location: StoryLocation = {
+      id: normalizeStoryText(payload.id) || randomId('loc'),
+      name: normalizeStoryText(payload.name),
+      aliases: normalizeStoryText(payload.aliases),
+      description: normalizeStoryText(payload.description),
+      atmosphere: normalizeStoryText(payload.atmosphere),
+      notes: normalizeStoryText(payload.notes),
+    };
+
+    if (!location.name && !location.aliases && !location.description && !location.atmosphere && !location.notes) {
+      continue;
+    }
+
+    normalized.push(location);
+  }
+
+  return normalized;
+}
+
+function ensureStoryBible(storyBible: unknown): StoryBible {
+  if (!storyBible || typeof storyBible !== 'object' || Array.isArray(storyBible)) {
+    return buildDefaultStoryBible();
+  }
+
+  const payload = storyBible as Partial<StoryBible>;
+  return {
+    characters: ensureStoryCharacters(payload.characters),
+    locations: ensureStoryLocations(payload.locations),
+    continuityRules: normalizeStoryText(payload.continuityRules),
+  };
+}
+
 function stripChatsFromMetadata(metadata: BookMetadata): Omit<BookMetadata, 'chats'> {
   const payload = { ...metadata } as Partial<BookMetadata>;
   delete payload.chats;
   return payload as Omit<BookMetadata, 'chats'>;
-}
-
-async function loadChatsFromDisk(
-  bookPath: string,
-  chapterOrder: string[],
-  legacyChats: unknown,
-): Promise<BookChats> {
-  const fallback = ensureBookChats(legacyChats);
-  const result: BookChats = {
-    book: [...fallback.book],
-    chapters: { ...fallback.chapters },
-  };
-
-  const chatsDirectory = chatsDirPath(bookPath);
-  if (!(await exists(chatsDirectory))) {
-    return result;
-  }
-
-  const bookChatPath = bookChatFilePath(bookPath);
-  if (await exists(bookChatPath)) {
-    try {
-      const loadedBookMessages = await readJson<unknown>(bookChatPath);
-      result.book = ensureChatMessages(loadedBookMessages, 'book');
-    } catch {
-      // Mantiene fallback legado.
-    }
-  }
-
-  const knownChapterIds = new Set<string>([...chapterOrder, ...Object.keys(result.chapters)]);
-  for (const chapterId of knownChapterIds) {
-    const chapterPath = chapterChatFilePath(bookPath, chapterId);
-    if (!(await exists(chapterPath))) {
-      continue;
-    }
-
-    try {
-      const loadedChapterMessages = await readJson<unknown>(chapterPath);
-      result.chapters[chapterId] = ensureChatMessages(loadedChapterMessages, 'chapter');
-    } catch {
-      // Mantiene fallback legado.
-    }
-  }
-
-  try {
-    const entries = await readDir(chatsDirectory);
-    for (const entry of entries) {
-      if (!entry.isFile || !entry.name.toLowerCase().endsWith('.json')) {
-        continue;
-      }
-
-      if (entry.name.toLowerCase() === 'book.json') {
-        continue;
-      }
-
-      const chapterId = entry.name.replace(/\.json$/i, '').trim();
-      if (!chapterId || knownChapterIds.has(chapterId)) {
-        continue;
-      }
-
-      try {
-        const loadedChapterMessages = await readJson<unknown>(joinPath(chatsDirectory, entry.name));
-        result.chapters[chapterId] = ensureChatMessages(loadedChapterMessages, 'chapter');
-      } catch {
-        // Ignora archivos de chat corruptos.
-      }
-    }
-  } catch {
-    // Ignora errores de lectura de carpeta chats.
-  }
-
-  return result;
 }
 
 async function saveChatsToDisk(bookPath: string, chats: BookChats): Promise<BookChats> {
@@ -625,6 +696,33 @@ function ensureChapterDocument(chapter: ChapterDocument): ChapterDocument {
   };
 }
 
+function shouldPersistNormalizedChapter(
+  source: Partial<ChapterDocument> | null,
+  normalized: ChapterDocument,
+): boolean {
+  if (!source) {
+    return true;
+  }
+
+  const sourceId = typeof source.id === 'string' ? source.id.trim() : '';
+  const sourceTitle = typeof source.title === 'string' ? source.title.trim() : '';
+  const sourceContent = typeof source.content === 'string' ? source.content : '';
+  const sourceCreatedAt = typeof source.createdAt === 'string' ? source.createdAt : '';
+  const sourceUpdatedAt = typeof source.updatedAt === 'string' ? source.updatedAt : '';
+  const sourceLengthPreset = resolveChapterLengthPreset(source.lengthPreset);
+  const sourceContentJson = source.contentJson ?? null;
+
+  return (
+    sourceId !== normalized.id ||
+    sourceTitle !== normalized.title ||
+    sourceContent !== normalized.content ||
+    sourceCreatedAt !== normalized.createdAt ||
+    sourceUpdatedAt !== normalized.updatedAt ||
+    sourceLengthPreset !== normalized.lengthPreset ||
+    sourceContentJson !== normalized.contentJson
+  );
+}
+
 function inferTitleFromBookPath(bookPath: string): string {
   const parts = normalizeFolderPath(bookPath).split('/').filter(Boolean);
   const folder = parts[parts.length - 1] ?? 'mi-libro';
@@ -679,6 +777,7 @@ function buildInitialBookMetadata(
     backCoverImage: null,
     spineText: title,
     foundation: buildDefaultFoundation(),
+    storyBible: buildDefaultStoryBible(),
     amazon: buildDefaultAmazon(title, author),
     interiorFormat: buildDefaultInteriorFormat(),
     isPublished: false,
@@ -721,11 +820,20 @@ async function ensureBookProjectFiles(
   const titleFromPath = inferTitleFromBookPath(normalizedBookPath);
   const defaultTitle = defaults?.title?.trim() || titleFromPath;
   const defaultAuthor = defaults?.author?.trim() || 'Autor';
+  let bookLanguageHint: string | null = null;
+  let sourceHasAmazonLanguage = false;
+  let shouldPersistChats = false;
 
   let metadata: BookMetadata;
   if (await exists(bookFilePath(normalizedBookPath))) {
     try {
-      metadata = ensureBookMetadata(await readJson<BookMetadata>(bookFilePath(normalizedBookPath)));
+      const loadedMetadata = await readJson<BookLanguageSource>(bookFilePath(normalizedBookPath));
+      sourceHasAmazonLanguage = Boolean(readAmazonLanguageHint(loadedMetadata));
+      bookLanguageHint = resolveBookLanguageHint(loadedMetadata);
+      if (hasChatContent(ensureBookChats(loadedMetadata.chats))) {
+        shouldPersistChats = true;
+      }
+      metadata = ensureBookMetadata(loadedMetadata as BookMetadata);
     } catch {
       const fallbackOrder = chapterIdsFromDisk.length > 0 ? chapterIdsFromDisk : ['01'];
       metadata = buildInitialBookMetadata(defaultTitle, defaultAuthor, fallbackOrder, now);
@@ -733,6 +841,16 @@ async function ensureBookProjectFiles(
   } else {
     const initialOrder = chapterIdsFromDisk.length > 0 ? chapterIdsFromDisk : ['01'];
     metadata = buildInitialBookMetadata(defaultTitle, defaultAuthor, initialOrder, now);
+  }
+
+  if (!sourceHasAmazonLanguage && bookLanguageHint) {
+    metadata = ensureBookMetadata({
+      ...metadata,
+      amazon: {
+        ...metadata.amazon,
+        language: bookLanguageHint,
+      },
+    });
   }
 
   const mergedOrder = metadata.chapterOrder.length > 0 ? metadata.chapterOrder : chapterIdsFromDisk;
@@ -752,10 +870,12 @@ async function ensureBookProjectFiles(
   for (const [index, chapterId] of metadata.chapterOrder.entries()) {
     const chapterPath = chapterFilePath(normalizedBookPath, chapterId);
     let chapter: ChapterDocument;
+    let shouldPersistChapter = false;
 
     if (await exists(chapterPath)) {
       try {
-        const loaded = ensureChapterDocument(await readJson<ChapterDocument>(chapterPath));
+        const rawChapter = await readJson<Partial<ChapterDocument>>(chapterPath);
+        const loaded = ensureChapterDocument(rawChapter as ChapterDocument);
         chapter = {
           ...loaded,
           id: loaded.id?.trim() || chapterId,
@@ -765,33 +885,36 @@ async function ensureBookProjectFiles(
           updatedAt: loaded.updatedAt ?? loaded.createdAt ?? now,
           contentJson: loaded.contentJson ?? null,
         };
+        shouldPersistChapter = shouldPersistNormalizedChapter(rawChapter, chapter);
       } catch {
         chapter = buildDefaultChapterDocument(chapterId, index, now);
+        shouldPersistChapter = true;
       }
     } else {
       chapter = buildDefaultChapterDocument(chapterId, index, now);
+      shouldPersistChapter = true;
     }
 
     chapters[chapterId] = chapter;
-    await writeJson(chapterPath, chapter);
+    if (shouldPersistChapter) {
+      await writeJson(chapterPath, chapter);
+    }
   }
 
-  const loadedChats = await loadChatsFromDisk(
-    normalizedBookPath,
-    metadata.chapterOrder,
-    metadata.chats,
-  );
+  const legacyChats = ensureBookChats(metadata.chats);
   metadata = {
     ...metadata,
-    chats: loadedChats,
+    chats: legacyChats,
   };
-
-  await saveChatsToDisk(normalizedBookPath, loadedChats);
+  if (shouldPersistChats || hasChatContent(legacyChats)) {
+    await saveChatsToDisk(normalizedBookPath, legacyChats);
+  }
   await writeJson(bookFilePath(normalizedBookPath), stripChatsFromMetadata(metadata));
   if (!(await exists(configFilePath(normalizedBookPath)))) {
+    const configLanguage = bookLanguageHint ?? normalizeLanguageCode(metadata.amazon.language);
     await writeJson(configFilePath(normalizedBookPath), {
       ...DEFAULT_APP_CONFIG,
-      language: normalizeLanguageCode(metadata.amazon.language),
+      language: configLanguage,
     });
   }
 
@@ -855,6 +978,7 @@ function ensureBookMetadata(metadata: BookMetadata): BookMetadata {
     backCoverImage: metadata.backCoverImage ?? null,
     spineText: metadata.spineText ?? metadata.title ?? '',
     foundation: metadata.foundation ?? buildDefaultFoundation(),
+    storyBible: ensureStoryBible(metadata.storyBible),
     amazon: ensureAmazonData(metadata.amazon, metadata.title, metadata.author),
     interiorFormat: metadata.interiorFormat ?? buildDefaultInteriorFormat(),
     isPublished: metadata.isPublished ?? false,
@@ -905,12 +1029,12 @@ export async function loadAppConfig(bookPath: string): Promise<AppConfig> {
   const targetBookPath = bookFilePath(normalizedBookPath);
   if (await exists(targetBookPath)) {
     try {
-      const metadata = await readJson<Partial<BookMetadata> & { amazon?: Partial<AmazonKdpData> }>(
+      const metadata = await readJson<BookLanguageSource>(
         targetBookPath,
       );
-      const amazonLanguage = metadata.amazon?.language;
-      if (typeof amazonLanguage === 'string' && amazonLanguage.trim()) {
-        bookLanguageHint = normalizeLanguageCode(amazonLanguage);
+      const resolvedLanguage = resolveBookLanguageHint(metadata);
+      if (resolvedLanguage) {
+        bookLanguageHint = resolvedLanguage;
       }
     } catch {
       // Ignora book.json corrupto para no bloquear carga de config.
@@ -1081,6 +1205,7 @@ export async function saveBookMetadata(
     updatedAt: getNowIso(),
     chats: ensureBookChats(metadata.chats),
     foundation: metadata.foundation ?? buildDefaultFoundation(),
+    storyBible: ensureStoryBible(metadata.storyBible),
     amazon: ensureAmazonData(metadata.amazon, metadata.title, metadata.author),
     backCoverImage: metadata.backCoverImage ?? null,
     spineText: metadata.spineText ?? metadata.title,
@@ -1207,7 +1332,7 @@ export async function deleteChapter(
     updatedAt: getNowIso(),
   };
 
-  await saveChatsToDisk(bookPath, nextChats);
+  await removeChapterChatMessages(bookPath, chapterId);
   await saveBookMetadata(bookPath, nextMetadata);
   return nextMetadata;
 }
@@ -1415,20 +1540,91 @@ export function getBackCoverAbsolutePath(bookPath: string, metadata: BookMetadat
   return joinPath(bookPath, metadata.backCoverImage);
 }
 
-export async function updateBookChats(
+export async function loadBookChatMessages(
   bookPath: string,
-  metadata: BookMetadata,
-  chats: BookChats,
-): Promise<BookMetadata> {
-  const normalizedChats = await saveChatsToDisk(bookPath, chats);
-  const nextMetadata: BookMetadata = {
-    ...metadata,
-    chats: normalizedChats,
-    updatedAt: getNowIso(),
-  };
+  fallbackMessages: ChatMessage[] = [],
+): Promise<ChatMessage[]> {
+  const normalizedBookPath = normalizePath(bookPath);
+  const fallback = ensureChatMessages(fallbackMessages, 'book');
+  const targetPath = bookChatFilePath(normalizedBookPath);
 
-  await saveBookMetadata(bookPath, nextMetadata);
-  return nextMetadata;
+  if (!(await exists(targetPath))) {
+    return fallback;
+  }
+
+  try {
+    const loaded = await readJson<unknown>(targetPath);
+    return ensureChatMessages(loaded, 'book');
+  } catch {
+    return fallback;
+  }
+}
+
+export async function loadChapterChatMessages(
+  bookPath: string,
+  chapterId: string,
+  fallbackMessages: ChatMessage[] = [],
+): Promise<ChatMessage[]> {
+  const normalizedBookPath = normalizePath(bookPath);
+  const safeChapterId = chapterId.trim();
+  const fallback = ensureChatMessages(fallbackMessages, 'chapter');
+
+  if (!safeChapterId) {
+    return fallback;
+  }
+
+  const targetPath = chapterChatFilePath(normalizedBookPath, safeChapterId);
+  if (!(await exists(targetPath))) {
+    return fallback;
+  }
+
+  try {
+    const loaded = await readJson<unknown>(targetPath);
+    return ensureChatMessages(loaded, 'chapter');
+  } catch {
+    return fallback;
+  }
+}
+
+export async function saveBookChatMessages(bookPath: string, messages: ChatMessage[]): Promise<ChatMessage[]> {
+  const normalizedBookPath = normalizePath(bookPath);
+  const normalizedMessages = ensureChatMessages(messages, 'book');
+  const targetDirectory = chatsDirPath(normalizedBookPath);
+  await mkdir(targetDirectory, { recursive: true });
+  await writeJson(bookChatFilePath(normalizedBookPath), normalizedMessages);
+  return normalizedMessages;
+}
+
+export async function saveChapterChatMessages(
+  bookPath: string,
+  chapterId: string,
+  messages: ChatMessage[],
+): Promise<ChatMessage[]> {
+  const normalizedBookPath = normalizePath(bookPath);
+  const safeChapterId = chapterId.trim();
+  const normalizedMessages = ensureChatMessages(messages, 'chapter');
+
+  if (!safeChapterId) {
+    return normalizedMessages;
+  }
+
+  const targetDirectory = chatsDirPath(normalizedBookPath);
+  await mkdir(targetDirectory, { recursive: true });
+  await writeJson(chapterChatFilePath(normalizedBookPath, safeChapterId), normalizedMessages);
+  return normalizedMessages;
+}
+
+export async function removeChapterChatMessages(bookPath: string, chapterId: string): Promise<void> {
+  const normalizedBookPath = normalizePath(bookPath);
+  const safeChapterId = chapterId.trim();
+  if (!safeChapterId) {
+    return;
+  }
+
+  const targetPath = chapterChatFilePath(normalizedBookPath, safeChapterId);
+  if (await exists(targetPath)) {
+    await remove(targetPath);
+  }
 }
 
 function sanitizeExportFileName(fileName: string, fallbackExtension: string): string {
@@ -1455,6 +1651,21 @@ export async function writeTextExport(
   const safeName = sanitizeExportFileName(fileName, fallbackExtension);
   const absolutePath = joinPath(exportPath, safeName);
   await writeTextFile(absolutePath, content);
+  return absolutePath;
+}
+
+export async function writeBinaryExport(
+  bookPath: string,
+  fileName: string,
+  content: Uint8Array,
+  fallbackExtension = 'bin',
+): Promise<string> {
+  const exportPath = exportsDirPath(bookPath);
+  await mkdir(exportPath, { recursive: true });
+
+  const safeName = sanitizeExportFileName(fileName, fallbackExtension);
+  const absolutePath = joinPath(exportPath, safeName);
+  await writeFile(absolutePath, content);
   return absolutePath;
 }
 

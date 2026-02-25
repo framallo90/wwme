@@ -26,6 +26,8 @@ interface SidebarProps {
   onExportBookSingle: () => void;
   onExportBookSplit: () => void;
   onExportAmazonBundle: () => void;
+  onExportBookDocx: () => void;
+  onExportBookEpub: () => void;
 }
 
 function Sidebar(props: SidebarProps) {
@@ -240,6 +242,12 @@ function Sidebar(props: SidebarProps) {
           </button>
           <button type="button" onClick={props.onExportAmazonBundle} disabled={!props.hasBook} title="Genera pack TXT + HTML para carga rapida en Amazon.">
             Pack Amazon (TXT + HTML)
+          </button>
+          <button type="button" onClick={props.onExportBookDocx} disabled={!props.hasBook} title="Genera manuscrito editorial en formato DOCX.">
+            Libro DOCX editorial
+          </button>
+          <button type="button" onClick={props.onExportBookEpub} disabled={!props.hasBook} title="Genera eBook en formato EPUB.">
+            Libro EPUB editorial
           </button>
         </div>
       </details>

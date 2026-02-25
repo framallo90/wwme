@@ -1,8 +1,9 @@
 {
-    "id":  "07",
-    "title":  "Capitulo 7 - Fuego controlado",
-    "content":  "\u003ch2\u003eFuego controlado\u003c/h2\u003e\u003cp\u003eCuando publicaron la primera nota, ardió un depósito vacío. El mensaje era simple: retrocedan o pierdan todo.\u003c/p\u003e\u003cp\u003eLena no retrocedió. Convocó a los estibadores, compartió los documentos y les devolvió algo que creían perdido: la posibilidad de hablar juntos.\u003c/p\u003e",
-    "contentJson":  null,
-    "createdAt":  "2026-02-23T07:05:17.9844572Z",
-    "updatedAt":  "2026-02-23T07:05:17.9844572Z"
+  "id": "07",
+  "title": "Capitulo 7 - Fuego controlado",
+  "content": "<h2>Fuego controlado</h2><p>Cuando publicaron la primera nota, ardió un depósito vacío. El mensaje era simple: retrocedan o pierdan todo.</p><p>Lena no retrocedió. Convocó a los estibadores, compartió los documentos y les devolvió algo que creían perdido: la posibilidad de hablar juntos.</p>",
+  "contentJson": null,
+  "createdAt": "2026-02-23T07:05:17.9844572Z",
+  "updatedAt": "2026-02-23T07:05:17.9844572Z",
+  "lengthPreset": "media"
 }

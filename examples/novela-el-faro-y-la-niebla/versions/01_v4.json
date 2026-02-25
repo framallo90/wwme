@@ -1,0 +1,64 @@
+{
+  "version": 4,
+  "chapterId": "01",
+  "reason": "Agente continuo ronda 1/3",
+  "createdAt": "2026-02-24T17:48:31.152Z",
+  "chapter": {
+    "id": "01",
+    "title": "Capitulo 1 - El humo en el puerto",
+    "content": "<p>La mañana se deslizó como un cinturón de gasolina por las calles del puerto. Lena bajó del tren con una valija pequeña y la certeza de que no volvería a pedir permiso para existir. El olor a metal mojado y gasoil se aferraba a su piel como un amuleto desesperado.</p><p>En el muelle, una chimenea apagada dibujaba una columna gris sobre la niebla. Nadie la miraba, pero ella sintió que algo, allí, la estaba esperando. El viento arrullaba las palancas del dique con un susurro que parecía preguntarle qué había traído de regreso a este lugar.</p><p>Lena se detuvo en el borde del muelle, mirando hacia la niebla. La niebla era una cortina de silencio que envolvía todo. Se sintió atrapada por su propia tristeza y no sabía si podía escapar.</p><p>Con la mano temblorosa, abrió la valija pequeña y sacó un diario. Lo abrió al primer párrafo, y las palabras se deslizaron como hojas secas en el viento.</p><p>• Se ha eliminado el uso de expresiones metafóricas para un estilo más directo.• Se han reducido los términos que evitan el glosario preferido para una narrativa más clara.• La voz narrativa sigue siendo íntima y reflexiva.</p>",
+    "contentJson": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "La mañana se deslizó como un cinturón de gasolina por las calles del puerto. Lena bajó del tren con una valija pequeña y la certeza de que no volvería a pedir permiso para existir. El olor a metal mojado y gasoil se aferraba a su piel como un amuleto desesperado."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "En el muelle, una chimenea apagada dibujaba una columna gris sobre la niebla. Nadie la miraba, pero ella sintió que algo, allí, la estaba esperando. El viento arrullaba las palancas del dique con un susurro que parecía preguntarle qué había traído de regreso a este lugar."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Lena se detuvo en el borde del muelle, mirando hacia la niebla. La niebla era una cortina de silencio que envolvía todo. Se sintió atrapada por su propia tristeza y no sabía si podía escapar."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Con la mano temblorosa, abrió la valija pequeña y sacó un diario. Lo abrió al primer párrafo, y las palabras se deslizaron como hojas secas en el viento."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "• Se ha eliminado el uso de expresiones metafóricas para un estilo más directo.• Se han reducido los términos que evitan el glosario preferido para una narrativa más clara.• La voz narrativa sigue siendo íntima y reflexiva."
+            }
+          ]
+        }
+      ]
+    },
+    "createdAt": "2026-02-23T07:05:17.9844572Z",
+    "updatedAt": "2026-02-24T17:47:50.602Z",
+    "lengthPreset": "media"
+  }
+}
