@@ -75,9 +75,11 @@ Notas de almacenamiento del libro:
 2. Ir a `Idioma`:
    - cambiar idioma por selector (ej. `es` -> `en`)
    - verificar que el estado Amazon cambie junto al idioma base
+   - si aparece advertencia de precios/marketplace, usar el acceso directo para abrir `Amazon`
    - guardar y confirmar feedback (`Guardando...` / `Guardado OK`)
 3. Ir a `Amazon`:
    - revisar readiness score y lista de advertencias/errores
+   - revisar tabla de pricing (marketplace, moneda, precio eBook/print) despues de cambiar idioma base
    - exportar pack y validar salida de archivos (`.txt`, `.html`, `.md`, `.csv`, validacion `.txt`)
 
 ## 5) Troubleshooting rapido

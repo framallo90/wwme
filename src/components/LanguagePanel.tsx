@@ -6,14 +6,16 @@ import {
   normalizeLanguageCode,
   resolveLanguageSelectValue,
 } from '../lib/language';
-import type { AppConfig } from '../types/book';
+import type { AmazonMarketPricing, AppConfig } from '../types/book';
 
 interface LanguagePanelProps {
   config: AppConfig;
   bookPath: string | null;
   amazonLanguage: string | null;
   amazonMarketplace: string | null;
+  marketPricing: AmazonMarketPricing[];
   onChangeLanguage: (language: string) => void;
+  onOpenAmazon: () => void;
   onSave: () => void;
   isDirty: boolean;
   saveState: 'idle' | 'saving' | 'saved';
@@ -61,6 +63,17 @@ function LanguagePanel(props: LanguagePanelProps) {
       normalizedActiveLanguage &&
       !normalizedActiveLanguage.startsWith(marketplaceLanguageHint),
   );
+  const pricingMarketplaceMismatches = useMemo(() => {
+    if (!props.bookPath || !normalizedActiveLanguage) {
+      return [];
+    }
+
+    return props.marketPricing.filter((entry) => {
+      const hint = inferMarketplaceLanguageHint(entry.marketplace);
+      return Boolean(hint && !normalizedActiveLanguage.startsWith(hint));
+    });
+  }, [props.bookPath, normalizedActiveLanguage, props.marketPricing]);
+  const shouldReviewPricing = pricingMarketplaceMismatches.length > 0;
 
   const activeLabel = useMemo(() => {
     if (!rawInput) {
@@ -97,6 +110,21 @@ function LanguagePanel(props: LanguagePanelProps) {
           <p className="warning-text">
             Revisa marketplace y moneda en Amazon: el idioma actual puede no coincidir con el mercado principal.
           </p>
+        )}
+        {shouldReviewPricing && (
+          <>
+            <p className="warning-text">
+              Revisa precios: {pricingMarketplaceMismatches.length} marketplace/s de pricing no coinciden con el idioma activo.
+            </p>
+            <button
+              type="button"
+              onClick={props.onOpenAmazon}
+              disabled={!props.bookPath}
+              title="Abrir Amazon para revisar pricing por marketplace y moneda."
+            >
+              Ir a Amazon y revisar precios
+            </button>
+          </>
         )}
       </header>
 

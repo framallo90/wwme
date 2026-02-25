@@ -23,6 +23,8 @@ All notable changes to this project are documented in this file.
 - Startup optimization: export module (`lib/export`) is now dynamically imported per export action instead of loading at boot.
 - Startup optimization (I/O): opening a book no longer rewrites every chapter/chat file by default; it only persists when normalization/migration is needed.
 - Startup optimization (I/O): chat histories are now loaded/saved per scope (`book` or chapter) on demand instead of hydrating all chats at open.
+- Language UX: added pricing-review warning + direct shortcut to Amazon panel when pricing marketplaces conflict with the active language.
+- Startup optimization (perceived): book opening now uses a lightweight shell and hydrates full chapters in background.
 
 ### Fixed
 - Prevented crashes in language panel when legacy/malformed config arrives with missing language values.

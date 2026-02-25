@@ -6,10 +6,13 @@
   "autoVersioning": true,
   "autoApplyChatChanges": true,
   "chatApplyIterations": 1,
+  "continuousAgentEnabled": true,
+  "continuousAgentMaxRounds": 3,
+  "continuityGuardEnabled": false,
+  "accessibilityHighContrast": false,
+  "accessibilityLargeText": false,
   "autosaveIntervalMs": 5000,
   "ollamaOptions": {
     "top_p": 0.9
-  },
-  "continuousAgentEnabled": true,
-  "continuousAgentMaxRounds": 3
+  }
 }

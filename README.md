@@ -144,6 +144,8 @@ Biblioteca global:
 - `continuousAgentMaxRounds`
 - `continuityGuardEnabled` (si esta activo, valida/corrige continuidad antes de guardar cambios IA)
 - `autosaveIntervalMs`
+- `accessibilityHighContrast`
+- `accessibilityLargeText`
 - `ollamaOptions`
 
 Cada capitulo (`chapters/NN.json`) guarda:
@@ -166,6 +168,7 @@ Cada capitulo (`chapters/NN.json`) guarda:
 - Carga diferida del panel IA (`AIPanel`): no se descarga/renderiza hasta abrir un libro, para acelerar arranque inicial.
 - Carga bajo demanda del pipeline de exportacion (`lib/export`): se importa solo cuando ejecutas una exportacion.
 - Apertura de libro optimizada: no reescribe masivamente `chapters/` ni `chats/` en cada carga; solo guarda cuando hay normalizacion/migracion real.
+- Apertura con shell + hidratacion: el libro abre primero con estructura liviana y carga capitulos completos en segundo plano.
 - Carga de chats por demanda (scope activo): al abrir libro no se leen todos los historiales, solo `book` o el capitulo activo cuando hace falta.
 - Portada y contraportada (ver/cambiar/quitar) + texto de lomo
 - Seccion Amazon/KDP con presets listos para copiar y pegar
@@ -187,6 +190,7 @@ Cada capitulo (`chapters/NN.json`) guarda:
   - sincronizacion de idioma base + Amazon/KDP
   - validacion de formato ISO y aviso de desalineacion
   - aviso para revisar marketplace/moneda si el idioma no coincide con el mercado Amazon principal
+  - aviso y acceso directo a Amazon para revisar pricing cuando los marketplaces de precios no coinciden con el idioma activo
   - boton con estado (`Guardando...`, `Guardado OK`) y guardado solo con cambios
 - Presets Amazon (no ficcion reflexiva, ensayo practico, narrativa intima)
 - Validacion KDP en panel Amazon:

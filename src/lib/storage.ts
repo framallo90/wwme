@@ -763,6 +763,18 @@ function buildDefaultChapterDocument(chapterId: string, index: number, now: stri
   };
 }
 
+function buildShellChapterDocument(chapterId: string, index: number): ChapterDocument {
+  return {
+    id: chapterId,
+    title: chapterDisplayTitle(chapterId, index),
+    content: '<p></p>',
+    contentJson: null,
+    lengthPreset: 'media',
+    createdAt: '',
+    updatedAt: '',
+  };
+}
+
 function buildInitialBookMetadata(
   title: string,
   author: string,
@@ -806,9 +818,11 @@ async function inferChapterIdsFromDisk(bookPath: string): Promise<string[]> {
 async function ensureBookProjectFiles(
   bookPath: string,
   defaults?: { title?: string; author?: string },
+  options?: { loadAllChapters?: boolean },
 ): Promise<{ metadata: BookMetadata; chapters: Record<string, ChapterDocument> }> {
   const normalizedBookPath = normalizeFolderPath(sanitizeIncomingPath(bookPath));
   const now = getNowIso();
+  const loadAllChapters = options?.loadAllChapters ?? true;
 
   await mkdir(normalizedBookPath, { recursive: true });
   await mkdir(joinPath(normalizedBookPath, CHAPTERS_DIR), { recursive: true });
@@ -867,37 +881,43 @@ async function ensureBookProjectFiles(
   });
 
   const chapters: Record<string, ChapterDocument> = {};
-  for (const [index, chapterId] of metadata.chapterOrder.entries()) {
-    const chapterPath = chapterFilePath(normalizedBookPath, chapterId);
-    let chapter: ChapterDocument;
-    let shouldPersistChapter = false;
+  if (loadAllChapters) {
+    for (const [index, chapterId] of metadata.chapterOrder.entries()) {
+      const chapterPath = chapterFilePath(normalizedBookPath, chapterId);
+      let chapter: ChapterDocument;
+      let shouldPersistChapter = false;
 
-    if (await exists(chapterPath)) {
-      try {
-        const rawChapter = await readJson<Partial<ChapterDocument>>(chapterPath);
-        const loaded = ensureChapterDocument(rawChapter as ChapterDocument);
-        chapter = {
-          ...loaded,
-          id: loaded.id?.trim() || chapterId,
-          title: loaded.title?.trim() || chapterDisplayTitle(chapterId, index),
-          content: loaded.content ?? '<p>Escribe aqui...</p>',
-          createdAt: loaded.createdAt ?? now,
-          updatedAt: loaded.updatedAt ?? loaded.createdAt ?? now,
-          contentJson: loaded.contentJson ?? null,
-        };
-        shouldPersistChapter = shouldPersistNormalizedChapter(rawChapter, chapter);
-      } catch {
+      if (await exists(chapterPath)) {
+        try {
+          const rawChapter = await readJson<Partial<ChapterDocument>>(chapterPath);
+          const loaded = ensureChapterDocument(rawChapter as ChapterDocument);
+          chapter = {
+            ...loaded,
+            id: loaded.id?.trim() || chapterId,
+            title: loaded.title?.trim() || chapterDisplayTitle(chapterId, index),
+            content: loaded.content ?? '<p>Escribe aqui...</p>',
+            createdAt: loaded.createdAt ?? now,
+            updatedAt: loaded.updatedAt ?? loaded.createdAt ?? now,
+            contentJson: loaded.contentJson ?? null,
+          };
+          shouldPersistChapter = shouldPersistNormalizedChapter(rawChapter, chapter);
+        } catch {
+          chapter = buildDefaultChapterDocument(chapterId, index, now);
+          shouldPersistChapter = true;
+        }
+      } else {
         chapter = buildDefaultChapterDocument(chapterId, index, now);
         shouldPersistChapter = true;
       }
-    } else {
-      chapter = buildDefaultChapterDocument(chapterId, index, now);
-      shouldPersistChapter = true;
-    }
 
-    chapters[chapterId] = chapter;
-    if (shouldPersistChapter) {
-      await writeJson(chapterPath, chapter);
+      chapters[chapterId] = chapter;
+      if (shouldPersistChapter) {
+        await writeJson(chapterPath, chapter);
+      }
+    }
+  } else {
+    for (const [index, chapterId] of metadata.chapterOrder.entries()) {
+      chapters[chapterId] = buildShellChapterDocument(chapterId, index);
     }
   }
 
@@ -1188,6 +1208,17 @@ export async function resolveBookDirectory(path: string): Promise<string> {
 export async function loadBookProject(path: string): Promise<BookProject> {
   const projectPath = await resolveBookDirectory(path);
   const ensured = await ensureBookProjectFiles(projectPath);
+
+  return {
+    path: projectPath,
+    metadata: ensured.metadata,
+    chapters: ensured.chapters,
+  };
+}
+
+export async function loadBookProjectShell(path: string): Promise<BookProject> {
+  const projectPath = await resolveBookDirectory(path);
+  const ensured = await ensureBookProjectFiles(projectPath, undefined, { loadAllChapters: false });
 
   return {
     path: projectPath,

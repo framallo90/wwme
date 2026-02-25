@@ -35,6 +35,7 @@ import {
   loadAppConfig,
   loadLibraryIndex,
   loadBookProject,
+  loadBookProjectShell,
   loadBookChatMessages,
   loadChapterChatMessages,
   resolveBookDirectory,
@@ -220,6 +221,14 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return Boolean(target.closest('[contenteditable="true"]'));
 }
 
+function isShellChapter(chapter: BookProject['chapters'][string] | null | undefined): boolean {
+  if (!chapter) {
+    return true;
+  }
+
+  return chapter.createdAt.trim().length === 0 && chapter.updatedAt.trim().length === 0;
+}
+
 const EXPANSION_INTENT_PATTERN = /\b(alarg(?:a|ar|ue|uen|ado|ando)?|expand(?:e|ir|io|ido|iendo)?|ampli(?:a|ar|e|en|ado|ando)?|ext(?:ender|iende|endido)|desarroll(?:a|ar|ado)|profundiz(?:a|ar|ado)|mas largo|m[aá]s largo)\b/i;
 const SHORTEN_INTENT_PATTERN = /\b(acort(?:a|ar|ado)|resum(?:e|ir|ido)|reduc(?:e|ir|ido)|sintetiz(?:a|ar|ado)|abrevi(?:a|ar|ado))\b/i;
 const WORD_TARGET_PATTERN = /\b(\d{2,5})\s*(?:palabras?|words?)\b/i;
@@ -339,6 +348,7 @@ function App() {
   const languageSaveResetTimerRef = useRef<number | null>(null);
   const snapshotUndoCursorRef = useRef<Record<string, number | undefined>>({});
   const snapshotRedoStackRef = useRef<Record<string, BookProject['chapters'][string][]>>({});
+  const chaptersHydrationTokenRef = useRef(0);
   const chatMessagesRef = useRef<BookChats>({
     book: [],
     chapters: {},
@@ -1017,9 +1027,56 @@ function App() {
     [refreshCovers],
   );
 
+  const hydrateProjectChapters = useCallback(
+    async (bookPath: string, options?: { markOpened?: boolean }) => {
+      const token = ++chaptersHydrationTokenRef.current;
+
+      try {
+        const hydrated = await loadBookProject(bookPath);
+        if (chaptersHydrationTokenRef.current !== token) {
+          return;
+        }
+
+        setBook((previous) => {
+          if (!previous || previous.path !== bookPath) {
+            return previous;
+          }
+
+          const nextChapters = { ...previous.chapters };
+          for (const chapterId of hydrated.metadata.chapterOrder) {
+            const currentChapter = previous.chapters[chapterId];
+            const loadedChapter = hydrated.chapters[chapterId];
+            if (!loadedChapter) {
+              continue;
+            }
+
+            if (isShellChapter(currentChapter)) {
+              nextChapters[chapterId] = loadedChapter;
+            }
+          }
+
+          return {
+            ...previous,
+            chapters: nextChapters,
+          };
+        });
+
+        await syncBookToLibrary(hydrated, { markOpened: options?.markOpened });
+        setStatus((previous) =>
+          previous.includes('cargando capitulos')
+            ? `Libro abierto: ${hydrated.metadata.title}`
+            : previous,
+        );
+      } catch (error) {
+        setStatus(`Libro abierto con carga parcial de capitulos: ${formatUnknownError(error)}`);
+      }
+    },
+    [syncBookToLibrary],
+  );
+
   const loadProject = useCallback(
     async (projectPath: string) => {
-      const loaded = await loadBookProject(projectPath);
+      const loaded = await loadBookProjectShell(projectPath);
       let loadedConfig: AppConfig = DEFAULT_APP_CONFIG;
 
       try {
@@ -1034,19 +1091,10 @@ function App() {
       }
 
       applyOpenedProjectState(loaded, loadedConfig);
-
-      try {
-        await syncBookToLibrary(loaded, { markOpened: true });
-      } catch (error) {
-        setStatus(
-          `Abrir libro: ${loaded.metadata.title} (no se pudo actualizar biblioteca: ${formatUnknownError(error)})`,
-        );
-        return;
-      }
-
-      setStatus(`Libro abierto: ${loaded.metadata.title}`);
+      setStatus(`Libro abierto: ${loaded.metadata.title} (cargando capitulos...)`);
+      void hydrateProjectChapters(loaded.path, { markOpened: true });
     },
-    [applyOpenedProjectState, syncBookToLibrary],
+    [applyOpenedProjectState, hydrateProjectChapters],
   );
 
   const handleCreateBook = useCallback(async () => {
@@ -1154,6 +1202,7 @@ function App() {
     }
 
     setBook(null);
+    chaptersHydrationTokenRef.current += 1;
     setChatMessages({
       book: [],
       chapters: {},
@@ -3536,7 +3585,9 @@ function App() {
           bookPath={book?.path ?? null}
           amazonLanguage={book?.metadata.amazon.language ?? null}
           amazonMarketplace={book?.metadata.amazon.marketplace ?? null}
+          marketPricing={book?.metadata.amazon.marketPricing ?? []}
           onChangeLanguage={handleLanguageChange}
+          onOpenAmazon={() => setMainView('amazon')}
           onSave={handleSaveSettings}
           isDirty={languageDirty}
           saveState={languageSaveState}
