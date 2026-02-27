@@ -37,6 +37,22 @@ All notable changes to this project are documented in this file.
 - Editor sync avoids `setContent` while focused to reduce cursor jumps during active typing.
 - Settings panel props and numeric input typing were aligned with `App.tsx` (backup handlers + strict TS compatibility).
 
+## [0.3.0] - 2026-02-27
+
+### Added
+- Lectura en voz alta del capitulo activo con la voz del idioma configurado.
+- Exportacion de audio WAV por capitulo y audiolibro WAV completo usando voces del sistema en Windows.
+- Ajustes de voz preferida, velocidad y volumen para lectura y exportacion.
+
+### Changed
+- El editor expone controles directos para leer, pausar, reanudar, detener y exportar audio.
+- La barra lateral incorpora exportacion de audiolibro junto al resto de salidas editoriales.
+
+### Fixed
+- El modal de renombrado ya no se cierra al arrastrar para seleccionar texto.
+- Los paneles laterales pueden contraerse de forma independiente para concentrarse en el texto.
+- El panel IA evita superposiciones visuales entre chat y biblioteca de prompts.
+
 ## [0.2.0] - 2026-02-25
 
 ### Added

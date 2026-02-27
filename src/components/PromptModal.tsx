@@ -32,6 +32,7 @@ function PromptModal(props: PromptModalProps) {
   const [value, setValue] = useState(defaultValue ?? '');
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const overlayMouseDownRef = useRef(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -116,8 +117,24 @@ function PromptModal(props: PromptModalProps) {
     }
   };
 
+  const handleOverlayMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    overlayMouseDownRef.current = event.target === event.currentTarget;
+  };
+
+  const handleOverlayClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const isDirectOverlayClick = event.target === event.currentTarget;
+    if (overlayMouseDownRef.current && isDirectOverlayClick) {
+      onClose();
+    }
+    overlayMouseDownRef.current = false;
+  };
+
   return (
-    <div className="prompt-modal-overlay" onClick={onClose}>
+    <div
+      className="prompt-modal-overlay"
+      onMouseDown={handleOverlayMouseDown}
+      onClick={handleOverlayClick}
+    >
       <div
         ref={dialogRef}
         className="prompt-modal-content"

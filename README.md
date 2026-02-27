@@ -2,7 +2,7 @@
 
 Procesador de libro offline para crear, escribir, reescribir, revisar y modificar texto + portada/contraportada con IA local (Ollama).
 
-Version actual: `0.2.0`
+Version actual: `0.3.0`
 
 Stack:
 - Tauri + React + TypeScript + Vite

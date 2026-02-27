@@ -203,6 +203,10 @@ function migratePayload(payload) {
   return cleanedFields;
 }
 
+function stripUtf8Bom(value) {
+  return value.replace(/^\uFEFF/, '');
+}
+
 function buildBackupPath(backupRoot, bookPath, filePath) {
   const relative = path.relative(bookPath, filePath);
   return path.join(backupRoot, relative);
@@ -253,7 +257,7 @@ async function processBook(bookPath, options) {
     let payload = null;
     try {
       raw = await fs.readFile(filePath, 'utf8');
-      payload = JSON.parse(raw);
+      payload = JSON.parse(stripUtf8Bom(raw));
     } catch (error) {
       report.parseErrors += 1;
       report.errorFiles.push({

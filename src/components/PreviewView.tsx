@@ -1,4 +1,5 @@
 import type { ChapterDocument, InteriorFormat } from '../types/book';
+import { sanitizeHtmlForPreview } from '../lib/text';
 
 interface PreviewViewProps {
   title: string;
@@ -52,6 +53,7 @@ function PreviewView(props: PreviewViewProps) {
 
         {props.chapters.map((chapter) => {
           const pageRange = props.chapterPageMap[chapter.id];
+          const sanitizedContent = sanitizeHtmlForPreview(chapter.content);
           return (
             <article key={chapter.id} className="preview-page">
               <header className="preview-chapter-header">
@@ -62,7 +64,7 @@ function PreviewView(props: PreviewViewProps) {
                   {pageRange?.pages ? `(${pageRange.pages})` : ''}
                 </p>
               </header>
-              <div className="preview-content" dangerouslySetInnerHTML={{ __html: chapter.content }} />
+              <div className="preview-content" dangerouslySetInnerHTML={{ __html: sanitizedContent }} />
             </article>
           );
         })}

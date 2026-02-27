@@ -10,6 +10,15 @@ import type { TiptapEditorHandle } from './components/TiptapEditor';
 import { formatChapterLengthLabel, getChapterLengthProfile, resolveChapterLengthPreset } from './lib/chapterLength';
 import { DEFAULT_APP_CONFIG } from './lib/config';
 import { countWordsFromHtml, countWordsFromPlainText, estimatePagesFromWords, formatNumber } from './lib/metrics';
+import {
+  buildBookAudioExportPath,
+  buildBookAudioText,
+  buildChapterAudioExportPath,
+  buildChapterAudioText,
+  exportAudiobookToWav,
+  pickSpeechVoice,
+  type AudioPlaybackState,
+} from './lib/audio';
 import { generateWithOllama } from './lib/ollamaClient';
 import {
   AI_ACTIONS,
@@ -510,6 +519,7 @@ function App() {
   const backCoverSrcRef = useRef<string | null>(null);
   const backupInFlightRef = useRef(false);
   const lastBackupAtRef = useRef(0);
+  const audioUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const chatMessagesRef = useRef<BookChats>({
     book: [],
     chapters: {},
@@ -530,6 +540,7 @@ function App() {
   const [mainView, setMainView] = useState<MainView>('editor');
   const [status, setStatus] = useState('Listo.');
   const [aiBusy, setAiBusy] = useState(false);
+  const [audioPlaybackState, setAudioPlaybackState] = useState<AudioPlaybackState>('idle');
   const [chatScope, setChatScope] = useState<ChatScope>('chapter');
   const [chatMessages, setChatMessages] = useState<BookChats>({
     book: [],
@@ -545,7 +556,8 @@ function App() {
     updatedAt: getNowIso(),
   });
   const [libraryExpanded, setLibraryExpanded] = useState(true);
-  const [focusMode, setFocusMode] = useState(false);
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -593,6 +605,7 @@ function App() {
     onSecondary?: () => void;
     onConfirm: (value: string) => void;
   } | null>(null);
+  const focusMode = leftPanelCollapsed && rightPanelCollapsed;
 
   const orderedChapters = useMemo(() => {
     if (!book) {
@@ -821,6 +834,135 @@ function App() {
       amazonActiveLanguage !== savedLanguageState.amazonLanguage
     );
   }, [book, savedLanguageState, activeLanguage, amazonActiveLanguage]);
+
+  const stopReadAloud = useCallback(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      setAudioPlaybackState('idle');
+      audioUtteranceRef.current = null;
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    audioUtteranceRef.current = null;
+    setAudioPlaybackState('idle');
+  }, []);
+
+  const readTextAloud = useCallback(
+    (text: string) => {
+      const normalizedText = text.trim();
+      if (!normalizedText) {
+        setStatus('No hay texto suficiente para leer en audio.');
+        return;
+      }
+
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+        setStatus('La lectura en voz alta no esta disponible en este entorno.');
+        return;
+      }
+
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(normalizedText);
+      const voices = window.speechSynthesis.getVoices();
+      const selectedVoice = pickSpeechVoice(voices, activeLanguage, config.audioVoiceName);
+
+      utterance.lang = activeLanguage;
+      utterance.rate = config.audioRate;
+      utterance.volume = config.audioVolume;
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+        utterance.lang = selectedVoice.lang || activeLanguage;
+      }
+
+      utterance.onstart = () => {
+        audioUtteranceRef.current = utterance;
+        setAudioPlaybackState('playing');
+        setStatus(`Leyendo en voz alta (${utterance.lang}).`);
+      };
+      utterance.onend = () => {
+        if (audioUtteranceRef.current === utterance) {
+          audioUtteranceRef.current = null;
+          setAudioPlaybackState('idle');
+          setStatus('Lectura en voz alta finalizada.');
+        }
+      };
+      utterance.onerror = () => {
+        if (audioUtteranceRef.current === utterance) {
+          audioUtteranceRef.current = null;
+        }
+        setAudioPlaybackState('idle');
+        setStatus('No se pudo reproducir el audio.');
+      };
+
+      window.speechSynthesis.speak(utterance);
+    },
+    [activeLanguage, config.audioRate, config.audioVoiceName, config.audioVolume],
+  );
+
+  const handleReadActiveChapterAloud = useCallback(() => {
+    if (!activeChapter) {
+      setStatus('No hay capitulo activo para leer.');
+      return;
+    }
+
+    readTextAloud(buildChapterAudioText(activeChapter));
+  }, [activeChapter, readTextAloud]);
+
+  const handleTogglePauseReadAloud = useCallback(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      setStatus('La lectura en voz alta no esta disponible en este entorno.');
+      return;
+    }
+
+    if (audioPlaybackState === 'playing') {
+      window.speechSynthesis.pause();
+      setAudioPlaybackState('paused');
+      setStatus('Lectura en voz alta en pausa.');
+      return;
+    }
+
+    if (audioPlaybackState === 'paused') {
+      window.speechSynthesis.resume();
+      setAudioPlaybackState('playing');
+      setStatus('Lectura en voz alta reanudada.');
+    }
+  }, [audioPlaybackState]);
+
+  const exportAudioToWav = useCallback(
+    async (text: string, outputPath: string, successLabel: string) => {
+      const normalizedText = text.trim();
+      if (!normalizedText) {
+        setStatus('No hay texto suficiente para exportar audio.');
+        return;
+      }
+
+      try {
+        const exportedPath = await exportAudiobookToWav({
+          text: normalizedText,
+          outputPath,
+          language: activeLanguage,
+          voiceName: config.audioVoiceName,
+          rate: config.audioRate,
+          volume: config.audioVolume,
+        });
+        setStatus(`${successLabel}: ${exportedPath}`);
+      } catch (error) {
+        setStatus(`No se pudo exportar audio: ${formatUnknownError(error)}`);
+      }
+    },
+    [activeLanguage, config.audioRate, config.audioVoiceName, config.audioVolume],
+  );
+
+  const handleExportActiveChapterAudio = useCallback(async () => {
+    if (!book || !activeChapter) {
+      return;
+    }
+
+    await exportAudioToWav(
+      buildChapterAudioText(activeChapter),
+      buildChapterAudioExportPath(book.path, book.metadata, activeChapter),
+      'Audio de capitulo exportado',
+    );
+  }, [book, activeChapter, exportAudioToWav]);
 
   const interiorFormat = useMemo(
     () => book?.metadata.interiorFormat ?? FALLBACK_INTERIOR_FORMAT,
@@ -1329,8 +1471,24 @@ function App() {
     };
   }, [book, config.backupEnabled, config.backupDirectory, config.backupIntervalMs, runBackup]);
 
+  useEffect(() => {
+    return () => {
+      stopReadAloud();
+    };
+  }, [stopReadAloud]);
+
   const toggleFocusMode = useCallback(() => {
-    setFocusMode((previous) => !previous);
+    const shouldCollapseBoth = !(leftPanelCollapsed && rightPanelCollapsed);
+    setLeftPanelCollapsed(shouldCollapseBoth);
+    setRightPanelCollapsed(shouldCollapseBoth);
+  }, [leftPanelCollapsed, rightPanelCollapsed]);
+
+  const toggleLeftPanel = useCallback(() => {
+    setLeftPanelCollapsed((previous) => !previous);
+  }, []);
+
+  const toggleRightPanel = useCallback(() => {
+    setRightPanelCollapsed((previous) => !previous);
   }, []);
 
   const refreshSearchResults = useCallback(
@@ -1764,6 +1922,7 @@ function App() {
       // Ignora errores de guardado al cerrar para no bloquear al usuario.
     }
 
+    stopReadAloud();
     setBook(null);
     setChatMessages({
       book: [],
@@ -1777,7 +1936,8 @@ function App() {
     };
     setActiveChapterId(null);
     setMainView('editor');
-    setFocusMode(false);
+    setLeftPanelCollapsed(false);
+    setRightPanelCollapsed(false);
     setChatScope('chapter');
     setSearchMatches([]);
     setSearchTotalMatches(0);
@@ -1795,7 +1955,7 @@ function App() {
     snapshotRedoStackRef.current = {};
     setSnapshotRedoNonce((value) => value + 1);
     setStatus('Libro cerrado.');
-  }, [flushChapterSave, refreshCovers]);
+  }, [flushChapterSave, refreshCovers, stopReadAloud]);
 
   const handleRenameBookTitle = useCallback(() => {
     if (!book) {
@@ -2846,7 +3006,7 @@ function App() {
 
       if (ctrlOrMeta && shift && key === 'f') {
         event.preventDefault();
-        setFocusMode((previous) => !previous);
+        toggleFocusMode();
         return;
       }
 
@@ -2901,7 +3061,7 @@ function App() {
     return () => {
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [activeChapterId, book, flushChapterSave, handleCreateChapter, handleMoveChapter, promptModal]);
+  }, [activeChapterId, book, flushChapterSave, handleCreateChapter, handleMoveChapter, promptModal, toggleFocusMode]);
 
   const persistScopeMessages = useCallback(
     async (scope: ChatScope, messages: ChatMessage[], chapterIdOverride?: string) => {
@@ -4498,6 +4658,20 @@ function App() {
     });
   }, [book, orderedChapters, queueEditorialGuardedAction]);
 
+  const handleExportBookAudiobook = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    queueEditorialGuardedAction('Exportar audiolibro WAV', async () => {
+      await exportAudioToWav(
+        buildBookAudioText(book.metadata, orderedChapters),
+        buildBookAudioExportPath(book.path, book.metadata),
+        'Audiolibro exportado',
+      );
+    });
+  }, [book, orderedChapters, queueEditorialGuardedAction, exportAudioToWav]);
+
   const handleExportStyleReport = useCallback(async () => {
     if (!book) {
       return;
@@ -4866,11 +5040,18 @@ function App() {
         chapterPageEnd={activeChapterPageRange?.end ?? 0}
         bookWordCount={bookWordCount}
         bookEstimatedPages={bookEstimatedPages}
+        audioPlaybackState={audioPlaybackState}
         onUndoEdit={() => {
           void handleUndoEdit();
         }}
         onRedoEdit={() => {
           void handleRedoEdit();
+        }}
+        onReadAloud={handleReadActiveChapterAloud}
+        onTogglePauseReadAloud={handleTogglePauseReadAloud}
+        onStopReadAloud={stopReadAloud}
+        onExportChapterAudio={() => {
+          void handleExportActiveChapterAudio();
         }}
         onLengthPresetChange={handleChapterLengthPresetChange}
         onContentChange={handleEditorChange}
@@ -4919,6 +5100,10 @@ function App() {
     handlePickBackupDirectory,
     handleBackupNow,
     handleSpineTextChange,
+    handleReadActiveChapterAloud,
+    handleTogglePauseReadAloud,
+    handleExportActiveChapterAudio,
+    stopReadAloud,
     handleUndoEdit,
     handleRedoEdit,
     interiorFormat,
@@ -4929,6 +5114,7 @@ function App() {
     activeChapterPageRange,
     bookWordCount,
     bookEstimatedPages,
+    audioPlaybackState,
     canUndoEdit,
     canRedoEdit,
     replaceQuery,
@@ -4945,6 +5131,10 @@ function App() {
     <>
       <AppShell
         focusMode={focusMode}
+        leftCollapsed={leftPanelCollapsed}
+        rightCollapsed={rightPanelCollapsed}
+        onToggleLeft={toggleLeftPanel}
+        onToggleRight={toggleRightPanel}
         sidebar={
           <Sidebar
             hasBook={Boolean(book)}
@@ -4975,6 +5165,7 @@ function App() {
             onExportAmazonBundle={handleExportAmazonBundle}
             onExportBookDocx={handleExportBookDocx}
             onExportBookEpub={handleExportBookEpub}
+            onExportAudiobook={handleExportBookAudiobook}
             onExportCollaborationPatch={handleExportCollaborationPatch}
             onImportCollaborationPatch={handleImportCollaborationPatch}
             onOpenEditorialChecklist={() => openEditorialChecklist('Continuar de todos modos')}
@@ -5064,9 +5255,11 @@ function App() {
             <TopToolbar
               hasBook={Boolean(book)}
               currentView={mainView}
+              focusMode={focusMode}
               onCreateBook={handleCreateBook}
               onOpenBook={handleOpenBook}
               onCloseBook={handleCloseBook}
+              onToggleFocusMode={toggleFocusMode}
               onShowEditor={() => setMainView('editor')}
               onShowOutline={() => setMainView('outline')}
               onShowPreview={() => setMainView('preview')}

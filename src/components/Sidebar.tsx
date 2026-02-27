@@ -30,6 +30,7 @@ interface SidebarProps {
   onExportAmazonBundle: () => void;
   onExportBookDocx: () => void;
   onExportBookEpub: () => void;
+  onExportAudiobook: () => void;
   onOpenEditorialChecklist: () => void;
   onExportCollaborationPatch: () => void;
   onImportCollaborationPatch: () => void;
@@ -278,6 +279,14 @@ function Sidebar(props: SidebarProps) {
           </button>
           <button type="button" onClick={props.onExportBookEpub} disabled={!props.hasBook} title="Genera eBook en formato EPUB.">
             Libro EPUB editorial
+          </button>
+          <button
+            type="button"
+            onClick={props.onExportAudiobook}
+            disabled={!props.hasBook}
+            title="Genera audiolibro WAV con la voz del sistema en el idioma configurado."
+          >
+            Audiolibro WAV
           </button>
           <button
             type="button"

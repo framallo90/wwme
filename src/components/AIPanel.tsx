@@ -151,7 +151,7 @@ function AIPanel(props: AIPanelProps) {
         </details>
       </section>
 
-      <section className="chat-section">
+      <section className="chat-section chat-section-main">
         <details className="panel-collapsible" open>
           <summary>Chat y aplicacion</summary>
           <div className="collapsible-body">
@@ -274,7 +274,7 @@ function AIPanel(props: AIPanelProps) {
         </details>
       </section>
 
-      <section className="chat-section">
+      <section className="chat-section chat-section-prompt-library">
         <details className="panel-collapsible">
           <summary>Biblioteca de prompts</summary>
           <div className="collapsible-body">

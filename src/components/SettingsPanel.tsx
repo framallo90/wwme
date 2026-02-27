@@ -82,6 +82,47 @@ function SettingsPanel(props: SettingsPanelProps) {
       </label>
 
       <label>
+        Voz preferida (opcional)
+        <input
+          value={config.audioVoiceName}
+          onChange={(event) => props.onChange({ ...config, audioVoiceName: event.target.value })}
+          placeholder="Ej: Microsoft Sabina Desktop"
+        />
+      </label>
+
+      <label>
+        Velocidad de lectura
+        <NumericInput
+          step="0.1"
+          min="0.5"
+          max="2"
+          value={config.audioRate}
+          onChange={(val) =>
+            props.onChange({
+              ...config,
+              audioRate: Math.max(0.5, Math.min(2, val)),
+            })
+          }
+        />
+      </label>
+
+      <label>
+        Volumen de lectura
+        <NumericInput
+          step="0.1"
+          min="0"
+          max="1"
+          value={config.audioVolume}
+          onChange={(val) =>
+            props.onChange({
+              ...config,
+              audioVolume: Math.max(0, Math.min(1, val)),
+            })
+          }
+        />
+      </label>
+
+      <label>
         Auto-guardado (ms)
         <NumericInput
           min="1000"

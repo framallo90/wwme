@@ -20,9 +20,11 @@ import type { MainView } from '../types/book';
 interface TopToolbarProps {
   hasBook: boolean;
   currentView: MainView;
+  focusMode: boolean;
   onCreateBook: () => void;
   onOpenBook: () => void;
   onCloseBook: () => void;
+  onToggleFocusMode: () => void;
   onShowEditor: () => void;
   onShowOutline: () => void;
   onShowPreview: () => void;
@@ -67,6 +69,14 @@ function TopToolbar(props: TopToolbarProps) {
         >
           <Settings size={16} />
           <span>Settings</span>
+        </button>
+        <button
+          type="button"
+          className={`icon-button ${props.focusMode ? 'is-active' : ''}`}
+          onClick={props.onToggleFocusMode}
+          title="Oculta o muestra los paneles laterales para escribir con foco total. Atajo: Ctrl+Shift+F."
+        >
+          <span>{props.focusMode ? 'Salir foco' : 'Foco 100%'}</span>
         </button>
       </div>
 

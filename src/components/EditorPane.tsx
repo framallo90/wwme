@@ -3,6 +3,7 @@ import type { JSONContent } from '@tiptap/core';
 
 import { CHAPTER_LENGTH_OPTIONS, formatChapterLengthLabel, resolveChapterLengthPreset } from '../lib/chapterLength';
 import { formatNumber } from '../lib/metrics';
+import type { AudioPlaybackState } from '../lib/audio';
 import type { ChapterDocument, ChapterLengthPreset, InteriorFormat } from '../types/book';
 import type { TiptapEditorHandle } from './TiptapEditor';
 
@@ -20,8 +21,13 @@ interface EditorPaneProps {
   chapterPageEnd: number;
   bookWordCount: number;
   bookEstimatedPages: number;
+  audioPlaybackState: AudioPlaybackState;
   onUndoEdit: () => void;
   onRedoEdit: () => void;
+  onReadAloud: () => void;
+  onTogglePauseReadAloud: () => void;
+  onStopReadAloud: () => void;
+  onExportChapterAudio: () => void;
   onLengthPresetChange: (preset: ChapterLengthPreset) => void;
   onContentChange: (payload: { html: string; json: JSONContent }) => void;
   onBlur: () => void;
@@ -75,6 +81,36 @@ const EditorPane = forwardRef<TiptapEditorHandle, EditorPaneProps>((props, ref) 
                 >
                   Rehacer
                 </button>
+                <button
+                  type="button"
+                  onClick={props.onReadAloud}
+                  title="Lee el capitulo activo con la voz del idioma configurado."
+                >
+                  Leer audio
+                </button>
+                <button
+                  type="button"
+                  onClick={props.onTogglePauseReadAloud}
+                  disabled={props.audioPlaybackState === 'idle'}
+                  title="Pausa o reanuda la lectura en voz alta."
+                >
+                  {props.audioPlaybackState === 'paused' ? 'Reanudar audio' : 'Pausar audio'}
+                </button>
+                <button
+                  type="button"
+                  onClick={props.onStopReadAloud}
+                  disabled={props.audioPlaybackState === 'idle'}
+                  title="Detiene la lectura en voz alta."
+                >
+                  Detener audio
+                </button>
+                <button
+                  type="button"
+                  onClick={props.onExportChapterAudio}
+                  title="Exporta el capitulo activo a WAV usando la voz del sistema."
+                >
+                  Exportar audio
+                </button>
               </div>
               <div className="editor-metrics" title="Conteo y paginacion estimada segun formato interior.">
                 <span>Capitulo: {formatNumber(props.chapterWordCount)} palabras</span>
@@ -85,6 +121,7 @@ const EditorPane = forwardRef<TiptapEditorHandle, EditorPaneProps>((props, ref) 
                 <span>
                   Libro: {formatNumber(props.bookWordCount)} palabras | hojas {formatNumber(props.bookEstimatedPages)}
                 </span>
+                <span>Audio: {props.audioPlaybackState === 'idle' ? 'detenido' : props.audioPlaybackState}</span>
               </div>
               <label className="chapter-length-control" title="Define el largo objetivo de este capitulo para las acciones de IA.">
                 <span>Extension objetivo</span>

@@ -1157,6 +1157,12 @@ export async function loadAppConfig(bookPath: string): Promise<AppConfig> {
         ? loaded.systemPrompt
         : DEFAULT_APP_CONFIG.systemPrompt,
     temperature: normalizeFiniteNumber(loaded.temperature, DEFAULT_APP_CONFIG.temperature, { min: 0, max: 2 }),
+    audioVoiceName:
+      typeof loaded.audioVoiceName === 'string'
+        ? loaded.audioVoiceName.trim()
+        : DEFAULT_APP_CONFIG.audioVoiceName,
+    audioRate: normalizeFiniteNumber(loaded.audioRate, DEFAULT_APP_CONFIG.audioRate, { min: 0.5, max: 2 }),
+    audioVolume: normalizeFiniteNumber(loaded.audioVolume, DEFAULT_APP_CONFIG.audioVolume, { min: 0, max: 1 }),
     aiResponseMode:
       loaded.aiResponseMode === 'rapido' || loaded.aiResponseMode === 'calidad'
         ? loaded.aiResponseMode

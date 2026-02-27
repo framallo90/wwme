@@ -2,6 +2,10 @@ export function normalizePath(path: string): string {
   return path.replace(/\\/g, '/').replace(/\/+/g, '/');
 }
 
+export function stripUtf8Bom(value: string): string {
+  return value.replace(/^\uFEFF/, '');
+}
+
 export function joinPath(base: string, ...parts: string[]): string {
   let current = normalizePath(base).replace(/\/$/, '');
   for (const part of parts) {
@@ -88,6 +92,51 @@ export function htmlToMarkdown(html: string): string {
     .map((line) => line.trimEnd())
     .join('\n')
     .trim();
+}
+
+export function sanitizeHtmlForPreview(html: string): string {
+  if (!html) {
+    return '';
+  }
+
+  let sanitized = html;
+
+  sanitized = sanitized.replace(
+    /<\s*(script|style|iframe|object|embed|link|meta|base|frame|frameset)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi,
+    '',
+  );
+  sanitized = sanitized.replace(
+    /<\s*(script|style|iframe|object|embed|link|meta|base|frame|frameset)\b[^>]*\/?\s*>/gi,
+    '',
+  );
+  sanitized = sanitized.replace(/\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  sanitized = sanitized.replace(/\s+style\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  sanitized = sanitized.replace(
+    /\s(href|src)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+    (match, attribute: string, rawValue: string, doubleQuoted?: string, singleQuoted?: string, bareValue?: string) => {
+      const value = (doubleQuoted ?? singleQuoted ?? bareValue ?? '').trim();
+      const normalized = value
+        .split('')
+        .filter((char) => {
+          const code = char.charCodeAt(0);
+          return code > 31 && code !== 127 && !/\s/.test(char);
+        })
+        .join('')
+        .toLowerCase();
+      if (
+        normalized.startsWith('javascript:') ||
+        normalized.startsWith('vbscript:') ||
+        normalized.startsWith('data:text/html')
+      ) {
+        const quote = rawValue.startsWith("'") ? "'" : '"';
+        return ` ${attribute}=${quote}#${quote}`;
+      }
+
+      return match;
+    },
+  );
+
+  return sanitized;
 }
 
 export function normalizeAiOutput(value: string): string {

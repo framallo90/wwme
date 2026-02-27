@@ -20,6 +20,7 @@
     "../src/lib/styleMetrics.ts",
     "../src/lib/amazon.ts",
     "../src/lib/amazonValidation.ts",
+    "../src/lib/audio.ts",
     "../src/lib/prompts.ts",
     "../src/lib/text.ts",
     "../src/lib/diff.ts",

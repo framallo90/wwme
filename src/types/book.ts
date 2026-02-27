@@ -193,6 +193,9 @@ export interface AppConfig {
   language: string;
   systemPrompt: string;
   temperature: number;
+  audioVoiceName: string;
+  audioRate: number;
+  audioVolume: number;
   aiResponseMode: 'rapido' | 'equilibrado' | 'calidad';
   autoVersioning: boolean;
   aiSafeMode: boolean;

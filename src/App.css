@@ -124,8 +124,70 @@ select {
 }
 
 .app-shell.is-focus-mode {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
   max-width: min(1800px, 100vw);
+}
+
+.app-shell.is-left-collapsed {
+  grid-template-columns: 32px minmax(0, 1fr) clamp(320px, 24vw, 420px);
+}
+
+.app-shell.is-right-collapsed {
+  grid-template-columns: clamp(280px, 20vw, 360px) minmax(0, 1fr) 32px;
+}
+
+.app-shell.is-left-collapsed.is-right-collapsed {
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  max-width: min(1800px, 100vw);
+}
+
+.shell-side {
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+
+.shell-side-left > .left-sidebar,
+.shell-side-right > .ai-panel {
+  flex: 1;
+  min-height: 0;
+}
+
+.shell-side.is-collapsed {
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: var(--shadow-soft);
+  display: grid;
+  place-items: center;
+}
+
+.shell-side-toggle {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  min-width: 24px;
+  height: 64px;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1;
+  z-index: 6;
+}
+
+.shell-side-toggle-left {
+  right: -12px;
+}
+
+.shell-side-toggle-right {
+  left: -12px;
+}
+
+.shell-side.is-collapsed .shell-side-toggle {
+  position: static;
+  transform: none;
 }
 
 .left-sidebar,
@@ -214,6 +276,7 @@ select {
   border: 1px solid rgba(18, 40, 94, 0.2);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.55);
+  margin: 0;
 }
 
 .sidebar-collapsible summary,
@@ -1476,7 +1539,15 @@ select {
 
 .chat-section {
   min-height: 0;
-  flex: 1;
+  flex: 0 0 auto;
+}
+
+.chat-section-main {
+  flex: 1 1 auto;
+}
+
+.chat-section-prompt-library {
+  flex: 0 0 auto;
 }
 
 .length-info-box {
@@ -1728,6 +1799,22 @@ select {
     grid-template-rows: auto auto auto auto;
     max-width: 100%;
     padding: 0.55rem;
+  }
+
+  .app-shell.is-left-collapsed,
+  .app-shell.is-right-collapsed,
+  .app-shell.is-left-collapsed.is-right-collapsed,
+  .app-shell.is-focus-mode {
+    grid-template-columns: 1fr;
+    max-width: 100%;
+  }
+
+  .shell-side {
+    min-height: auto;
+  }
+
+  .shell-side-toggle {
+    display: none;
   }
 
   .left-sidebar,

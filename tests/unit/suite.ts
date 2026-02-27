@@ -43,8 +43,10 @@ import {
   joinPath,
   normalizePath,
   plainTextToHtml,
+  sanitizeHtmlForPreview,
   safeFileName,
   slugify,
+  stripUtf8Bom,
   splitAiOutputAndSummary,
 } from '../../src/lib/text';
 import { parseLocaleIntegerOr, parseLocaleNumber, parseLocaleNumberOr } from '../../src/lib/numberInput';
@@ -72,6 +74,14 @@ import {
   buildStoryProgressPrompt,
   formatStoryProgressFallback,
 } from '../../src/lib/storyProgressSummary';
+import {
+  buildBookAudioExportPath,
+  buildBookAudioText,
+  buildChapterAudioExportPath,
+  buildChapterAudioText,
+  pickSpeechVoice,
+  resolveSpeechLanguageTag,
+} from '../../src/lib/audio';
 import type { AppConfig, BookFoundation, BookMetadata, ChapterDocument, InteriorFormat, StoryBible } from '../../src/types/book';
 
 interface ElementLike {
@@ -328,6 +338,9 @@ function createConfig(overrides?: Partial<AppConfig>): AppConfig {
     language: 'es',
     systemPrompt: '',
     temperature: 0.6,
+    audioVoiceName: '',
+    audioRate: 1,
+    audioVolume: 1,
     aiResponseMode: 'equilibrado',
     autoVersioning: true,
     aiSafeMode: true,
@@ -400,6 +413,33 @@ const tests: TestCase[] = [
     run: () => {
       const markdown = htmlToMarkdown('<h2>Titulo</h2><p>Texto <strong>fuerte</strong></p>');
       assert.equal(markdown, '## Titulo\n\nTexto **fuerte**');
+    },
+  },
+  {
+    name: 'text: sanitiza html peligroso para preview',
+    run: () => {
+      const sanitized = sanitizeHtmlForPreview(
+        '<p onclick="alert(1)" style="color:red">Hola</p><script>alert(1)</script><a href="javascript:alert(2)" onmouseover="x()">link</a><img src="javascript:alert(3)">',
+      );
+
+      assert.ok(!sanitized.toLowerCase().includes('<script'));
+      assert.ok(!sanitized.toLowerCase().includes('onclick='));
+      assert.ok(!sanitized.toLowerCase().includes('onmouseover='));
+      assert.ok(!sanitized.toLowerCase().includes('style='));
+      assert.ok(sanitized.includes('<p>Hola</p>'));
+      assert.ok(sanitized.includes('href="#"'));
+      assert.ok(sanitized.includes('src="#"'));
+      assert.equal(
+        sanitizeHtmlForPreview('<a href="https://example.com">ok</a>'),
+        '<a href="https://example.com">ok</a>',
+      );
+    },
+  },
+  {
+    name: 'text: elimina BOM UTF-8 al inicio',
+    run: () => {
+      assert.equal(stripUtf8Bom('\uFEFF{"ok":true}'), '{"ok":true}');
+      assert.equal(stripUtf8Bom('{"ok":true}'), '{"ok":true}');
     },
   },
   {
@@ -650,7 +690,7 @@ const tests: TestCase[] = [
       assert.ok(getChapterLengthInstruction('media').includes('3000-4500'));
     },
   },
-    {
+  {
     name: 'language: normaliza codigo, select value e instruccion',
     run: () => {
       assert.equal(normalizeLanguageCode(' ES '), 'es');
@@ -669,6 +709,40 @@ const tests: TestCase[] = [
       assert.equal(resolveLanguageSelectValue('es-ar'), 'custom');
       assert.ok(getLanguageDisplayName('fr').toLowerCase().includes('fran'));
       assert.ok(getLanguageInstruction('en').includes('English'));
+    },
+  },
+  {
+    name: 'audio: resuelve idioma, voz y texto exportable',
+    run: () => {
+      assert.equal(resolveSpeechLanguageTag('es'), 'es');
+      assert.equal(resolveSpeechLanguageTag('es-mx'), 'es-MX');
+
+      const voices = [
+        { name: 'English Voice', lang: 'en-US' },
+        { name: 'Sabina', lang: 'es-ES' },
+        { name: 'Helena', lang: 'es-MX' },
+      ] as SpeechSynthesisVoice[];
+
+      assert.equal(pickSpeechVoice(voices, 'es', '')?.name, 'Sabina');
+      assert.equal(pickSpeechVoice(voices, 'es-mx', '')?.name, 'Helena');
+      assert.equal(pickSpeechVoice(voices, 'es', 'Helena')?.name, 'Helena');
+
+      const chapter = createChapters()[0];
+      const chapterAudioText = buildChapterAudioText(chapter);
+      assert.ok(chapterAudioText.includes('Capitulo 01.'));
+      assert.ok(chapterAudioText.includes(chapter.title));
+
+      const metadata = createMetadata();
+      const bookAudioText = buildBookAudioText(metadata, createChapters());
+      assert.ok(bookAudioText.includes(metadata.title));
+      assert.ok(bookAudioText.includes(metadata.author));
+
+      const chapterPath = buildChapterAudioExportPath('C:/books/demo', metadata, chapter);
+      assert.ok(chapterPath.endsWith('.wav'));
+      assert.ok(chapterPath.includes('/exports/'));
+
+      const bookPath = buildBookAudioExportPath('C:/books/demo', metadata);
+      assert.ok(bookPath.endsWith('-audiolibro.wav'));
     },
   },
   {
@@ -1103,6 +1177,140 @@ const tests: TestCase[] = [
 
       const foundationBlock = buildFoundationBlock(foundation);
       assert.ok(foundationBlock.includes('Base fija del libro:'));
+    },
+  },
+  {
+    name: 'journey: idea vaga a novela con coherencia y salida mercado',
+    run: () => {
+      const foundation = createFoundation();
+      const storyBible = createStoryBible();
+      const metadata = createMetadata();
+      const config = createConfig({ language: 'es' });
+      const chapterText =
+        '<p>Lena vuelve al puerto para vender la casa de su madre.</p><p>Encuentra cuadernos con desapariciones en el muelle.</p>';
+
+      const actionPrompt = buildActionPrompt({
+        actionId: 'draft-from-idea',
+        selectedText: chapterText,
+        ideaText:
+          'Novela extensa: una mujer vuelve al pueblo costero y descubre una deuda moral ligada a desapariciones.',
+        chapterTitle: 'Capitulo 1',
+        bookTitle: metadata.title,
+        language: 'es',
+        foundation,
+        storyBible,
+        chapterLengthPreset: 'media',
+        chapterContext: chapterText,
+      });
+      assert.ok(actionPrompt.includes('Idea del usuario para este capitulo:'));
+      assert.ok(actionPrompt.includes('Biblia de la historia:'));
+
+      const aiLikeOutput =
+        '<p>Lena vuelve al puerto para vender la casa.</p><p>Los cuadernos revelan nombres, fechas y una deuda moral que compromete a su familia.</p>\n\nResumen de cambios:\n- Refuerzo del conflicto\n- Mayor tension\n- Continuidad preservada\n- Voz narrativa estable\n- Cierre abierto';
+      const parsed = splitAiOutputAndSummary(aiLikeOutput);
+      assert.ok(parsed.cleanText.includes('deuda moral'));
+      assert.equal(parsed.summaryBullets.length, 5);
+
+      const sync = buildStoryBibleAutoSyncFromChapter(storyBible, {
+        id: '01',
+        title: 'Capitulo 1',
+        content: parsed.cleanText + '<p>Bruno espera en Puerto Umbral.</p>',
+      });
+      assert.ok(sync.addedCharacters.length + sync.addedLocations.length >= 1);
+      assert.ok(sync.nextStoryBible.locations.some((entry) => entry.name === 'Puerto Umbral'));
+
+      const tracking = buildCharacterTrackingReport({
+        requestedName: 'Lena',
+        storyBible: sync.nextStoryBible,
+        chapters: [
+          {
+            id: '01',
+            title: 'Capitulo 1',
+            content: parsed.cleanText,
+            lengthPreset: 'media',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+      });
+      assert.ok(tracking.mentions.length >= 1);
+
+      const digest = buildStoryProgressDigest({
+        chapters: [
+          {
+            id: '01',
+            title: 'Capitulo 1',
+            content: parsed.cleanText,
+            lengthPreset: 'media',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+        storyBible: sync.nextStoryBible,
+      });
+      const range = normalizeChapterRange(1, { fromChapter: 1, toChapter: 1 });
+      const progressPrompt = buildStoryProgressPrompt({
+        bookTitle: metadata.title,
+        language: 'es',
+        storyBible: sync.nextStoryBible,
+        range,
+        digest,
+      });
+      assert.ok(progressPrompt.includes('MODO: resumen de progreso narrativo'));
+
+      const style = analyzeHtmlStyle(parsed.cleanText);
+      assert.ok(style.wordCount > 10);
+
+      const amazonSuggested = generateAmazonCopy(
+        { ...metadata, foundation, storyBible: sync.nextStoryBible },
+        [
+          {
+            id: '01',
+            title: 'Capitulo 1',
+            content: parsed.cleanText,
+            lengthPreset: 'media',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+        metadata.amazon,
+      );
+      const metadataWithAmazon = {
+        ...metadata,
+        storyBible: sync.nextStoryBible,
+        amazon: {
+          ...amazonSuggested,
+          kdpTitle: metadata.title,
+          penName: metadata.author,
+          longDescription: amazonSuggested.longDescription || 'x'.repeat(260),
+          categories: amazonSuggested.categories.length
+            ? amazonSuggested.categories
+            : ['Libros > Literatura y ficcion > Narrativa contemporanea'],
+          keywords: amazonSuggested.keywords.length
+            ? amazonSuggested.keywords
+            : ['misterio', 'puerto', 'familia', 'deuda moral', '', '', ''],
+          marketPricing: [
+            { marketplace: 'Amazon.com', currency: 'USD', ebookPrice: 4.99, printPrice: 12.99 },
+          ],
+        },
+        coverImage: 'assets/cover.jpg',
+      };
+
+      const marketInsight = buildKdpMarketInsight({
+        presetType: 'intimate-narrative',
+        categories: metadataWithAmazon.amazon.categories,
+        marketplace: metadataWithAmazon.amazon.marketplace,
+        language: metadataWithAmazon.amazon.language,
+        wordCount: 90000,
+      });
+      assert.equal(marketInsight.genre, 'fiction');
+
+      const amazonValidation = validateAmazonMetadata(metadataWithAmazon);
+      assert.ok(amazonValidation.readinessScore >= 70);
+
+      const editorial = buildEditorialChecklist(metadataWithAmazon, config);
+      assert.equal(editorial.errors.length, 0);
+      assert.equal(editorial.isReady, true);
     },
   },
 ];
