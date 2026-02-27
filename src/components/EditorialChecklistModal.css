@@ -1,0 +1,82 @@
+.editorial-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(9, 19, 47, 0.6);
+  display: grid;
+  place-items: center;
+  z-index: 1215;
+  padding: 1rem;
+}
+
+.editorial-panel {
+  width: min(980px, 100%);
+  max-height: min(90vh, 880px);
+  overflow: auto;
+  border: 1px solid rgba(30, 62, 125, 0.4);
+  border-radius: 16px;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.98), rgba(237, 247, 255, 0.98));
+  box-shadow: 0 22px 50px rgba(8, 18, 45, 0.34);
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.editorial-header h2 {
+  margin: 0;
+  color: #102048;
+}
+
+.editorial-header p {
+  margin: 0.2rem 0 0;
+  color: #294271;
+}
+
+.editorial-ok {
+  color: #0a7a3c;
+}
+
+.editorial-blocked {
+  color: #9b2b2b;
+}
+
+.editorial-issues {
+  border: 1px solid rgba(22, 49, 104, 0.24);
+  border-radius: 12px;
+  padding: 0.55rem;
+  background: rgba(255, 255, 255, 0.93);
+  display: grid;
+  gap: 0.45rem;
+}
+
+.editorial-issue {
+  border-radius: 10px;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid rgba(20, 43, 92, 0.22);
+}
+
+.editorial-issue h3 {
+  margin: 0;
+  font-size: 0.96rem;
+}
+
+.editorial-issue p {
+  margin: 0.2rem 0 0;
+  color: #26406f;
+}
+
+.editorial-issue.issue-error {
+  background: rgba(255, 228, 228, 0.72);
+  border-color: rgba(173, 35, 35, 0.32);
+}
+
+.editorial-issue.issue-warning {
+  background: rgba(255, 244, 214, 0.85);
+  border-color: rgba(154, 112, 16, 0.35);
+}
+
+.editorial-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}

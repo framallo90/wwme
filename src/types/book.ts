@@ -40,6 +40,7 @@ export interface ChapterSnapshot {
   version: number;
   chapterId: string;
   reason: string;
+  milestoneLabel?: string | null;
   createdAt: string;
   chapter: ChapterDocument;
 }
@@ -192,7 +193,9 @@ export interface AppConfig {
   language: string;
   systemPrompt: string;
   temperature: number;
+  aiResponseMode: 'rapido' | 'equilibrado' | 'calidad';
   autoVersioning: boolean;
+  aiSafeMode: boolean;
   autoApplyChatChanges: boolean;
   chatApplyIterations: number;
   continuousAgentEnabled: boolean;
@@ -200,8 +203,42 @@ export interface AppConfig {
   continuityGuardEnabled: boolean;
   ollamaOptions: Record<string, number | string | boolean>;
   autosaveIntervalMs: number;
+  backupEnabled: boolean;
+  backupDirectory: string;
+  backupIntervalMs: number;
   accessibilityHighContrast: boolean;
   accessibilityLargeText: boolean;
+}
+
+export interface PromptTemplate {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChapterRangeFilter {
+  fromChapter: number | null;
+  toChapter: number | null;
+}
+
+export interface CollaborationPatchChapter {
+  chapterId: string;
+  title: string;
+  content: string;
+  updatedAt: string;
+}
+
+export interface CollaborationPatch {
+  version: 1;
+  patchId: string;
+  createdAt: string;
+  sourceBookTitle: string;
+  sourceAuthor: string;
+  sourceLanguage: string;
+  notes: string;
+  chapters: CollaborationPatchChapter[];
 }
 
 export type AiActionId =

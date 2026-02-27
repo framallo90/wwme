@@ -64,7 +64,19 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
 
       const current = editor.getHTML();
       if (content !== current) {
+        // Preservar la posicion del cursor antes de actualizar
+        const { from, to } = editor.state.selection;
         editor.commands.setContent(content, { emitUpdate: false });
+        
+        // Restaurar la seleccion si el editor tenia el foco
+        if (editor.isFocused) {
+          try {
+            const docSize = editor.state.doc.content.size;
+            editor.commands.setTextSelection({ from: Math.min(from, docSize), to: Math.min(to, docSize) });
+          } catch {
+            // Ignorar errores de rango si el contenido cambio drasticamente
+          }
+        }
       }
     }, [content, editor]);
 

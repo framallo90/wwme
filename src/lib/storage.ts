@@ -31,6 +31,8 @@ import type {
   BookProject,
   ChapterDocument,
   ChapterSnapshot,
+  CollaborationPatch,
+  PromptTemplate,
 } from '../types/book';
 
 const BOOK_FILE = 'book.json';
@@ -40,6 +42,7 @@ const VERSIONS_DIR = 'versions';
 const CHATS_DIR = 'chats';
 const EXPORTS_DIR = 'exports';
 const CONFIG_FILE = 'config.json';
+const PROMPTS_FILE = 'prompts.json';
 const LIBRARY_FILE = 'library.json';
 type BookLanguageSource = Partial<BookMetadata> & {
   amazon?: Partial<AmazonKdpData>;
@@ -72,6 +75,36 @@ export function buildDefaultStoryBible(): StoryBible {
     locations: [],
     continuityRules: '',
   };
+}
+
+export function buildDefaultPromptTemplates(): PromptTemplate[] {
+  const now = getNowIso();
+  return [
+    {
+      id: randomId('prompt'),
+      title: 'Desarrollar personaje secundario',
+      content:
+        'Desarrolla un personaje secundario con objetivo claro, conflicto interno y una escena breve de presentacion.',
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: randomId('prompt'),
+      title: 'Crear dialogo tenso',
+      content:
+        'Escribe un dialogo tenso entre dos personajes con subtexto, silencios y cierre en suspenso.',
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: randomId('prompt'),
+      title: 'Pulir ritmo narrativo',
+      content:
+        'Reescribe el fragmento para mejorar ritmo: alterna frases cortas/largas, reduce repeticiones y mantiene voz.',
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
 }
 
 export function buildDefaultAmazon(bookTitle: string, author: string): AmazonKdpData {
@@ -347,6 +380,35 @@ function sanitizeIncomingPath(path: string): string {
   return next;
 }
 
+function isAbsoluteFilesystemPath(path: string): boolean {
+  if (!path) {
+    return false;
+  }
+
+  if (/^[a-zA-Z]:\//.test(path)) {
+    return true;
+  }
+
+  if (path.startsWith('//')) {
+    return true;
+  }
+
+  return path.startsWith('/');
+}
+
+function resolveStoredImagePath(bookPath: string, storedPath: string): string {
+  const normalizedStoredPath = normalizePath(sanitizeIncomingPath(storedPath));
+  if (!normalizedStoredPath) {
+    return '';
+  }
+
+  if (isAbsoluteFilesystemPath(normalizedStoredPath)) {
+    return normalizedStoredPath;
+  }
+
+  return joinPath(bookPath, normalizedStoredPath);
+}
+
 function isBookJsonPath(path: string): boolean {
   return /(^|\/)book\.json$/i.test(normalizePath(path));
 }
@@ -447,6 +509,10 @@ function versionsDirPath(bookPath: string): string {
 
 function exportsDirPath(bookPath: string): string {
   return joinPath(bookPath, EXPORTS_DIR);
+}
+
+function promptsFilePath(bookPath: string): string {
+  return joinPath(bookPath, PROMPTS_FILE);
 }
 
 function parseVersion(fileName: string, chapterId: string): number {
@@ -763,18 +829,6 @@ function buildDefaultChapterDocument(chapterId: string, index: number, now: stri
   };
 }
 
-function buildShellChapterDocument(chapterId: string, index: number): ChapterDocument {
-  return {
-    id: chapterId,
-    title: chapterDisplayTitle(chapterId, index),
-    content: '<p></p>',
-    contentJson: null,
-    lengthPreset: 'media',
-    createdAt: '',
-    updatedAt: '',
-  };
-}
-
 function buildInitialBookMetadata(
   title: string,
   author: string,
@@ -818,11 +872,9 @@ async function inferChapterIdsFromDisk(bookPath: string): Promise<string[]> {
 async function ensureBookProjectFiles(
   bookPath: string,
   defaults?: { title?: string; author?: string },
-  options?: { loadAllChapters?: boolean },
 ): Promise<{ metadata: BookMetadata; chapters: Record<string, ChapterDocument> }> {
   const normalizedBookPath = normalizeFolderPath(sanitizeIncomingPath(bookPath));
   const now = getNowIso();
-  const loadAllChapters = options?.loadAllChapters ?? true;
 
   await mkdir(normalizedBookPath, { recursive: true });
   await mkdir(joinPath(normalizedBookPath, CHAPTERS_DIR), { recursive: true });
@@ -881,43 +933,37 @@ async function ensureBookProjectFiles(
   });
 
   const chapters: Record<string, ChapterDocument> = {};
-  if (loadAllChapters) {
-    for (const [index, chapterId] of metadata.chapterOrder.entries()) {
-      const chapterPath = chapterFilePath(normalizedBookPath, chapterId);
-      let chapter: ChapterDocument;
-      let shouldPersistChapter = false;
+  for (const [index, chapterId] of metadata.chapterOrder.entries()) {
+    const chapterPath = chapterFilePath(normalizedBookPath, chapterId);
+    let chapter: ChapterDocument;
+    let shouldPersistChapter = false;
 
-      if (await exists(chapterPath)) {
-        try {
-          const rawChapter = await readJson<Partial<ChapterDocument>>(chapterPath);
-          const loaded = ensureChapterDocument(rawChapter as ChapterDocument);
-          chapter = {
-            ...loaded,
-            id: loaded.id?.trim() || chapterId,
-            title: loaded.title?.trim() || chapterDisplayTitle(chapterId, index),
-            content: loaded.content ?? '<p>Escribe aqui...</p>',
-            createdAt: loaded.createdAt ?? now,
-            updatedAt: loaded.updatedAt ?? loaded.createdAt ?? now,
-            contentJson: loaded.contentJson ?? null,
-          };
-          shouldPersistChapter = shouldPersistNormalizedChapter(rawChapter, chapter);
-        } catch {
-          chapter = buildDefaultChapterDocument(chapterId, index, now);
-          shouldPersistChapter = true;
-        }
-      } else {
+    if (await exists(chapterPath)) {
+      try {
+        const rawChapter = await readJson<Partial<ChapterDocument>>(chapterPath);
+        const loaded = ensureChapterDocument(rawChapter as ChapterDocument);
+        chapter = {
+          ...loaded,
+          id: loaded.id?.trim() || chapterId,
+          title: loaded.title?.trim() || chapterDisplayTitle(chapterId, index),
+          content: loaded.content ?? '<p>Escribe aqui...</p>',
+          createdAt: loaded.createdAt ?? now,
+          updatedAt: loaded.updatedAt ?? loaded.createdAt ?? now,
+          contentJson: loaded.contentJson ?? null,
+        };
+        shouldPersistChapter = shouldPersistNormalizedChapter(rawChapter, chapter);
+      } catch {
         chapter = buildDefaultChapterDocument(chapterId, index, now);
         shouldPersistChapter = true;
       }
-
-      chapters[chapterId] = chapter;
-      if (shouldPersistChapter) {
-        await writeJson(chapterPath, chapter);
-      }
+    } else {
+      chapter = buildDefaultChapterDocument(chapterId, index, now);
+      shouldPersistChapter = true;
     }
-  } else {
-    for (const [index, chapterId] of metadata.chapterOrder.entries()) {
-      chapters[chapterId] = buildShellChapterDocument(chapterId, index);
+
+    chapters[chapterId] = chapter;
+    if (shouldPersistChapter) {
+      await writeJson(chapterPath, chapter);
     }
   }
 
@@ -1039,6 +1085,29 @@ function formatStorageError(error: unknown): string {
   return 'Error de acceso a archivos.';
 }
 
+function normalizeBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+function normalizeFiniteNumber(
+  value: unknown,
+  fallback: number,
+  bounds?: { min?: number; max?: number },
+): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  let normalized = value;
+  if (typeof bounds?.min === 'number') {
+    normalized = Math.max(bounds.min, normalized);
+  }
+  if (typeof bounds?.max === 'number') {
+    normalized = Math.min(bounds.max, normalized);
+  }
+  return normalized;
+}
+
 export async function loadAppConfig(bookPath: string): Promise<AppConfig> {
   const normalizedBookPath = normalizePath(bookPath);
   const targetConfigPath = configFilePath(normalizedBookPath);
@@ -1072,15 +1141,77 @@ export async function loadAppConfig(bookPath: string): Promise<AppConfig> {
 
   const loaded = await readJson<Partial<AppConfig>>(targetConfigPath);
   const hasExplicitLanguage = typeof loaded.language === 'string' && loaded.language.trim().length > 0;
+  const fallbackTopP = normalizeFiniteNumber(DEFAULT_APP_CONFIG.ollamaOptions.top_p, 0.9, { min: 0, max: 1 });
+  const loadedTopP =
+    loaded.ollamaOptions && typeof loaded.ollamaOptions === 'object'
+      ? (loaded.ollamaOptions as Partial<AppConfig['ollamaOptions']>).top_p
+      : undefined;
+
   return {
-    ...DEFAULT_APP_CONFIG,
-    ...loaded,
+    model: typeof loaded.model === 'string' && loaded.model.trim() ? loaded.model.trim() : DEFAULT_APP_CONFIG.model,
     language: hasExplicitLanguage
       ? normalizeLanguageCode(loaded.language)
       : bookLanguageHint,
+    systemPrompt:
+      typeof loaded.systemPrompt === 'string' && loaded.systemPrompt.trim()
+        ? loaded.systemPrompt
+        : DEFAULT_APP_CONFIG.systemPrompt,
+    temperature: normalizeFiniteNumber(loaded.temperature, DEFAULT_APP_CONFIG.temperature, { min: 0, max: 2 }),
+    aiResponseMode:
+      loaded.aiResponseMode === 'rapido' || loaded.aiResponseMode === 'calidad'
+        ? loaded.aiResponseMode
+        : DEFAULT_APP_CONFIG.aiResponseMode,
+    autoVersioning: normalizeBoolean(loaded.autoVersioning, DEFAULT_APP_CONFIG.autoVersioning),
+    aiSafeMode: normalizeBoolean(loaded.aiSafeMode, DEFAULT_APP_CONFIG.aiSafeMode),
+    autoApplyChatChanges: normalizeBoolean(
+      loaded.autoApplyChatChanges,
+      DEFAULT_APP_CONFIG.autoApplyChatChanges,
+    ),
+    chatApplyIterations: Math.round(
+      normalizeFiniteNumber(loaded.chatApplyIterations, DEFAULT_APP_CONFIG.chatApplyIterations, {
+        min: 1,
+        max: 10,
+      }),
+    ),
+    continuousAgentEnabled: normalizeBoolean(
+      loaded.continuousAgentEnabled,
+      DEFAULT_APP_CONFIG.continuousAgentEnabled,
+    ),
+    continuousAgentMaxRounds: Math.round(
+      normalizeFiniteNumber(loaded.continuousAgentMaxRounds, DEFAULT_APP_CONFIG.continuousAgentMaxRounds, {
+        min: 1,
+        max: 12,
+      }),
+    ),
+    continuityGuardEnabled: normalizeBoolean(
+      loaded.continuityGuardEnabled,
+      DEFAULT_APP_CONFIG.continuityGuardEnabled,
+    ),
+    autosaveIntervalMs: Math.round(
+      normalizeFiniteNumber(loaded.autosaveIntervalMs, DEFAULT_APP_CONFIG.autosaveIntervalMs, { min: 1000 }),
+    ),
+    backupEnabled: normalizeBoolean(loaded.backupEnabled, DEFAULT_APP_CONFIG.backupEnabled),
+    backupDirectory:
+      typeof loaded.backupDirectory === 'string' ? normalizePath(loaded.backupDirectory.trim()) : '',
+    backupIntervalMs: Math.round(
+      normalizeFiniteNumber(loaded.backupIntervalMs, DEFAULT_APP_CONFIG.backupIntervalMs, { min: 20000 }),
+    ),
+    accessibilityHighContrast: normalizeBoolean(
+      loaded.accessibilityHighContrast,
+      DEFAULT_APP_CONFIG.accessibilityHighContrast,
+    ),
+    accessibilityLargeText: normalizeBoolean(
+      loaded.accessibilityLargeText,
+      DEFAULT_APP_CONFIG.accessibilityLargeText,
+    ),
     ollamaOptions: {
       ...DEFAULT_APP_CONFIG.ollamaOptions,
       ...(loaded.ollamaOptions ?? {}),
+      top_p: normalizeFiniteNumber(
+        loadedTopP,
+        fallbackTopP,
+        { min: 0, max: 1 },
+      ),
     },
   };
 }
@@ -1208,17 +1339,6 @@ export async function resolveBookDirectory(path: string): Promise<string> {
 export async function loadBookProject(path: string): Promise<BookProject> {
   const projectPath = await resolveBookDirectory(path);
   const ensured = await ensureBookProjectFiles(projectPath);
-
-  return {
-    path: projectPath,
-    metadata: ensured.metadata,
-    chapters: ensured.chapters,
-  };
-}
-
-export async function loadBookProjectShell(path: string): Promise<BookProject> {
-  const projectPath = await resolveBookDirectory(path);
-  const ensured = await ensureBookProjectFiles(projectPath, undefined, { loadAllChapters: false });
 
   return {
     path: projectPath,
@@ -1403,6 +1523,7 @@ export async function saveChapterSnapshot(
   bookPath: string,
   chapter: ChapterDocument,
   reason: string,
+  options?: { milestoneLabel?: string | null },
 ): Promise<ChapterSnapshot> {
   const versionsPath = versionsDirPath(bookPath);
   await mkdir(versionsPath, { recursive: true });
@@ -1419,6 +1540,7 @@ export async function saveChapterSnapshot(
     version: nextVersion,
     chapterId: chapter.id,
     reason,
+    milestoneLabel: options?.milestoneLabel ?? null,
     createdAt: getNowIso(),
     chapter: {
       ...chapter,
@@ -1488,15 +1610,24 @@ async function setBookImage(
   targetName: 'cover' | 'back-cover',
   field: 'coverImage' | 'backCoverImage',
 ): Promise<BookMetadata> {
-  const extensionMatch = sourceImagePath.match(/\.([a-zA-Z0-9]+)$/);
+  const normalizedSourceImagePath = normalizePath(sanitizeIncomingPath(sourceImagePath));
+  if (!normalizedSourceImagePath) {
+    throw new Error('Ruta de imagen invalida.');
+  }
+
+  const extensionMatch = normalizedSourceImagePath.match(/\.([a-zA-Z0-9]+)$/);
   const extension = extensionMatch ? extensionMatch[1].toLowerCase() : 'png';
   const safeExtension = safeFileName(extension) || 'png';
 
   const relativeTarget = joinPath(ASSETS_DIR, `${targetName}.${safeExtension}`);
   const absoluteTarget = joinPath(bookPath, relativeTarget);
 
+  if (!(await exists(normalizedSourceImagePath))) {
+    throw new Error(`No se encontro la imagen seleccionada: ${normalizedSourceImagePath}`);
+  }
+
   await mkdir(joinPath(bookPath, ASSETS_DIR), { recursive: true });
-  await copyFile(normalizePath(sourceImagePath), absoluteTarget);
+  await copyFile(normalizedSourceImagePath, absoluteTarget);
 
   const nextMetadata: BookMetadata = {
     ...metadata,
@@ -1515,8 +1646,8 @@ async function clearBookImage(
 ): Promise<BookMetadata> {
   const value = metadata[field];
   if (value) {
-    const absolute = joinPath(bookPath, value);
-    if (await exists(absolute)) {
+    const absolute = resolveStoredImagePath(bookPath, value);
+    if (absolute && (await exists(absolute))) {
       await remove(absolute);
     }
   }
@@ -1555,20 +1686,28 @@ export async function clearBackCoverImage(bookPath: string, metadata: BookMetada
   return clearBookImage(bookPath, metadata, 'backCoverImage');
 }
 
-export function getCoverAbsolutePath(bookPath: string, metadata: BookMetadata): string | null {
+export function getCoverAbsolutePath(
+  bookPath: string,
+  metadata: Pick<BookMetadata, 'coverImage'>,
+): string | null {
   if (!metadata.coverImage) {
     return null;
   }
 
-  return joinPath(bookPath, metadata.coverImage);
+  const resolved = resolveStoredImagePath(bookPath, metadata.coverImage);
+  return resolved || null;
 }
 
-export function getBackCoverAbsolutePath(bookPath: string, metadata: BookMetadata): string | null {
+export function getBackCoverAbsolutePath(
+  bookPath: string,
+  metadata: Pick<BookMetadata, 'backCoverImage'>,
+): string | null {
   if (!metadata.backCoverImage) {
     return null;
   }
 
-  return joinPath(bookPath, metadata.backCoverImage);
+  const resolved = resolveStoredImagePath(bookPath, metadata.backCoverImage);
+  return resolved || null;
 }
 
 export async function loadBookChatMessages(
@@ -1706,6 +1845,168 @@ export async function writeMarkdownExport(
   content: string,
 ): Promise<string> {
   return writeTextExport(bookPath, fileName, content, 'md');
+}
+
+function normalizePromptTemplates(values: unknown): PromptTemplate[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  const normalized: PromptTemplate[] = [];
+  for (const entry of values) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    const payload = entry as Partial<PromptTemplate>;
+    const title = String(payload.title ?? '').trim();
+    const content = String(payload.content ?? '').trim();
+    if (!title || !content) {
+      continue;
+    }
+
+    normalized.push({
+      id: typeof payload.id === 'string' && payload.id.trim() ? payload.id.trim() : randomId('prompt'),
+      title,
+      content,
+      createdAt: typeof payload.createdAt === 'string' && payload.createdAt.trim() ? payload.createdAt : getNowIso(),
+      updatedAt: typeof payload.updatedAt === 'string' && payload.updatedAt.trim() ? payload.updatedAt : getNowIso(),
+    });
+  }
+
+  return normalized;
+}
+
+export async function loadPromptTemplates(bookPath: string): Promise<PromptTemplate[]> {
+  const normalizedBookPath = normalizePath(bookPath);
+  const targetPath = promptsFilePath(normalizedBookPath);
+  if (!(await exists(targetPath))) {
+    const defaults = buildDefaultPromptTemplates();
+    await writeJson(targetPath, defaults);
+    return defaults;
+  }
+
+  try {
+    const loaded = await readJson<unknown>(targetPath);
+    const normalized = normalizePromptTemplates(loaded);
+    if (normalized.length === 0) {
+      const defaults = buildDefaultPromptTemplates();
+      await writeJson(targetPath, defaults);
+      return defaults;
+    }
+    return normalized;
+  } catch {
+    const defaults = buildDefaultPromptTemplates();
+    await writeJson(targetPath, defaults);
+    return defaults;
+  }
+}
+
+export async function savePromptTemplates(bookPath: string, templates: PromptTemplate[]): Promise<PromptTemplate[]> {
+  const normalizedBookPath = normalizePath(bookPath);
+  const targetPath = promptsFilePath(normalizedBookPath);
+  const normalized = normalizePromptTemplates(templates);
+  await writeJson(targetPath, normalized);
+  return normalized;
+}
+
+export async function writeCollaborationPatchExport(
+  bookPath: string,
+  patch: CollaborationPatch,
+): Promise<string> {
+  const safeTitle = safeFileName(patch.sourceBookTitle) || 'libro';
+  const safeDate = safeFileName(patch.createdAt.replaceAll(':', '-')) || randomId('patch');
+  return writeTextExport(
+    bookPath,
+    `patch-colaboracion-${safeTitle}-${safeDate}.json`,
+    JSON.stringify(patch, null, 2),
+    'json',
+  );
+}
+
+export async function readCollaborationPatchFile(filePath: string): Promise<CollaborationPatch> {
+  const raw = await readTextFile(normalizePath(filePath));
+  const parsed = JSON.parse(raw) as Partial<CollaborationPatch>;
+  if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.chapters)) {
+    throw new Error('Patch invalido.');
+  }
+
+  const normalizedChapters = parsed.chapters
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
+      const payload = entry as Partial<CollaborationPatch['chapters'][number]>;
+      const chapterId = String(payload.chapterId ?? '').trim();
+      const title = String(payload.title ?? '').trim();
+      const content = String(payload.content ?? '');
+      if (!chapterId || !title) {
+        return null;
+      }
+      return {
+        chapterId,
+        title,
+        content,
+        updatedAt:
+          typeof payload.updatedAt === 'string' && payload.updatedAt.trim()
+            ? payload.updatedAt
+            : getNowIso(),
+      };
+    })
+    .filter((item): item is CollaborationPatch['chapters'][number] => Boolean(item));
+
+  if (normalizedChapters.length === 0) {
+    throw new Error('Patch sin capitulos validos.');
+  }
+
+  return {
+    version: 1,
+    patchId: typeof parsed.patchId === 'string' && parsed.patchId.trim() ? parsed.patchId : randomId('patch'),
+    createdAt: typeof parsed.createdAt === 'string' && parsed.createdAt.trim() ? parsed.createdAt : getNowIso(),
+    sourceBookTitle:
+      typeof parsed.sourceBookTitle === 'string' && parsed.sourceBookTitle.trim()
+        ? parsed.sourceBookTitle
+        : 'Libro externo',
+    sourceAuthor:
+      typeof parsed.sourceAuthor === 'string' && parsed.sourceAuthor.trim()
+        ? parsed.sourceAuthor
+        : 'Autor externo',
+    sourceLanguage:
+      typeof parsed.sourceLanguage === 'string' && parsed.sourceLanguage.trim()
+        ? parsed.sourceLanguage
+        : 'es',
+    notes: typeof parsed.notes === 'string' ? parsed.notes : '',
+    chapters: normalizedChapters,
+  };
+}
+
+async function copyDirectoryRecursive(sourceDir: string, targetDir: string): Promise<void> {
+  await mkdir(targetDir, { recursive: true });
+  const entries = await readDir(sourceDir);
+  for (const entry of entries) {
+    const sourcePath = joinPath(sourceDir, entry.name);
+    const targetPath = joinPath(targetDir, entry.name);
+    if (entry.isDirectory) {
+      await copyDirectoryRecursive(sourcePath, targetPath);
+    } else {
+      await copyFile(sourcePath, targetPath);
+    }
+  }
+}
+
+export async function syncBookToBackupDirectory(bookPath: string, backupDirectory: string): Promise<string> {
+  const sourceRoot = normalizePath(bookPath);
+  const backupRoot = normalizePath(backupDirectory);
+  if (!sourceRoot || !backupRoot) {
+    throw new Error('Ruta de backup invalida.');
+  }
+
+  const folderName = sourceRoot.split('/').filter(Boolean).pop() ?? `book-${Date.now()}`;
+  const targetPath = joinPath(backupRoot, safeFileName(folderName) || `book-${Date.now()}`);
+  await mkdir(targetPath, { recursive: true });
+
+  await copyDirectoryRecursive(sourceRoot, targetPath);
+  return targetPath;
 }
 
 export async function loadLibraryIndex(): Promise<LibraryIndex> {

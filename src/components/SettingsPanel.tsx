@@ -1,3 +1,4 @@
+import { useEffect, useState, type InputHTMLAttributes } from 'react';
 import type { AppConfig } from '../types/book';
 
 interface SettingsPanelProps {
@@ -5,6 +6,35 @@ interface SettingsPanelProps {
   bookPath: string | null;
   onChange: (next: AppConfig) => void;
   onSave: () => void;
+  onPickBackupDirectory: () => void;
+  onRunBackupNow: () => void;
+}
+
+// Componente helper para inputs numericos que permite borrar el valor temporalmente
+function NumericInput({
+  value,
+  onChange,
+  ...props
+}: { value: number; onChange: (val: number) => void } & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type'>) {
+  const [localValue, setLocalValue] = useState(value.toString());
+
+  useEffect(() => {
+    setLocalValue(value.toString());
+  }, [value]);
+
+  return (
+    <input
+      {...props}
+      type="number"
+      value={localValue}
+      onChange={(e) => {
+        setLocalValue(e.target.value);
+        const parsed = parseFloat(e.target.value);
+        if (!isNaN(parsed)) onChange(parsed);
+      }}
+      onBlur={() => setLocalValue(value.toString())}
+    />
+  );
 }
 
 function SettingsPanel(props: SettingsPanelProps) {
@@ -42,33 +72,21 @@ function SettingsPanel(props: SettingsPanelProps) {
 
       <label>
         Temperatura
-        <input
-          type="number"
+        <NumericInput
           step="0.1"
           min="0"
           max="2"
           value={config.temperature}
-          onChange={(event) =>
-            props.onChange({
-              ...config,
-              temperature: Number.parseFloat(event.target.value || '0.6'),
-            })
-          }
+          onChange={(val) => props.onChange({ ...config, temperature: val })}
         />
       </label>
 
       <label>
         Auto-guardado (ms)
-        <input
-          type="number"
+        <NumericInput
           min="1000"
           value={config.autosaveIntervalMs}
-          onChange={(event) =>
-            props.onChange({
-              ...config,
-              autosaveIntervalMs: Number.parseInt(event.target.value || '5000', 10),
-            })
-          }
+          onChange={(val) => props.onChange({ ...config, autosaveIntervalMs: val })}
         />
       </label>
 
@@ -157,6 +175,51 @@ function SettingsPanel(props: SettingsPanelProps) {
           }
         />
       </label>
+
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={config.backupEnabled}
+          onChange={(event) => props.onChange({ ...config, backupEnabled: event.target.checked })}
+        />
+        Backup automatico opcional (carpeta cloud/local)
+      </label>
+
+      <label>
+        Carpeta de backup
+        <div className="field-inline">
+          <input
+            value={config.backupDirectory}
+            onChange={(event) => props.onChange({ ...config, backupDirectory: event.target.value })}
+            placeholder="Ej: C:/Users/TuUsuario/Google Drive/WriteWMe"
+          />
+          <button type="button" onClick={props.onPickBackupDirectory}>
+            Elegir...
+          </button>
+        </div>
+      </label>
+
+      <label>
+        Intervalo backup (ms)
+        <NumericInput
+          min="20000"
+          value={config.backupIntervalMs}
+          onChange={(val) =>
+            props.onChange({
+              ...config,
+              backupIntervalMs: Math.max(20000, Math.round(val)),
+            })
+          }
+        />
+      </label>
+
+      <button
+        type="button"
+        onClick={props.onRunBackupNow}
+        disabled={!props.bookPath || !config.backupDirectory.trim()}
+      >
+        Backup ahora
+      </button>
 
       <div className="preset-row">
         <button

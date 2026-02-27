@@ -16,6 +16,9 @@ import {
   getAmazonFieldCounters,
   validateAmazonMetadata,
 } from '../lib/amazonValidation';
+import { buildKdpMarketInsight } from '../lib/kdpMarketRules';
+import { countWordsFromHtml } from '../lib/metrics';
+import { parseLocaleIntegerOr, parseLocaleNumber, parseLocaleNumberOr } from '../lib/numberInput';
 import type { AmazonPresetType, BookMetadata, ChapterDocument } from '../types/book';
 
 interface AmazonPanelProps {
@@ -32,9 +35,14 @@ const PRESET_OPTIONS: Array<{ id: AmazonPresetType; label: string }> = [
   { id: 'intimate-narrative', label: 'Narrativa intima' },
 ];
 
-function copyWithFallback(value: string): Promise<void> {
+async function copyWithFallback(value: string): Promise<boolean> {
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    return navigator.clipboard.writeText(value);
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      // Fallback abajo.
+    }
   }
 
   const area = document.createElement('textarea');
@@ -44,9 +52,9 @@ function copyWithFallback(value: string): Promise<void> {
   document.body.appendChild(area);
   area.focus();
   area.select();
-  document.execCommand('copy');
+  const copied = document.execCommand('copy');
   document.body.removeChild(area);
-  return Promise.resolve();
+  return copied;
 }
 
 function AmazonPanel(props: AmazonPanelProps) {
@@ -68,13 +76,25 @@ function AmazonPanel(props: AmazonPanelProps) {
   const counters = useMemo(() => getAmazonFieldCounters(props.metadata), [props.metadata]);
 
   const parseNullableNumber = (value: string): number | null => {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return null;
-    }
-    const parsed = Number.parseFloat(trimmed);
-    return Number.isFinite(parsed) ? parsed : null;
+    return parseLocaleNumber(value);
   };
+
+  const totalWords = useMemo(
+    () => props.chapters.reduce((accumulator, chapter) => accumulator + countWordsFromHtml(chapter.content), 0),
+    [props.chapters],
+  );
+
+  const marketInsight = useMemo(
+    () =>
+      buildKdpMarketInsight({
+        presetType: amazon.presetType,
+        categories: amazon.categories,
+        marketplace: amazon.marketplace,
+        language: amazon.language,
+        wordCount: totalWords,
+      }),
+    [amazon.presetType, amazon.categories, amazon.marketplace, amazon.language, totalWords],
+  );
 
   const updateAmazon = (patch: Partial<BookMetadata['amazon']>) => {
     props.onChangeMetadata({
@@ -156,8 +176,16 @@ function AmazonPanel(props: AmazonPanelProps) {
   };
 
   const handleCopy = async (label: string, value: string) => {
-    await copyWithFallback(value);
-    setCopyStatus(`Copiado: ${label}`);
+    try {
+      const copied = await copyWithFallback(value);
+      if (copied) {
+        setCopyStatus(`Copiado: ${label}`);
+      } else {
+        setCopyStatus(`No se pudo copiar "${label}". Usa Ctrl+C manualmente.`);
+      }
+    } catch {
+      setCopyStatus(`No se pudo copiar "${label}". Usa Ctrl+C manualmente.`);
+    }
   };
 
   const applyPreset = () => {
@@ -471,6 +499,51 @@ function AmazonPanel(props: AmazonPanelProps) {
 
       <section className="amazon-section">
         <div className="section-title-row">
+          <h3>Analisis de mercado (reglas transparentes)</h3>
+          <button
+            type="button"
+            onClick={() => {
+              const nextPricing = amazon.marketPricing.map((row) => {
+                const rowInsight = buildKdpMarketInsight({
+                  presetType: amazon.presetType,
+                  categories: amazon.categories,
+                  marketplace: row.marketplace || amazon.marketplace,
+                  language: amazon.language,
+                  wordCount: totalWords,
+                });
+                const suggestedPrint =
+                  row.printPrice ??
+                  Number(
+                    (rowInsight.suggestedEbookPrice + (rowInsight.genre === 'non-fiction' ? 9 : 7)).toFixed(2),
+                  );
+
+                return {
+                  ...row,
+                  currency: row.currency.trim() ? row.currency : rowInsight.currency,
+                  ebookPrice: rowInsight.suggestedEbookPrice,
+                  printPrice: suggestedPrint,
+                };
+              });
+              updateAmazon({ marketPricing: nextPricing });
+            }}
+          >
+            Aplicar sugerencia de precio
+          </button>
+        </div>
+        <p className="muted">
+          Segmento detectado: <strong>{marketInsight.segment}</strong> | rango sugerido:{' '}
+          <strong>{marketInsight.priceRange}</strong> | version: <strong>{marketInsight.ruleVersion}</strong>
+        </p>
+        <p className="muted">Tip descripcion: {marketInsight.descriptionHint}</p>
+        <ul className="amazon-rule-list">
+          {marketInsight.rationales.map((reason) => (
+            <li key={reason}>{reason}</li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="amazon-section">
+        <div className="section-title-row">
           <h3>Pricing y regalias</h3>
           <button type="button" onClick={addMarketPricing} title="Agregar marketplace para pricing.">
             + Marketplace
@@ -482,7 +555,10 @@ function AmazonPanel(props: AmazonPanelProps) {
             <select
               value={amazon.ebookRoyaltyPlan}
               onChange={(event) =>
-                updateAmazon({ ebookRoyaltyPlan: Number.parseInt(event.target.value, 10) as 35 | 70 })
+                updateAmazon({
+                  ebookRoyaltyPlan:
+                    parseLocaleIntegerOr(event.target.value, amazon.ebookRoyaltyPlan) === 35 ? 35 : 70,
+                })
               }
             >
               <option value={70}>70%</option>
@@ -498,7 +574,7 @@ function AmazonPanel(props: AmazonPanelProps) {
               value={amazon.printCostEstimate}
               onChange={(event) =>
                 updateAmazon({
-                  printCostEstimate: Number.parseFloat(event.target.value || '0'),
+                  printCostEstimate: parseLocaleNumberOr(event.target.value, amazon.printCostEstimate, { min: 0 }),
                 })
               }
             />
@@ -608,7 +684,12 @@ function AmazonPanel(props: AmazonPanelProps) {
               min="4"
               max="8.5"
               value={interior.pageWidthIn}
-              onChange={(event) => updateInterior({ pageWidthIn: Number.parseFloat(event.target.value || '6'), trimSize: 'custom' })}
+              onChange={(event) =>
+                updateInterior({
+                  pageWidthIn: parseLocaleNumberOr(event.target.value, interior.pageWidthIn, { min: 4, max: 8.5 }),
+                  trimSize: 'custom',
+                })
+              }
             />
           </label>
           <label>
@@ -619,7 +700,12 @@ function AmazonPanel(props: AmazonPanelProps) {
               min="6"
               max="11"
               value={interior.pageHeightIn}
-              onChange={(event) => updateInterior({ pageHeightIn: Number.parseFloat(event.target.value || '9'), trimSize: 'custom' })}
+              onChange={(event) =>
+                updateInterior({
+                  pageHeightIn: parseLocaleNumberOr(event.target.value, interior.pageHeightIn, { min: 6, max: 11 }),
+                  trimSize: 'custom',
+                })
+              }
             />
           </label>
           <label>
@@ -630,7 +716,9 @@ function AmazonPanel(props: AmazonPanelProps) {
               min="8"
               max="35"
               value={interior.marginTopMm}
-              onChange={(event) => updateInterior({ marginTopMm: Number.parseFloat(event.target.value || '18') })}
+              onChange={(event) =>
+                updateInterior({ marginTopMm: parseLocaleNumberOr(event.target.value, interior.marginTopMm, { min: 8, max: 35 }) })
+              }
             />
           </label>
           <label>
@@ -641,7 +729,11 @@ function AmazonPanel(props: AmazonPanelProps) {
               min="8"
               max="35"
               value={interior.marginBottomMm}
-              onChange={(event) => updateInterior({ marginBottomMm: Number.parseFloat(event.target.value || '18') })}
+              onChange={(event) =>
+                updateInterior({
+                  marginBottomMm: parseLocaleNumberOr(event.target.value, interior.marginBottomMm, { min: 8, max: 35 }),
+                })
+              }
             />
           </label>
           <label>
@@ -652,7 +744,11 @@ function AmazonPanel(props: AmazonPanelProps) {
               min="8"
               max="40"
               value={interior.marginInsideMm}
-              onChange={(event) => updateInterior({ marginInsideMm: Number.parseFloat(event.target.value || '20') })}
+              onChange={(event) =>
+                updateInterior({
+                  marginInsideMm: parseLocaleNumberOr(event.target.value, interior.marginInsideMm, { min: 8, max: 40 }),
+                })
+              }
             />
           </label>
           <label>
@@ -663,7 +759,11 @@ function AmazonPanel(props: AmazonPanelProps) {
               min="8"
               max="30"
               value={interior.marginOutsideMm}
-              onChange={(event) => updateInterior({ marginOutsideMm: Number.parseFloat(event.target.value || '16') })}
+              onChange={(event) =>
+                updateInterior({
+                  marginOutsideMm: parseLocaleNumberOr(event.target.value, interior.marginOutsideMm, { min: 8, max: 30 }),
+                })
+              }
             />
           </label>
           <label>
@@ -674,7 +774,11 @@ function AmazonPanel(props: AmazonPanelProps) {
               min="0"
               max="3"
               value={interior.paragraphIndentEm}
-              onChange={(event) => updateInterior({ paragraphIndentEm: Number.parseFloat(event.target.value || '1.4') })}
+              onChange={(event) =>
+                updateInterior({
+                  paragraphIndentEm: parseLocaleNumberOr(event.target.value, interior.paragraphIndentEm, { min: 0, max: 3 }),
+                })
+              }
             />
           </label>
           <label>
@@ -685,7 +789,9 @@ function AmazonPanel(props: AmazonPanelProps) {
               min="1.1"
               max="2"
               value={interior.lineHeight}
-              onChange={(event) => updateInterior({ lineHeight: Number.parseFloat(event.target.value || '1.55') })}
+              onChange={(event) =>
+                updateInterior({ lineHeight: parseLocaleNumberOr(event.target.value, interior.lineHeight, { min: 1.1, max: 2 }) })
+              }
             />
           </label>
         </div>

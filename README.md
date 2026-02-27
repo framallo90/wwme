@@ -165,19 +165,25 @@ Cada capitulo (`chapters/NN.json`) guarda:
 - Vista y edicion de base fija del libro
 - Solapa de biblia de historia (personajes, lugares y reglas de continuidad)
   - aliases por entidad para detectar variantes de nombre en prompts (RAG-light)
+  - boton `Consejo de coherencia` con flujo sugerido para usuarios no tecnicos
+  - sincronizacion manual desde capitulo activo para detectar entidades nuevas
+  - auto-sincronizacion al guardar hitos (agrega borradores de personajes/lugares para revision)
 - Carga diferida del panel IA (`AIPanel`): no se descarga/renderiza hasta abrir un libro, para acelerar arranque inicial.
 - Carga bajo demanda del pipeline de exportacion (`lib/export`): se importa solo cuando ejecutas una exportacion.
 - Apertura de libro optimizada: no reescribe masivamente `chapters/` ni `chats/` en cada carga; solo guarda cuando hay normalizacion/migracion real.
-- Apertura con shell + hidratacion: el libro abre primero con estructura liviana y carga capitulos completos en segundo plano.
 - Carga de chats por demanda (scope activo): al abrir libro no se leen todos los historiales, solo `book` o el capitulo activo cuando hace falta.
 - Portada y contraportada (ver/cambiar/quitar) + texto de lomo
 - Seccion Amazon/KDP con presets listos para copiar y pegar
+  - analisis de mercado por reglas transparentes (`kdp-rules-v1`) con racionales visibles
 - Formato interior editable (trim size, margenes, sangria, interlineado)
 - Editor TipTap + auto-guardado
 - Panel IA:
   - acciones rapidas (escribir desde idea, pulir, reescribir, expandir, acortar, consistencia, transiciones, profundidad, alineacion con base)
   - devolucion de capitulo/libro
   - chat por capitulo o por libro
+  - seguimiento de personaje en chat (timeline por nombre + aliases detectados en capitulos)
+  - filtro por rango de capitulos (`Desde cap` / `Hasta cap`) para seguimiento y resumen
+  - boton `Resumen historia` (hechos relevantes + estado de conflicto/personajes)
   - modo auto-aplicar sin preguntar (iterativo)
   - agente continuo por rondas en chat de capitulo
   - bloqueo opcional de continuidad antes de persistir texto generado por IA
@@ -214,6 +220,9 @@ Cada capitulo (`chapters/NN.json`) guarda:
   - markdown completo del libro (`.md`)
   - metadata para carga rapida (`.csv`)
   - reporte de validacion (`.txt`)
+- Colaboracion offline:
+  - export/import de patch JSON por libro
+  - preview diff antes de aplicar cambios sobre el proyecto local
 
 ## Chat auto-aplicar (sin confirmaciones)
 

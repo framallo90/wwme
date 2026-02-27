@@ -130,10 +130,11 @@ function VersionDiffView(props: VersionDiffViewProps) {
 
     for (const snapshot of snapshotListDesc) {
       const createdAt = snapshot.createdAt ? new Date(snapshot.createdAt).toLocaleString() : '';
+      const milestone = snapshot.milestoneLabel?.trim() ?? '';
       choices.push({
         key: snapshotKey(snapshot.version),
-        label: `Snapshot v${snapshot.version}`,
-        details: `${createdAt}${snapshot.reason ? ` | ${snapshot.reason}` : ''}`,
+        label: milestone ? `Snapshot v${snapshot.version} - ${milestone}` : `Snapshot v${snapshot.version}`,
+        details: `${createdAt}${snapshot.reason ? ` | ${snapshot.reason}` : ''}${milestone ? ` | Hito: ${milestone}` : ''}`,
       });
     }
 

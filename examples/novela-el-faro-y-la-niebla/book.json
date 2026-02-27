@@ -12,8 +12,8 @@
     "07",
     "08"
   ],
-  "coverImage": null,
-  "backCoverImage": null,
+  "coverImage": "assets/cover.jpg",
+  "backCoverImage": "assets/back-cover.jpg",
   "spineText": "El faro y la niebla",
   "foundation": {
     "centralIdea": "Una mujer vuelve al puerto de su infancia para desarmar una red de silencios y recuperar su voz.",
@@ -95,7 +95,7 @@
   "isPublished": false,
   "publishedAt": null,
   "createdAt": "2026-02-23T07:05:17.9844572Z",
-  "updatedAt": "2026-02-24T23:28:15.206Z",
+  "updatedAt": "2026-02-26T22:08:50.488Z",
   "storyBible": {
     "characters": [],
     "locations": [],

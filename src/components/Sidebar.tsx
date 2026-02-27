@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import type { ChapterDocument, LibraryBookEntry } from '../types/book';
 import logoImage from '../assets/wwme-logo.png';
+import ContextTip from './ContextTip';
 
 interface SidebarProps {
   hasBook: boolean;
@@ -28,9 +30,13 @@ interface SidebarProps {
   onExportAmazonBundle: () => void;
   onExportBookDocx: () => void;
   onExportBookEpub: () => void;
+  onOpenEditorialChecklist: () => void;
+  onExportCollaborationPatch: () => void;
+  onImportCollaborationPatch: () => void;
 }
 
 function Sidebar(props: SidebarProps) {
+  const [logoLoadFailed, setLogoLoadFailed] = useState(false);
   const statusLabel: Record<LibraryBookEntry['status'], string> = {
     recien_creado: 'Recien creado',
     avanzado: 'Avanzado',
@@ -58,14 +64,26 @@ function Sidebar(props: SidebarProps) {
     <aside className="left-sidebar">
       <header className="sidebar-header">
         <section className="sidebar-logo-showcase sidebar-logo-showcase-top" aria-label="Identidad visual de WriteWMe">
-          <img src={logoImage} alt="Logo WriteWMe" />
+          {logoLoadFailed ? (
+            <p aria-hidden="true">WriteWMe</p>
+          ) : (
+            <img
+              src={logoImage}
+              alt="Logo WriteWMe"
+              onError={() => {
+                setLogoLoadFailed(true);
+              }}
+            />
+          )}
         </section>
         <p className="sidebar-active-book">{props.hasBook ? props.bookTitle : 'Sin libro abierto'}</p>
       </header>
 
       <section className="library-section">
         <div className="section-title-row">
-          <h2>Biblioteca</h2>
+          <h2>
+            Biblioteca <ContextTip text="Gestiona libros: abrir, publicar, eliminar y estado de avance." />
+          </h2>
           <button
             type="button"
             onClick={props.onToggleLibrary}
@@ -148,7 +166,9 @@ function Sidebar(props: SidebarProps) {
 
       <section className="chapter-section">
         <div className="section-title-row">
-          <h2>Capitulos</h2>
+          <h2>
+            Capitulos <ContextTip text="Estructura narrativa: crea, reordena, duplica y elimina." />
+          </h2>
           <button
             type="button"
             onClick={props.onCreateChapter}
@@ -224,8 +244,18 @@ function Sidebar(props: SidebarProps) {
         </section>
 
       <details className="sidebar-collapsible">
-        <summary>Exportar</summary>
+        <summary>
+          Exportar <ContextTip text="Genera salidas editoriales, Amazon y colaboracion offline." />
+        </summary>
         <div className="collapsible-body export-section">
+          <button
+            type="button"
+            onClick={props.onOpenEditorialChecklist}
+            disabled={!props.hasBook}
+            title="Revisa bloqueos editoriales antes de exportar o publicar."
+          >
+            Checklist editorial
+          </button>
           <button
             type="button"
             onClick={props.onExportChapter}
@@ -248,6 +278,22 @@ function Sidebar(props: SidebarProps) {
           </button>
           <button type="button" onClick={props.onExportBookEpub} disabled={!props.hasBook} title="Genera eBook en formato EPUB.">
             Libro EPUB editorial
+          </button>
+          <button
+            type="button"
+            onClick={props.onExportCollaborationPatch}
+            disabled={!props.hasBook}
+            title="Exporta JSON de colaboracion para enviar a coautor."
+          >
+            Exportar patch colaboracion
+          </button>
+          <button
+            type="button"
+            onClick={props.onImportCollaborationPatch}
+            disabled={!props.hasBook}
+            title="Importa JSON de colaboracion y aplica cambios al libro."
+          >
+            Importar patch colaboracion
           </button>
         </div>
       </details>

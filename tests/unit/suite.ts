@@ -47,6 +47,8 @@ import {
   slugify,
   splitAiOutputAndSummary,
 } from '../../src/lib/text';
+import { parseLocaleIntegerOr, parseLocaleNumber, parseLocaleNumberOr } from '../../src/lib/numberInput';
+import { buildBookReplacePreview, replaceMatchesInTextLiteral } from '../../src/lib/searchReplace';
 import {
   countWordsFromHtml,
   countWordsFromPlainText,
@@ -56,12 +58,43 @@ import {
 import { diffTextBlocks, summarizeDiffOperations } from '../../src/lib/diff';
 import { createZipArchive } from '../../src/lib/zip';
 import { analyzePlainTextStyle, analyzeHtmlStyle, getStyleLevelLabel } from '../../src/lib/styleMetrics';
-import type { BookFoundation, BookMetadata, ChapterDocument, InteriorFormat, StoryBible } from '../../src/types/book';
+import { buildEditorialChecklist } from '../../src/lib/editorialChecklist';
+import {
+  buildCollaborationPatchPreview,
+  formatCollaborationPatchPreviewMessage,
+} from '../../src/lib/collaborationPatchPreview';
+import { buildCharacterTrackingReport, formatCharacterTrackingReport } from '../../src/lib/characterTracking';
+import { normalizeChapterRange, sliceByChapterRange } from '../../src/lib/chapterRange';
+import { buildKdpMarketInsight } from '../../src/lib/kdpMarketRules';
+import { buildStoryBibleAutoSyncFromChapter } from '../../src/lib/storyBibleSync';
+import {
+  buildStoryProgressDigest,
+  buildStoryProgressPrompt,
+  formatStoryProgressFallback,
+} from '../../src/lib/storyProgressSummary';
+import type { AppConfig, BookFoundation, BookMetadata, ChapterDocument, InteriorFormat, StoryBible } from '../../src/types/book';
 
 interface ElementLike {
   innerHTML: string;
   textContent: string;
   value?: string;
+}
+
+interface TextNodeLike {
+  textContent: string;
+}
+
+interface BodyLike {
+  innerHTML: string;
+  textContent: string;
+  __textNode: TextNodeLike;
+}
+
+interface DomDocumentLike {
+  body: BodyLike;
+  createTreeWalker: (_root: BodyLike, _whatToShow: number) => {
+    nextNode: () => TextNodeLike | null;
+  };
 }
 
 function decodeEntities(value: string): string {
@@ -83,8 +116,65 @@ function htmlToText(value: string): string {
   );
 }
 
+function createBodyLike(initialHtml: string): BodyLike {
+  const textNode: TextNodeLike = { textContent: htmlToText(initialHtml) };
+  let html = initialHtml;
+
+  return {
+    get innerHTML() {
+      return html;
+    },
+    set innerHTML(value: string) {
+      html = value;
+      textNode.textContent = htmlToText(value);
+    },
+    get textContent() {
+      return textNode.textContent;
+    },
+    set textContent(value: string) {
+      textNode.textContent = value;
+      html = value;
+    },
+    __textNode: textNode,
+  };
+}
+
+function createDomDocumentStub(html: string): DomDocumentLike {
+  const body = createBodyLike(html);
+
+  return {
+    body,
+    createTreeWalker(root: BodyLike) {
+      let consumed = false;
+      const node = root.__textNode;
+
+      return {
+        nextNode() {
+          if (consumed) {
+            return null;
+          }
+          consumed = true;
+
+          return {
+            get textContent() {
+              return node.textContent;
+            },
+            set textContent(value: string) {
+              node.textContent = value ?? '';
+              root.textContent = node.textContent;
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
 function installDomStub(): void {
-  const documentStub = {
+  const documentStub: {
+    createElement: (tag: string) => ElementLike;
+    createTreeWalker: (root: BodyLike, whatToShow: number) => { nextNode: () => TextNodeLike | null };
+  } = {
     createElement(tag: string): ElementLike {
       const lower = tag.toLowerCase();
       let html = '';
@@ -112,9 +202,24 @@ function installDomStub(): void {
         value: '',
       };
     },
+    createTreeWalker(root: BodyLike, whatToShow: number) {
+      return createDomDocumentStub(root.innerHTML).createTreeWalker(root, whatToShow);
+    },
   };
 
-  Object.assign(globalThis, { document: documentStub });
+  class DomParserStub {
+    parseFromString(value: string): DomDocumentLike {
+      const matched = value.match(/<body>([\s\S]*)<\/body>/i);
+      const bodyHtml = matched ? matched[1] : value;
+      return createDomDocumentStub(bodyHtml);
+    }
+  }
+
+  Object.assign(globalThis, {
+    document: documentStub,
+    DOMParser: DomParserStub,
+    NodeFilter: { SHOW_TEXT: 4 },
+  });
 }
 
 function createFoundation(): BookFoundation {
@@ -217,6 +322,31 @@ function createMetadata(): BookMetadata {
   };
 }
 
+function createConfig(overrides?: Partial<AppConfig>): AppConfig {
+  return {
+    model: 'llama3.2:3b',
+    language: 'es',
+    systemPrompt: '',
+    temperature: 0.6,
+    aiResponseMode: 'equilibrado',
+    autoVersioning: true,
+    aiSafeMode: true,
+    autoApplyChatChanges: false,
+    chatApplyIterations: 1,
+    continuousAgentEnabled: false,
+    continuousAgentMaxRounds: 3,
+    continuityGuardEnabled: true,
+    ollamaOptions: {},
+    autosaveIntervalMs: 2000,
+    backupEnabled: false,
+    backupDirectory: '',
+    backupIntervalMs: 120000,
+    accessibilityHighContrast: false,
+    accessibilityLargeText: false,
+    ...overrides,
+  };
+}
+
 function createChapters(): ChapterDocument[] {
   return [
   {
@@ -273,6 +403,244 @@ const tests: TestCase[] = [
     },
   },
   {
+    name: 'numbers: parsea coma/punto y evita NaN en fallback',
+    run: () => {
+      assert.equal(parseLocaleNumber('4,50'), 4.5);
+      assert.equal(parseLocaleNumber('1.234,56'), 1234.56);
+      assert.equal(parseLocaleNumber('1,234.56'), 1234.56);
+      assert.equal(parseLocaleNumber(''), null);
+      assert.equal(parseLocaleNumberOr('.', 0.6, { min: 0, max: 2 }), 0.6);
+      assert.equal(parseLocaleIntegerOr('', 5000, { min: 1000 }), 5000);
+      assert.equal(parseLocaleIntegerOr('850', 5000, { min: 1000 }), 1000);
+    },
+  },
+  {
+    name: 'searchReplace: reemplaza literal sin interpretar $',
+    run: () => {
+      const replaced = replaceMatchesInTextLiteral('Dolar y Dolar', 'Dolar', 'g', '$');
+      assert.equal(replaced.text, '$ y $');
+      assert.equal(replaced.replacements, 2);
+    },
+  },
+  {
+    name: 'searchReplace: simula reemplazo global por capitulo',
+    run: () => {
+      const preview = buildBookReplacePreview(
+        [
+          {
+            id: '01',
+            title: 'Capitulo 1',
+            content: 'Lena entra al bar. Lena sale del bar.',
+            lengthPreset: 'media',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+          {
+            id: '02',
+            title: 'Capitulo 2',
+            content: 'Bruno vigila el puerto.',
+            lengthPreset: 'media',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+        'Lena',
+        'Helena',
+        { caseSensitive: false, wholeWord: true },
+      );
+
+      assert.equal(preview.query, 'Lena');
+      assert.equal(preview.totalMatches, 2);
+      assert.equal(preview.affectedChapters, 1);
+      assert.equal(preview.items.length, 1);
+      assert.equal(preview.items[0].chapterId, '01');
+      assert.ok(preview.items[0].afterSample.includes('Helena'));
+    },
+  },
+  {
+    name: 'editorialChecklist: bloquea sin portada y precios',
+    run: () => {
+      const metadata = createMetadata();
+      metadata.amazon.kdpTitle = 'Titulo KDP';
+      metadata.amazon.penName = 'Autor Demo';
+      metadata.amazon.longDescription = 'x'.repeat(250);
+      metadata.amazon.categories = ['Libros > Literatura y ficcion > Ensayos'];
+      metadata.amazon.keywords = ['uno', 'dos', '', '', '', '', ''];
+      metadata.amazon.marketPricing = [];
+
+      const report = buildEditorialChecklist(metadata, createConfig({ language: 'en' }));
+      assert.equal(report.isReady, false);
+      assert.ok(report.errors.some((issue) => issue.id === 'cover.missing'));
+      assert.ok(report.errors.some((issue) => issue.id === 'pricing.missing'));
+      assert.ok(report.warnings.some((issue) => issue.id === 'language.mismatch'));
+    },
+  },
+  {
+    name: 'editorialChecklist: habilita continuar con minimos completos',
+    run: () => {
+      const metadata = createMetadata();
+      metadata.coverImage = 'assets/cover.jpg';
+      metadata.backCoverImage = 'assets/back.jpg';
+      metadata.amazon.kdpTitle = 'El faro y la niebla';
+      metadata.amazon.penName = 'Demo WriteWMe';
+      metadata.amazon.longDescription = 'x'.repeat(280);
+      metadata.amazon.categories = ['Libros > Literatura y ficcion > Ensayos'];
+      metadata.amazon.keywords = ['uno', 'dos', 'tres', '', '', '', ''];
+      metadata.amazon.marketPricing = [
+        { marketplace: 'Amazon.com', currency: 'USD', ebookPrice: 4.99, printPrice: 12.99 },
+      ];
+
+      const report = buildEditorialChecklist(metadata, createConfig({ language: 'es' }));
+      assert.equal(report.isReady, true);
+      assert.equal(report.errors.length, 0);
+      assert.ok(report.score >= 70);
+    },
+  },
+  {
+    name: 'storyBibleSync: detecta personajes y lugares nuevos desde capitulo',
+    run: () => {
+      const storyBible = createStoryBible();
+      const sync = buildStoryBibleAutoSyncFromChapter(storyBible, {
+        id: '02',
+        title: 'Capitulo 2',
+        content:
+          '<p>En Puerto Umbral, Bruno espera a Lena bajo la lluvia.</p><p>Bruno vuelve al Puerto Umbral con el Comisario Vega.</p>',
+      });
+
+      assert.ok(sync.addedCharacters.some((entry) => entry.name === 'Bruno'));
+      assert.ok(sync.addedLocations.some((entry) => entry.name === 'Puerto Umbral'));
+      assert.equal(sync.nextStoryBible.characters.length, storyBible.characters.length + sync.addedCharacters.length);
+      assert.equal(sync.nextStoryBible.locations.length, storyBible.locations.length + sync.addedLocations.length);
+    },
+  },
+  {
+    name: 'storyBibleSync: evita duplicar entidades ya existentes',
+    run: () => {
+      const storyBible = createStoryBible();
+      const sync = buildStoryBibleAutoSyncFromChapter(storyBible, {
+        id: '03',
+        title: 'Capitulo 3',
+        content: '<p>Lena vuelve al Bar El Muelle y habla con Lena.</p>',
+      });
+
+      assert.equal(sync.addedCharacters.length, 0);
+      assert.equal(sync.addedLocations.length, 0);
+      assert.equal(sync.nextStoryBible.characters.length, storyBible.characters.length);
+      assert.equal(sync.nextStoryBible.locations.length, storyBible.locations.length);
+    },
+  },
+  {
+    name: 'characterTracking: rastrea menciones por nombre y alias en todo el libro',
+    run: () => {
+      const report = buildCharacterTrackingReport({
+        requestedName: 'Lena',
+        storyBible: createStoryBible(),
+        chapters: [
+          {
+            id: '01',
+            title: 'Capitulo 1',
+            content: '<p>Lena entra al bar. Helena observa la puerta.</p>',
+            lengthPreset: 'media',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+          {
+            id: '02',
+            title: 'Capitulo 2',
+            content: '<p>La chica del faro corre hacia el muelle.</p><p>Bruno intenta detenerla.</p>',
+            lengthPreset: 'media',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+      });
+
+      assert.ok(report.mentions.length >= 3);
+      assert.equal(report.mentionsByChapter.length, 2);
+      assert.ok(report.trackedTerms.some((term) => term.toLowerCase().includes('helena')));
+      const formatted = formatCharacterTrackingReport(report);
+      assert.ok(formatted.includes('Seguimiento de personaje'));
+      assert.ok(formatted.includes('Capitulo 1 - Capitulo 1'));
+      assert.ok(formatted.includes('Capitulo 2 - Capitulo 2'));
+    },
+  },
+  {
+    name: 'characterTracking: devuelve mensaje claro sin menciones',
+    run: () => {
+      const report = buildCharacterTrackingReport({
+        requestedName: 'Nora',
+        storyBible: createStoryBible(),
+        chapters: createChapters(),
+      });
+
+      assert.equal(report.mentions.length, 0);
+      const formatted = formatCharacterTrackingReport(report);
+      assert.ok(formatted.includes('No encontre menciones'));
+    },
+  },
+  {
+    name: 'chapterRange: normaliza y recorta rango invalido',
+    run: () => {
+      const range = normalizeChapterRange(12, { fromChapter: 9, toChapter: 3 });
+      assert.equal(range.from, 3);
+      assert.equal(range.to, 9);
+      assert.equal(range.isFullRange, false);
+      assert.equal(range.label, '3-9');
+
+      const fullRange = normalizeChapterRange(4, { fromChapter: null, toChapter: null });
+      assert.equal(fullRange.isFullRange, true);
+      assert.ok(fullRange.label.includes('todo el libro'));
+
+      const slice = sliceByChapterRange(['a', 'b', 'c', 'd'], range);
+      assert.deepEqual(slice, ['c', 'd']);
+    },
+  },
+  {
+    name: 'storyProgressSummary: genera digest, prompt y fallback',
+    run: () => {
+      const chapters: ChapterDocument[] = [
+        {
+          id: '01',
+          title: 'Capitulo 1',
+          content: '<p>Lena descubre un mapa en el bar del puerto. Bruno la persigue.</p>',
+          lengthPreset: 'media',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          id: '02',
+          title: 'Capitulo 2',
+          content: '<p>Lena regresa al Faro Norte y confiesa su plan a Mara.</p>',
+          lengthPreset: 'media',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ];
+      const digest = buildStoryProgressDigest({
+        chapters,
+        storyBible: createStoryBible(),
+      });
+      assert.equal(digest.chapters.length, 2);
+      assert.ok(digest.totalWords > 0);
+      assert.ok(digest.totalHighlights >= 2);
+
+      const range = normalizeChapterRange(chapters.length, { fromChapter: 1, toChapter: 2 });
+      const prompt = buildStoryProgressPrompt({
+        bookTitle: 'El faro y la niebla',
+        language: 'es',
+        storyBible: createStoryBible(),
+        range,
+        digest,
+      });
+      assert.ok(prompt.includes('MODO: resumen de progreso narrativo'));
+      assert.ok(prompt.includes('Rango analizado: capitulos'));
+
+      const fallback = formatStoryProgressFallback('El faro y la niebla', range, digest);
+      assert.ok(fallback.includes('Resumen historia'));
+      assert.ok(fallback.includes('Hechos relevantes detectados'));
+    },
+  },
+  {
     name: 'chapterLength: resuelve presets e instrucciones',
     run: () => {
       assert.equal(resolveChapterLengthPreset('corta'), 'corta');
@@ -326,6 +694,83 @@ const tests: TestCase[] = [
       assert.equal(summary.insertCount, 1);
       assert.ok(summary.equalCount >= 1);
       assert.equal(summary.deleteCount, 0);
+    },
+  },
+  {
+    name: 'collaborationPatchPreview: resume altas y cambios antes de importar',
+    run: () => {
+      const chapters = {
+        '01': {
+          id: '01',
+          title: 'Capitulo 1',
+          content: '<p>Lena llega al puerto.</p>',
+          lengthPreset: 'media' as const,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      };
+      const patch = {
+        version: 1 as const,
+        patchId: 'patch-01',
+        createdAt: '2026-01-02T00:00:00.000Z',
+        sourceBookTitle: 'Libro remoto',
+        sourceAuthor: 'Coautor',
+        sourceLanguage: 'es',
+        notes: '',
+        chapters: [
+          {
+            chapterId: '01',
+            title: 'Capitulo 1',
+            content: '<p>Lena llega al puerto. Bruno la sigue.</p>',
+            updatedAt: '2026-01-02T00:00:00.000Z',
+          },
+          {
+            chapterId: '02',
+            title: 'Capitulo 2',
+            content: '<p>El faro parpadea en la noche.</p>',
+            updatedAt: '2026-01-02T00:00:00.000Z',
+          },
+        ],
+      };
+
+      const preview = buildCollaborationPatchPreview({ patch, chapters });
+      assert.equal(preview.updatedCount, 1);
+      assert.equal(preview.createdCount, 1);
+      assert.equal(preview.unchangedCount, 0);
+
+      const message = formatCollaborationPatchPreviewMessage(patch, preview);
+      assert.ok(message.includes('Preview diff'));
+      assert.ok(message.includes('Se crearan: 1'));
+      assert.ok(message.includes('[UPDATE] 01'));
+      assert.ok(message.includes('[NUEVO] 02'));
+    },
+  },
+  {
+    name: 'kdpMarketRules: aplica reglas transparentes por categoria y marketplace',
+    run: () => {
+      const fictionInsight = buildKdpMarketInsight({
+        presetType: 'intimate-narrative',
+        categories: ['Libros > Literatura y ficcion > Narrativa contemporanea'],
+        marketplace: 'amazon.es',
+        language: 'es',
+        wordCount: 95000,
+      });
+      assert.equal(fictionInsight.ruleVersion, 'kdp-rules-v1');
+      assert.equal(fictionInsight.genre, 'fiction');
+      assert.equal(fictionInsight.currency, 'EUR');
+      assert.ok(fictionInsight.rationales.some((reason) => reason.toLowerCase().includes('marketplace detectado')));
+
+      const essayInsight = buildKdpMarketInsight({
+        presetType: 'practical-essay',
+        categories: ['Libros > Negocios y economia > Emprendimiento'],
+        marketplace: 'amazon.com',
+        language: 'es',
+        wordCount: 45000,
+      });
+      assert.equal(essayInsight.genre, 'non-fiction');
+      assert.equal(essayInsight.currency, 'USD');
+      assert.ok(essayInsight.suggestedEbookPrice >= 4.99);
+      assert.ok(essayInsight.descriptionHint.toLowerCase().includes('problema concreto'));
     },
   },
   {

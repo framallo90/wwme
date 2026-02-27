@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { formatNumber } from '../lib/metrics';
 import { analyzeBookStyleFromChapters, getStyleLevelLabel, type StyleLevel } from '../lib/styleMetrics';
 import type { ChapterDocument } from '../types/book';
@@ -25,7 +25,16 @@ function formatReading(minutes: number): string {
 
 function StylePanel(props: StylePanelProps) {
   const [chapterSelection, setChapterSelection] = useState<string>('');
-  const styleReport = useMemo(() => analyzeBookStyleFromChapters(props.chapters), [props.chapters]);
+  
+  // Inicializar con el estado actual, pero actualizar con debounce para evitar lag al escribir
+  const [styleReport, setStyleReport] = useState(() => analyzeBookStyleFromChapters(props.chapters));
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setStyleReport(analyzeBookStyleFromChapters(props.chapters));
+    }, 600); // Esperar 600ms de inactividad antes de recalcular
+    return () => clearTimeout(timer);
+  }, [props.chapters]);
 
   const selectedChapterId = useMemo(() => {
     if (props.chapters.length === 0) {

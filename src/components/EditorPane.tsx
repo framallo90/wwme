@@ -29,6 +29,7 @@ interface EditorPaneProps {
 
 const EditorPane = forwardRef<TiptapEditorHandle, EditorPaneProps>((props, ref) => {
   const [editorEnabled, setEditorEnabled] = useState(false);
+  const [advancedToolsVisible, setAdvancedToolsVisible] = useState(false);
 
   if (!props.chapter) {
     return (
@@ -48,47 +49,58 @@ const EditorPane = forwardRef<TiptapEditorHandle, EditorPaneProps>((props, ref) 
         </div>
         <div className="editor-header-meta">
           <span>Auto-guardado {Math.round(props.autosaveIntervalMs / 1000)}s</span>
-          <div className="editor-history-actions">
-            <button
-              type="button"
-              onClick={props.onUndoEdit}
-              disabled={!props.canUndoEdit}
-              title="Deshace el ultimo cambio de texto (Ctrl+Z)."
-            >
-              Deshacer
-            </button>
-            <button
-              type="button"
-              onClick={props.onRedoEdit}
-              disabled={!props.canRedoEdit}
-              title="Rehace el cambio deshecho (Ctrl+Y)."
-            >
-              Rehacer
-            </button>
-          </div>
-          <div className="editor-metrics" title="Conteo y paginacion estimada segun formato interior.">
-            <span>Capitulo: {formatNumber(props.chapterWordCount)} palabras</span>
-            <span>
-              Hojas capitulo: {props.chapterEstimatedPages > 0 ? formatNumber(props.chapterEstimatedPages) : '0'} (
-              {props.chapterPageStart > 0 ? `${props.chapterPageStart}-${props.chapterPageEnd}` : '-'})
-            </span>
-            <span>
-              Libro: {formatNumber(props.bookWordCount)} palabras | hojas {formatNumber(props.bookEstimatedPages)}
-            </span>
-          </div>
-          <label className="chapter-length-control" title="Define el largo objetivo de este capitulo para las acciones de IA.">
-            <span>Extension objetivo</span>
-            <select
-              value={resolveChapterLengthPreset(props.chapter.lengthPreset)}
-              onChange={(event) => props.onLengthPresetChange(event.target.value as ChapterLengthPreset)}
-            >
-              {CHAPTER_LENGTH_OPTIONS.map((option) => (
-                <option key={option.preset} value={option.preset}>
-                  {formatChapterLengthLabel(option.preset)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <button
+            type="button"
+            className="editor-tools-toggle"
+            onClick={() => setAdvancedToolsVisible((previous) => !previous)}
+          >
+            {advancedToolsVisible ? 'Ocultar herramientas' : 'Mostrar herramientas'}
+          </button>
+          {advancedToolsVisible ? (
+            <>
+              <div className="editor-history-actions">
+                <button
+                  type="button"
+                  onClick={props.onUndoEdit}
+                  disabled={!props.canUndoEdit}
+                  title="Deshace el ultimo cambio de texto (Ctrl+Z)."
+                >
+                  Deshacer
+                </button>
+                <button
+                  type="button"
+                  onClick={props.onRedoEdit}
+                  disabled={!props.canRedoEdit}
+                  title="Rehace el cambio deshecho (Ctrl+Y)."
+                >
+                  Rehacer
+                </button>
+              </div>
+              <div className="editor-metrics" title="Conteo y paginacion estimada segun formato interior.">
+                <span>Capitulo: {formatNumber(props.chapterWordCount)} palabras</span>
+                <span>
+                  Hojas capitulo: {props.chapterEstimatedPages > 0 ? formatNumber(props.chapterEstimatedPages) : '0'} (
+                  {props.chapterPageStart > 0 ? `${props.chapterPageStart}-${props.chapterPageEnd}` : '-'})
+                </span>
+                <span>
+                  Libro: {formatNumber(props.bookWordCount)} palabras | hojas {formatNumber(props.bookEstimatedPages)}
+                </span>
+              </div>
+              <label className="chapter-length-control" title="Define el largo objetivo de este capitulo para las acciones de IA.">
+                <span>Extension objetivo</span>
+                <select
+                  value={resolveChapterLengthPreset(props.chapter.lengthPreset)}
+                  onChange={(event) => props.onLengthPresetChange(event.target.value as ChapterLengthPreset)}
+                >
+                  {CHAPTER_LENGTH_OPTIONS.map((option) => (
+                    <option key={option.preset} value={option.preset}>
+                      {formatChapterLengthLabel(option.preset)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          ) : null}
         </div>
       </header>
 

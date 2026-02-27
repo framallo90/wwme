@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { confirm, open } from '@tauri-apps/plugin-dialog';
+import { exists, readFile } from '@tauri-apps/plugin-fs';
 
 import AppShell from './app/AppShell';
 import Sidebar from './components/Sidebar';
@@ -22,6 +23,9 @@ import {
 } from './lib/prompts';
 import { getLanguageInstruction, normalizeLanguageCode } from './lib/language';
 import PromptModal from './components/PromptModal';
+import OnboardingPanel from './components/OnboardingPanel';
+import ChangeReviewModal from './components/ChangeReviewModal';
+import EditorialChecklistModal from './components/EditorialChecklistModal';
 import {
   clearBackCoverImage,
   clearCoverImage,
@@ -35,9 +39,13 @@ import {
   loadAppConfig,
   loadLibraryIndex,
   loadBookProject,
-  loadBookProjectShell,
   loadBookChatMessages,
   loadChapterChatMessages,
+  loadPromptTemplates,
+  savePromptTemplates,
+  readCollaborationPatchFile,
+  writeCollaborationPatchExport,
+  syncBookToBackupDirectory,
   resolveBookDirectory,
   moveChapter,
   renameChapter,
@@ -54,20 +62,39 @@ import {
 } from './lib/storage';
 import {
   buildBookSearchMatches,
+  buildBookSearchMatchesAsync,
+  buildBookReplacePreviewAsync,
   replaceMatchesInHtml,
   type ChapterSearchMatch,
+  type ReplacePreviewReport,
   type SearchReplaceOptions,
 } from './lib/searchReplace';
+import { buildCharacterTrackingReport, formatCharacterTrackingReport } from './lib/characterTracking';
+import { normalizeChapterRange, sliceByChapterRange } from './lib/chapterRange';
+import {
+  buildCollaborationPatchPreview,
+  formatCollaborationPatchPreviewMessage,
+} from './lib/collaborationPatchPreview';
+import { buildStoryBibleAutoSyncFromChapter } from './lib/storyBibleSync';
+import {
+  buildStoryProgressDigest,
+  buildStoryProgressPrompt,
+  formatStoryProgressFallback,
+} from './lib/storyProgressSummary';
+import { buildEditorialChecklist, type EditorialChecklistReport } from './lib/editorialChecklist';
 import { getNowIso, normalizeAiOutput, plainTextToHtml, randomId, splitAiOutputAndSummary, stripHtml } from './lib/text';
 import type {
   AppConfig,
   BookChats,
   BookProject,
   ChapterLengthPreset,
+  ChapterRangeFilter,
   ChatMessage,
   ChatScope,
+  CollaborationPatch,
   LibraryIndex,
   MainView,
+  PromptTemplate,
 } from './types/book';
 
 import './App.css';
@@ -190,8 +217,19 @@ function extractDialogPath(value: unknown): string | null {
   }
 
   if (Array.isArray(value)) {
-    const firstPath = value.find((item): item is string => typeof item === 'string' && item.trim().length > 0);
-    return firstPath ? firstPath.trim() : null;
+    for (const item of value) {
+      if (typeof item === 'string' && item.trim()) {
+        return item.trim();
+      }
+
+      if (item && typeof item === 'object') {
+        const payload = item as { path?: unknown };
+        if (typeof payload.path === 'string' && payload.path.trim()) {
+          return payload.path.trim();
+        }
+      }
+    }
+    return null;
   }
 
   if (value && typeof value === 'object') {
@@ -221,12 +259,15 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return Boolean(target.closest('[contenteditable="true"]'));
 }
 
-function isShellChapter(chapter: BookProject['chapters'][string] | null | undefined): boolean {
-  if (!chapter) {
-    return true;
+function getNextChapterIdFromOrder(order: string[]): string {
+  const existing = new Set(order);
+  for (let index = 1; index <= 9999; index += 1) {
+    const candidate = String(index).padStart(2, '0');
+    if (!existing.has(candidate)) {
+      return candidate;
+    }
   }
-
-  return chapter.createdAt.trim().length === 0 && chapter.updatedAt.trim().length === 0;
+  return `${Date.now()}`;
 }
 
 const EXPANSION_INTENT_PATTERN = /\b(alarg(?:a|ar|ue|uen|ado|ando)?|expand(?:e|ir|io|ido|iendo)?|ampli(?:a|ar|e|en|ado|ando)?|ext(?:ender|iende|endido)|desarroll(?:a|ar|ado)|profundiz(?:a|ar|ado)|mas largo|m[aá]s largo)\b/i;
@@ -248,6 +289,93 @@ const FALLBACK_INTERIOR_FORMAT = {
   paragraphIndentEm: 1.4,
   lineHeight: 1.55,
 };
+const AUTOSAVE_TIMEOUT_MS = 15_000;
+const REPLACE_BOOK_YIELD_EVERY = 3;
+const ONBOARDING_DISMISSED_KEY = 'writewme:onboarding-dismissed-v1';
+const AI_SAFE_MIN_DIFF_WORDS = 120;
+const AI_SAFE_MIN_CHANGE_RATIO = 0.28;
+
+interface CoverFileInfo {
+  extension: string;
+  bytes: number;
+}
+
+interface CoverLoadResult {
+  url: string | null;
+  diagnostic: string | null;
+  fileInfo: CoverFileInfo | null;
+}
+
+interface AiSafeReviewState {
+  title: string;
+  subtitle: string;
+  beforeText: string;
+  afterText: string;
+  resolve: (approved: boolean) => void;
+}
+
+interface EditorialIntentState {
+  isOpen: boolean;
+  allowProceed: boolean;
+  report: EditorialChecklistReport | null;
+  intentLabel: string;
+  onProceed?: (() => void) | null;
+}
+
+function inferImageMimeFromPath(path: string): string {
+  const normalized = path.trim().toLowerCase();
+  if (normalized.endsWith('.png')) {
+    return 'image/png';
+  }
+  if (normalized.endsWith('.jpg') || normalized.endsWith('.jpeg')) {
+    return 'image/jpeg';
+  }
+  if (normalized.endsWith('.webp')) {
+    return 'image/webp';
+  }
+  if (normalized.endsWith('.gif')) {
+    return 'image/gif';
+  }
+  return 'application/octet-stream';
+}
+
+function inferImageExtensionFromPath(path: string): string {
+  const normalized = path.trim().toLowerCase();
+  if (normalized.endsWith('.jpg') || normalized.endsWith('.jpeg')) {
+    return 'jpg';
+  }
+  if (normalized.endsWith('.png')) {
+    return 'png';
+  }
+  if (normalized.endsWith('.webp')) {
+    return 'webp';
+  }
+  if (normalized.endsWith('.gif')) {
+    return 'gif';
+  }
+  return 'unknown';
+}
+
+function shouldRequireAiSafeReview(beforeText: string, afterText: string): boolean {
+  const beforeWords = countWordsFromPlainText(beforeText);
+  const afterWords = countWordsFromPlainText(afterText);
+  const baseline = Math.max(1, beforeWords);
+  const absoluteDiff = Math.abs(afterWords - beforeWords);
+  const ratioDiff = absoluteDiff / baseline;
+
+  if (beforeText.trim() !== afterText.trim() && beforeWords === 0 && afterWords >= 90) {
+    return true;
+  }
+
+  return absoluteDiff >= AI_SAFE_MIN_DIFF_WORDS || ratioDiff >= AI_SAFE_MIN_CHANGE_RATIO;
+}
+
+function revokeBlobUrl(value: string | null): void {
+  if (!value || !value.startsWith('blob:')) {
+    return;
+  }
+  URL.revokeObjectURL(value);
+}
 
 interface ExpansionGuardResult {
   text: string;
@@ -259,6 +387,35 @@ interface ContinuityGuardResult {
   text: string;
   summaryText: string;
   corrected: boolean;
+}
+
+type CoverProject = {
+  path: string;
+  metadata: Pick<BookProject['metadata'], 'coverImage' | 'backCoverImage'>;
+};
+
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, 0);
+  });
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, context: string): Promise<T> {
+  let timer: number | null = null;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = window.setTimeout(() => {
+      reject(new Error(`${context}: timeout (${Math.round(timeoutMs / 1000)}s)`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timer !== null) {
+      window.clearTimeout(timer);
+    }
+  }
 }
 
 function parseWordTarget(value: string): number | null {
@@ -348,7 +505,11 @@ function App() {
   const languageSaveResetTimerRef = useRef<number | null>(null);
   const snapshotUndoCursorRef = useRef<Record<string, number | undefined>>({});
   const snapshotRedoStackRef = useRef<Record<string, BookProject['chapters'][string][]>>({});
-  const chaptersHydrationTokenRef = useRef(0);
+  const coverRefreshTokenRef = useRef(0);
+  const coverSrcRef = useRef<string | null>(null);
+  const backCoverSrcRef = useRef<string | null>(null);
+  const backupInFlightRef = useRef(false);
+  const lastBackupAtRef = useRef(0);
   const chatMessagesRef = useRef<BookChats>({
     book: [],
     chapters: {},
@@ -385,7 +546,8 @@ function App() {
   });
   const [libraryExpanded, setLibraryExpanded] = useState(true);
   const [focusMode, setFocusMode] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [replaceQuery, setReplaceQuery] = useState('');
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
@@ -393,15 +555,33 @@ function App() {
   const [searchBusy, setSearchBusy] = useState(false);
   const [searchMatches, setSearchMatches] = useState<ChapterSearchMatch[]>([]);
   const [searchTotalMatches, setSearchTotalMatches] = useState(0);
+  const [searchPreviewReport, setSearchPreviewReport] = useState<ReplacePreviewReport | null>(null);
   const [canUndoEdit, setCanUndoEdit] = useState(false);
   const [canRedoEdit, setCanRedoEdit] = useState(false);
   const [snapshotRedoNonce, setSnapshotRedoNonce] = useState(0);
+  const [coverLoadDiagnostics, setCoverLoadDiagnostics] = useState<{ cover: string | null; backCover: string | null }>({
+    cover: null,
+    backCover: null,
+  });
+  const [coverFileInfo, setCoverFileInfo] = useState<{ cover: CoverFileInfo | null; backCover: CoverFileInfo | null }>({
+    cover: null,
+    backCover: null,
+  });
   const [savedLanguageState, setSavedLanguageState] = useState<{
     bookPath: string;
     configLanguage: string;
     amazonLanguage: string;
   } | null>(null);
   const [languageSaveState, setLanguageSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [aiSafeReview, setAiSafeReview] = useState<AiSafeReviewState | null>(null);
+  const [editorialIntent, setEditorialIntent] = useState<EditorialIntentState>({
+    isOpen: false,
+    allowProceed: false,
+    report: null,
+    intentLabel: 'Continuar',
+    onProceed: null,
+  });
+  const [helpOpen, setHelpOpen] = useState(false);
   const [promptModal, setPromptModal] = useState<{
     title: string;
     label: string;
@@ -423,6 +603,18 @@ function App() {
       .map((chapterId) => book.chapters[chapterId])
       .filter((chapter): chapter is NonNullable<typeof chapter> => Boolean(chapter));
   }, [book]);
+
+  const [metricsChapters, setMetricsChapters] = useState<BookProject['chapters'][string][]>([]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setMetricsChapters(orderedChapters);
+    }, 450);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [orderedChapters]);
 
   const activeChapter = useMemo(() => {
     if (!book || !activeChapterId) {
@@ -448,9 +640,103 @@ function App() {
     return chatMessages.chapters[activeChapterId] ?? [];
   }, [book, chatScope, activeChapterId, chatMessages]);
 
+  const hasFoundationData = useMemo(() => {
+    if (!book) {
+      return false;
+    }
+
+    const foundation = book.metadata.foundation;
+    const values = [
+      foundation.centralIdea,
+      foundation.promise,
+      foundation.audience,
+      foundation.narrativeVoice,
+      foundation.styleRules,
+      foundation.structureNotes,
+      foundation.glossaryPreferred,
+      foundation.glossaryAvoid,
+    ];
+    return values.some((value) => value.trim().length > 0);
+  }, [book]);
+
+  const hasStoryBibleData = useMemo(() => {
+    if (!book) {
+      return false;
+    }
+
+    return (
+      book.metadata.storyBible.characters.length > 0 ||
+      book.metadata.storyBible.locations.length > 0 ||
+      book.metadata.storyBible.continuityRules.trim().length > 0
+    );
+  }, [book]);
+
+  const hasAmazonCoreData = useMemo(() => {
+    if (!book) {
+      return false;
+    }
+
+    const amazon = book.metadata.amazon;
+    const hasKeyword = amazon.keywords.some((item) => item.trim().length > 0);
+    const hasCategory = amazon.categories.some((item) => item.trim().length > 0);
+    return Boolean(
+      amazon.kdpTitle.trim() &&
+      amazon.penName.trim() &&
+      amazon.longDescription.trim().length >= 40 &&
+      hasKeyword &&
+      hasCategory,
+    );
+  }, [book]);
+
+  const editorialChecklistReport = useMemo(() => {
+    if (!book) {
+      return null;
+    }
+
+    return buildEditorialChecklist(book.metadata, config);
+  }, [book, config]);
+
   useEffect(() => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
+
+  useEffect(() => {
+    if (!book) {
+      setPromptTemplates([]);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const loaded = await loadPromptTemplates(book.path);
+        if (!cancelled) {
+          setPromptTemplates(loaded);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setPromptTemplates([]);
+          setStatus(`No se pudo cargar biblioteca de prompts: ${formatUnknownError(error)}`);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [book]);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(ONBOARDING_DISMISSED_KEY);
+      const dismissed = stored === '1';
+      if (!dismissed) {
+        setOnboardingOpen(true);
+      }
+    } catch {
+      setOnboardingOpen(true);
+    }
+  }, []);
 
   const ensureScopeMessagesLoaded = useCallback(
     async (scope: ChatScope, chapterId?: string): Promise<ChatMessage[]> => {
@@ -550,15 +836,15 @@ function App() {
   }, [activeChapter]);
 
   const bookWordCount = useMemo(
-    () => orderedChapters.reduce((total, chapter) => total + countWordsFromHtml(chapter.content), 0),
-    [orderedChapters],
+    () => metricsChapters.reduce((total, chapter) => total + countWordsFromHtml(chapter.content), 0),
+    [metricsChapters],
   );
 
   const chapterPageMap = useMemo(() => {
     const map: Record<string, { start: number; end: number; pages: number }> = {};
     let cursor = 1;
 
-    for (const chapter of orderedChapters) {
+    for (const chapter of metricsChapters) {
       const words = countWordsFromHtml(chapter.content);
       const estimatedPages = Math.max(1, estimatePagesFromWords(words, interiorFormat));
       map[chapter.id] = {
@@ -570,7 +856,7 @@ function App() {
     }
 
     return map;
-  }, [orderedChapters, interiorFormat]);
+  }, [metricsChapters, interiorFormat]);
 
   const activeChapterPageRange = useMemo(() => {
     if (!activeChapterId) {
@@ -818,24 +1104,165 @@ function App() {
     [book, config, activeLanguage],
   );
 
-  const refreshCovers = useCallback((project: BookProject | null) => {
+  const refreshCovers = useCallback((project: CoverProject | null) => {
+    const token = ++coverRefreshTokenRef.current;
+
     if (!project) {
-      setCoverSrc(null);
-      setBackCoverSrc(null);
+      setCoverSrc((previous) => {
+        revokeBlobUrl(previous);
+        return null;
+      });
+      setBackCoverSrc((previous) => {
+        revokeBlobUrl(previous);
+        return null;
+      });
+      setCoverLoadDiagnostics({ cover: null, backCover: null });
+      setCoverFileInfo({ cover: null, backCover: null });
       return;
     }
 
-    const timestamp = Date.now();
     const absoluteFrontPath = getCoverAbsolutePath(project.path, project.metadata);
     const absoluteBackPath = getBackCoverAbsolutePath(project.path, project.metadata);
-    setCoverSrc(absoluteFrontPath ? `${convertFileSrc(absoluteFrontPath)}?v=${timestamp}` : null);
-    setBackCoverSrc(absoluteBackPath ? `${convertFileSrc(absoluteBackPath)}?v=${timestamp}` : null);
+
+    const readImageAsObjectUrl = async (absolutePath: string | null): Promise<CoverLoadResult> => {
+      const buildFileProtocolFallback = (pathValue: string, reason: string): CoverLoadResult => {
+        const directUrl = convertFileSrc(pathValue);
+        const separator = directUrl.includes('?') ? '&' : '?';
+        const cacheBustedUrl = `${directUrl}${separator}v=${token}`;
+        return {
+          url: cacheBustedUrl,
+          diagnostic: `Carga directa de imagen activada (${reason}).`,
+          fileInfo: {
+            extension: inferImageExtensionFromPath(pathValue),
+            bytes: 0,
+          },
+        };
+      };
+
+      try {
+        if (!absolutePath) {
+          return {
+            url: null,
+            diagnostic: null,
+            fileInfo: null,
+          };
+        }
+
+        if (!(await exists(absolutePath))) {
+          return {
+            url: null,
+            diagnostic: `No se encontro el archivo en disco: ${absolutePath}`,
+            fileInfo: null,
+          };
+        }
+
+        try {
+          const bytes = await readFile(absolutePath);
+          const blob = new Blob([bytes], { type: inferImageMimeFromPath(absolutePath) });
+          const url = URL.createObjectURL(blob);
+
+          return {
+            url,
+            diagnostic: null,
+            fileInfo: {
+              extension: inferImageExtensionFromPath(absolutePath),
+              bytes: bytes.length,
+            },
+          };
+        } catch (readError) {
+          try {
+            return buildFileProtocolFallback(absolutePath, formatUnknownError(readError));
+          } catch (fallbackError) {
+            return {
+              url: null,
+              diagnostic: `Fallo la lectura del archivo (${formatUnknownError(readError)}). Fallback no disponible (${formatUnknownError(fallbackError)}).`,
+              fileInfo: null,
+            };
+          }
+        }
+      } catch (error) {
+        return {
+          url: null,
+          diagnostic: `Fallo la lectura del archivo (${formatUnknownError(error)}).`,
+          fileInfo: null,
+        };
+      }
+    };
+
+    void (async () => {
+      try {
+        const [nextFront, nextBack] = await Promise.all([
+          readImageAsObjectUrl(absoluteFrontPath),
+          readImageAsObjectUrl(absoluteBackPath),
+        ]);
+
+        if (coverRefreshTokenRef.current !== token) {
+          revokeBlobUrl(nextFront.url);
+          revokeBlobUrl(nextBack.url);
+          return;
+        }
+
+        setCoverSrc((previous) => {
+          if (previous !== nextFront.url) {
+            revokeBlobUrl(previous);
+          }
+          return nextFront.url;
+        });
+        setBackCoverSrc((previous) => {
+          if (previous !== nextBack.url) {
+            revokeBlobUrl(previous);
+          }
+          return nextBack.url;
+        });
+        setCoverLoadDiagnostics({
+          cover: nextFront.diagnostic,
+          backCover: nextBack.diagnostic,
+        });
+        setCoverFileInfo({
+          cover: nextFront.fileInfo,
+          backCover: nextBack.fileInfo,
+        });
+      } catch {
+        if (coverRefreshTokenRef.current !== token) {
+          return;
+        }
+
+        setCoverSrc((previous) => {
+          revokeBlobUrl(previous);
+          return null;
+        });
+        setBackCoverSrc((previous) => {
+          revokeBlobUrl(previous);
+          return null;
+        });
+        setCoverLoadDiagnostics({
+          cover: 'Error inesperado al cargar portada.',
+          backCover: 'Error inesperado al cargar contraportada.',
+        });
+        setCoverFileInfo({ cover: null, backCover: null });
+      }
+    })();
   }, []);
 
   const refreshLibrary = useCallback(async () => {
     const index = await loadLibraryIndex();
     setLibraryIndex(index);
   }, []);
+
+  const handleRetryCoverLoad = useCallback(() => {
+    if (!book) {
+      return;
+    }
+
+    refreshCovers({
+      path: book.path,
+      metadata: {
+        coverImage: book.metadata.coverImage,
+        backCoverImage: book.metadata.backCoverImage,
+      },
+    });
+    setStatus('Reintentando carga de portada/contraportada...');
+  }, [book, refreshCovers]);
 
   const syncBookToLibrary = useCallback(
     async (project: BookProject, options?: { markOpened?: boolean }) => {
@@ -844,6 +1271,63 @@ function App() {
     },
     [],
   );
+
+  const runBackup = useCallback(
+    async (mode: 'auto' | 'manual') => {
+      if (!book) {
+        return false;
+      }
+
+      const backupDirectory = config.backupDirectory.trim();
+      if (!config.backupEnabled || !backupDirectory) {
+        if (mode === 'manual') {
+          setStatus('Backup: activa el toggle y define una carpeta destino.');
+        }
+        return false;
+      }
+
+      if (backupInFlightRef.current) {
+        return false;
+      }
+
+      if (mode === 'auto') {
+        const elapsed = Date.now() - lastBackupAtRef.current;
+        if (elapsed < Math.max(20000, config.backupIntervalMs)) {
+          return false;
+        }
+      }
+
+      backupInFlightRef.current = true;
+      try {
+        const targetPath = await syncBookToBackupDirectory(book.path, backupDirectory);
+        lastBackupAtRef.current = Date.now();
+        if (mode === 'manual') {
+          setStatus(`Backup completado en: ${targetPath}`);
+        }
+        return true;
+      } catch (error) {
+        setStatus(`Backup fallido: ${formatUnknownError(error)}`);
+        return false;
+      } finally {
+        backupInFlightRef.current = false;
+      }
+    },
+    [book, config.backupEnabled, config.backupDirectory, config.backupIntervalMs],
+  );
+
+  useEffect(() => {
+    if (!book || !config.backupEnabled || !config.backupDirectory.trim()) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void runBackup('auto');
+    }, Math.max(2500, Math.min(config.backupIntervalMs, 12000)));
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [book, config.backupEnabled, config.backupDirectory, config.backupIntervalMs, runBackup]);
 
   const toggleFocusMode = useCallback(() => {
     setFocusMode((previous) => !previous);
@@ -867,9 +1351,79 @@ function App() {
     [],
   );
 
+  const dismissOnboardingForever = useCallback(() => {
+    try {
+      window.localStorage.setItem(ONBOARDING_DISMISSED_KEY, '1');
+    } catch {
+      // Ignora errores de almacenamiento local.
+    }
+    setOnboardingOpen(false);
+    setStatus('Onboarding desactivado para este equipo.');
+  }, []);
+
+  const requestAiSafeReview = useCallback(
+    (input: { title: string; subtitle: string; beforeText: string; afterText: string }): Promise<boolean> => {
+      return new Promise<boolean>((resolve) => {
+        setAiSafeReview({
+          title: input.title,
+          subtitle: input.subtitle,
+          beforeText: input.beforeText,
+          afterText: input.afterText,
+          resolve,
+        });
+      });
+    },
+    [],
+  );
+
+  const openEditorialChecklist = useCallback(
+    (intentLabel: string, onProceed?: (() => void) | null) => {
+      const report = editorialChecklistReport;
+      if (!report) {
+        return;
+      }
+
+      setEditorialIntent({
+        isOpen: true,
+        report,
+        allowProceed: report.isReady,
+        intentLabel,
+        onProceed: onProceed ?? null,
+      });
+    },
+    [editorialChecklistReport],
+  );
+
+  const closeEditorialChecklist = useCallback(() => {
+    setEditorialIntent((previous) => ({
+      ...previous,
+      isOpen: false,
+      onProceed: null,
+    }));
+  }, []);
+
   useEffect(() => {
     void refreshLibrary();
   }, [refreshLibrary]);
+
+  const coverBookPath = book?.path ?? null;
+  const coverImage = book?.metadata.coverImage ?? null;
+  const backCoverImage = book?.metadata.backCoverImage ?? null;
+
+  useEffect(() => {
+    if (!coverBookPath) {
+      refreshCovers(null);
+      return;
+    }
+
+    refreshCovers({
+      path: coverBookPath,
+      metadata: {
+        coverImage,
+        backCoverImage,
+      },
+    });
+  }, [backCoverImage, coverBookPath, coverImage, refreshCovers]);
 
   useEffect(() => {
     if (!book) {
@@ -898,8 +1452,16 @@ function App() {
   }, [book, chatScope, activeChapterId, ensureScopeMessagesLoaded]);
 
   useEffect(() => {
-    refreshSearchResults(book, searchQuery, currentSearchOptions);
-  }, [book, searchQuery, currentSearchOptions, refreshSearchResults]);
+    if (book && searchQuery.trim()) {
+      return;
+    }
+    setSearchMatches([]);
+    setSearchTotalMatches(0);
+  }, [book, searchQuery]);
+
+  useEffect(() => {
+    setSearchPreviewReport(null);
+  }, [searchQuery, replaceQuery, searchCaseSensitive, searchWholeWord]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -928,31 +1490,54 @@ function App() {
       return;
     }
 
+    const chapterContentAtStart = chapter.content;
     saveInFlightRef.current = true;
     try {
-      const saved = await saveChapter(book.path, chapter);
+      const saved = await withTimeout(
+        saveChapter(book.path, chapter),
+        AUTOSAVE_TIMEOUT_MS,
+        'Auto-guardado de capitulo',
+      );
+      let mergedProjectForLibrary: BookProject | null = null;
+      let savedApplied = false;
       setBook((previous) => {
         if (!previous || previous.path !== book.path) {
           return previous;
         }
 
-        return {
+        const latestChapter = previous.chapters[saved.id];
+        if (latestChapter && latestChapter.content !== chapterContentAtStart) {
+          // Hubo nuevas teclas mientras se guardaba. No pisar estado en memoria con un save viejo.
+          mergedProjectForLibrary = {
+            ...previous,
+            chapters: {
+              ...previous.chapters,
+            },
+          };
+          return previous;
+        }
+
+        savedApplied = true;
+        const nextProject: BookProject = {
           ...previous,
           chapters: {
             ...previous.chapters,
             [saved.id]: saved,
           },
         };
+        mergedProjectForLibrary = nextProject;
+
+        return nextProject;
       });
-      dirtyRef.current = false;
+      dirtyRef.current = !savedApplied;
       setStatus(`Guardado automatico ${new Date().toLocaleTimeString()}`);
-      await syncBookToLibrary({
-        ...book,
-        chapters: {
-          ...book.chapters,
-          [saved.id]: saved,
-        },
-      });
+      if (mergedProjectForLibrary) {
+        await withTimeout(
+          syncBookToLibrary(mergedProjectForLibrary),
+          AUTOSAVE_TIMEOUT_MS,
+          'Actualizacion de biblioteca',
+        );
+      }
     } catch (error) {
       setStatus(`Error al guardar: ${formatUnknownError(error)}`);
     } finally {
@@ -980,6 +1565,22 @@ function App() {
         window.clearTimeout(languageSaveResetTimerRef.current);
         languageSaveResetTimerRef.current = null;
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    coverSrcRef.current = coverSrc;
+  }, [coverSrc]);
+
+  useEffect(() => {
+    backCoverSrcRef.current = backCoverSrc;
+  }, [backCoverSrc]);
+
+  useEffect(() => {
+    return () => {
+      coverRefreshTokenRef.current += 1;
+      revokeBlobUrl(coverSrcRef.current);
+      revokeBlobUrl(backCoverSrcRef.current);
     };
   }, []);
 
@@ -1027,56 +1628,9 @@ function App() {
     [refreshCovers],
   );
 
-  const hydrateProjectChapters = useCallback(
-    async (bookPath: string, options?: { markOpened?: boolean }) => {
-      const token = ++chaptersHydrationTokenRef.current;
-
-      try {
-        const hydrated = await loadBookProject(bookPath);
-        if (chaptersHydrationTokenRef.current !== token) {
-          return;
-        }
-
-        setBook((previous) => {
-          if (!previous || previous.path !== bookPath) {
-            return previous;
-          }
-
-          const nextChapters = { ...previous.chapters };
-          for (const chapterId of hydrated.metadata.chapterOrder) {
-            const currentChapter = previous.chapters[chapterId];
-            const loadedChapter = hydrated.chapters[chapterId];
-            if (!loadedChapter) {
-              continue;
-            }
-
-            if (isShellChapter(currentChapter)) {
-              nextChapters[chapterId] = loadedChapter;
-            }
-          }
-
-          return {
-            ...previous,
-            chapters: nextChapters,
-          };
-        });
-
-        await syncBookToLibrary(hydrated, { markOpened: options?.markOpened });
-        setStatus((previous) =>
-          previous.includes('cargando capitulos')
-            ? `Libro abierto: ${hydrated.metadata.title}`
-            : previous,
-        );
-      } catch (error) {
-        setStatus(`Libro abierto con carga parcial de capitulos: ${formatUnknownError(error)}`);
-      }
-    },
-    [syncBookToLibrary],
-  );
-
   const loadProject = useCallback(
     async (projectPath: string) => {
-      const loaded = await loadBookProjectShell(projectPath);
+      const loaded = await loadBookProject(projectPath);
       let loadedConfig: AppConfig = DEFAULT_APP_CONFIG;
 
       try {
@@ -1091,10 +1645,19 @@ function App() {
       }
 
       applyOpenedProjectState(loaded, loadedConfig);
-      setStatus(`Libro abierto: ${loaded.metadata.title} (cargando capitulos...)`);
-      void hydrateProjectChapters(loaded.path, { markOpened: true });
+
+      try {
+        await syncBookToLibrary(loaded, { markOpened: true });
+      } catch (error) {
+        setStatus(
+          `Abrir libro: ${loaded.metadata.title} (no se pudo actualizar biblioteca: ${formatUnknownError(error)})`,
+        );
+        return;
+      }
+
+      setStatus(`Libro abierto: ${loaded.metadata.title}`);
     },
-    [applyOpenedProjectState, hydrateProjectChapters],
+    [applyOpenedProjectState, syncBookToLibrary],
   );
 
   const handleCreateBook = useCallback(async () => {
@@ -1202,11 +1765,11 @@ function App() {
     }
 
     setBook(null);
-    chaptersHydrationTokenRef.current += 1;
     setChatMessages({
       book: [],
       chapters: {},
     });
+    setPromptTemplates([]);
     loadedChatScopesRef.current = {
       bookPath: null,
       book: false,
@@ -1518,6 +2081,30 @@ function App() {
     }
   }, [book, config, activeLanguage, syncBookToLibrary]);
 
+  const handlePickBackupDirectory = useCallback(async () => {
+    const selectedDirectoryResult = await open({
+      directory: true,
+      multiple: false,
+      recursive: true,
+      title: 'Selecciona carpeta para backup (Google Drive/OneDrive/Dropbox opcional)',
+    });
+    const selectedDirectory = extractDialogPath(selectedDirectoryResult);
+    if (!selectedDirectory) {
+      return;
+    }
+
+    setConfig((previous) => ({
+      ...previous,
+      backupEnabled: true,
+      backupDirectory: selectedDirectory,
+    }));
+    setStatus(`Backup habilitado en: ${selectedDirectory}`);
+  }, []);
+
+  const handleBackupNow = useCallback(() => {
+    void runBackup('manual');
+  }, [runBackup]);
+
   const handleLanguageChange = useCallback(
     (language: string) => {
       setLanguageSaveState('idle');
@@ -1649,6 +2236,67 @@ function App() {
       setStatus(`No se pudo guardar la biblia: ${formatUnknownError(error)}`);
     }
   }, [book, syncBookToLibrary]);
+
+  const syncStoryBibleFromChapter = useCallback(
+    async (chapter: { id: string; title: string; content: string }) => {
+      if (!book) {
+        return { addedCharacters: 0, addedLocations: 0 };
+      }
+
+      const syncResult = buildStoryBibleAutoSyncFromChapter(book.metadata.storyBible, chapter);
+      if (syncResult.addedCharacters.length === 0 && syncResult.addedLocations.length === 0) {
+        return { addedCharacters: 0, addedLocations: 0 };
+      }
+
+      const metadataDraft = {
+        ...book.metadata,
+        storyBible: syncResult.nextStoryBible,
+      };
+      const savedMetadata = await saveBookMetadata(book.path, metadataDraft);
+
+      setBook((previous) => {
+        if (!previous || previous.path !== book.path) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          metadata: savedMetadata,
+        };
+      });
+      await syncBookToLibrary({
+        ...book,
+        metadata: savedMetadata,
+      });
+
+      return {
+        addedCharacters: syncResult.addedCharacters.length,
+        addedLocations: syncResult.addedLocations.length,
+      };
+    },
+    [book, syncBookToLibrary],
+  );
+
+  const handleSyncStoryBibleFromActiveChapter = useCallback(async () => {
+    if (!book || !activeChapter) {
+      setStatus('Abre un capitulo para sincronizar la biblia.');
+      return;
+    }
+
+    try {
+      const sync = await syncStoryBibleFromChapter(activeChapter);
+      if (sync.addedCharacters === 0 && sync.addedLocations === 0) {
+        setStatus('Sincronizacion completada: no se detectaron personajes o lugares nuevos.');
+        return;
+      }
+
+      setStatus(
+        `Biblia actualizada desde ${activeChapter.title}: +${sync.addedCharacters} personaje/s, +${sync.addedLocations} lugar/es.`,
+      );
+    } catch (error) {
+      setStatus(`No se pudo sincronizar la biblia: ${formatUnknownError(error)}`);
+    }
+  }, [book, activeChapter, syncStoryBibleFromChapter]);
 
   const handleAmazonMetadataChange = useCallback(
     (nextMetadata: BookProject['metadata']) => {
@@ -1924,7 +2572,53 @@ function App() {
     [book, syncBookToLibrary],
   );
 
-  const handleRunBookSearch = useCallback(() => {
+  const handleMoveChapterToPosition = useCallback(
+    async (chapterId: string, position: number) => {
+      if (!book) {
+        return;
+      }
+
+      const targetIndex = Math.max(0, Math.min(book.metadata.chapterOrder.length - 1, position - 1));
+      const currentIndex = book.metadata.chapterOrder.indexOf(chapterId);
+      if (currentIndex < 0 || currentIndex === targetIndex) {
+        return;
+      }
+
+      try {
+        let metadata = book.metadata;
+        let cursor = currentIndex;
+        while (cursor < targetIndex) {
+          metadata = await moveChapter(book.path, metadata, chapterId, 'down');
+          cursor += 1;
+        }
+        while (cursor > targetIndex) {
+          metadata = await moveChapter(book.path, metadata, chapterId, 'up');
+          cursor -= 1;
+        }
+
+        setBook((previous) => {
+          if (!previous || previous.path !== book.path) {
+            return previous;
+          }
+
+          return {
+            ...previous,
+            metadata,
+          };
+        });
+
+        await syncBookToLibrary({
+          ...book,
+          metadata,
+        });
+      } catch (error) {
+        setStatus(`No se pudo reordenar capitulo: ${formatUnknownError(error)}`);
+      }
+    },
+    [book, syncBookToLibrary],
+  );
+
+  const handleRunBookSearch = useCallback(async () => {
     if (!book) {
       return;
     }
@@ -1933,13 +2627,14 @@ function App() {
     if (!query) {
       setSearchMatches([]);
       setSearchTotalMatches(0);
+      setSearchPreviewReport(null);
       setStatus('Buscar: escribe texto para iniciar la busqueda.');
       return;
     }
 
     setSearchBusy(true);
     try {
-      const report = buildBookSearchMatches(orderedChapters, query, currentSearchOptions);
+      const report = await buildBookSearchMatchesAsync(orderedChapters, query, currentSearchOptions, 4);
       setSearchMatches(report.matches);
       setSearchTotalMatches(report.totalMatches);
       setStatus(`Busqueda completada: ${report.totalMatches} coincidencia/s en ${report.matches.length} capitulo/s.`);
@@ -1947,6 +2642,37 @@ function App() {
       setSearchBusy(false);
     }
   }, [book, searchQuery, orderedChapters, currentSearchOptions]);
+
+  const handlePreviewReplaceInBook = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    const query = searchQuery.trim();
+    if (!query) {
+      setSearchPreviewReport(null);
+      setStatus('Simular reemplazo: define primero el texto a buscar.');
+      return;
+    }
+
+    setSearchBusy(true);
+    try {
+      const report = await buildBookReplacePreviewAsync(
+        orderedChapters,
+        query,
+        replaceQuery,
+        currentSearchOptions,
+        20,
+        4,
+      );
+      setSearchPreviewReport(report);
+      setStatus(
+        `Simulacion lista: ${report.totalMatches} cambio/s potenciales en ${report.affectedChapters} capitulo/s.`,
+      );
+    } finally {
+      setSearchBusy(false);
+    }
+  }, [book, searchQuery, replaceQuery, orderedChapters, currentSearchOptions]);
 
   const handleReplaceInActiveChapter = useCallback(async () => {
     if (!book || !activeChapterId) {
@@ -1997,6 +2723,7 @@ function App() {
       resetSnapshotNavigation(chapter.id);
 
       refreshSearchResults(nextProject, query, currentSearchOptions);
+      setSearchPreviewReport(null);
       setStatus(`Reemplazo aplicado en capitulo activo: ${updated.replacements} cambio/s.`);
     } catch (error) {
       setStatus(`Reemplazar capitulo: ${formatUnknownError(error)}`);
@@ -2026,13 +2753,22 @@ function App() {
       return;
     }
 
+    if (
+      !searchPreviewReport ||
+      searchPreviewReport.query !== query ||
+      searchPreviewReport.replacement !== replaceQuery
+    ) {
+      setStatus('Antes de reemplazar todo el libro, ejecuta "Simular reemplazo global".');
+      return;
+    }
+
     setSearchBusy(true);
     try {
       let totalReplacements = 0;
       let changedChapters = 0;
       let workingChapters: BookProject['chapters'] = { ...book.chapters };
 
-      for (const chapterId of book.metadata.chapterOrder) {
+      for (const [index, chapterId] of book.metadata.chapterOrder.entries()) {
         const chapter = workingChapters[chapterId];
         if (!chapter) {
           continue;
@@ -2061,6 +2797,9 @@ function App() {
 
         changedChapters += 1;
         totalReplacements += updated.replacements;
+        if ((index + 1) % REPLACE_BOOK_YIELD_EVERY === 0) {
+          await yieldToBrowser();
+        }
       }
 
       if (totalReplacements === 0) {
@@ -2080,6 +2819,7 @@ function App() {
       }
 
       refreshSearchResults(nextProject, query, currentSearchOptions);
+      setSearchPreviewReport(null);
       setStatus(`Reemplazo global aplicado: ${totalReplacements} cambio/s en ${changedChapters} capitulo/s.`);
     } catch (error) {
       setStatus(`Reemplazar libro: ${formatUnknownError(error)}`);
@@ -2090,6 +2830,7 @@ function App() {
     book,
     searchQuery,
     replaceQuery,
+    searchPreviewReport,
     currentSearchOptions,
     config.autoVersioning,
     refreshSearchResults,
@@ -2103,15 +2844,15 @@ function App() {
       const ctrlOrMeta = event.ctrlKey || event.metaKey;
       const shift = event.shiftKey;
 
-      if (ctrlOrMeta && shift && key === 'h') {
-        event.preventDefault();
-        setHelpOpen((previous) => !previous);
-        return;
-      }
-
       if (ctrlOrMeta && shift && key === 'f') {
         event.preventDefault();
         setFocusMode((previous) => !previous);
+        return;
+      }
+
+      if (ctrlOrMeta && shift && key === 'h') {
+        event.preventDefault();
+        setHelpOpen((previous) => !previous);
         return;
       }
 
@@ -2194,6 +2935,160 @@ function App() {
       }));
     },
     [book, activeChapterId],
+  );
+
+  const handleTrackCharacter = useCallback(
+    async (characterName: string, scope: ChatScope, rangeFilter: ChapterRangeFilter) => {
+      if (!book) {
+        return;
+      }
+
+      const normalizedName = characterName.trim();
+      if (!normalizedName) {
+        setStatus('Escribe un nombre de personaje para generar el seguimiento.');
+        return;
+      }
+
+      if (scope === 'chapter' && !activeChapterId) {
+        setStatus('No hay capitulo activo para guardar el seguimiento en ese chat.');
+        return;
+      }
+
+      const scopeChapterId = scope === 'chapter' ? activeChapterId ?? undefined : undefined;
+      const history =
+        scope === 'book'
+          ? await ensureScopeMessagesLoaded('book')
+          : await ensureScopeMessagesLoaded('chapter', scopeChapterId);
+      const normalizedRange = normalizeChapterRange(orderedChapters.length, rangeFilter);
+      const rangeChapters = sliceByChapterRange(orderedChapters, normalizedRange);
+      if (rangeChapters.length === 0) {
+        setStatus(`No hay capitulos para rastrear en el rango ${normalizedRange.label}.`);
+        return;
+      }
+
+      const report = buildCharacterTrackingReport({
+        requestedName: normalizedName,
+        chapters: rangeChapters,
+        storyBible: book.metadata.storyBible,
+      });
+      const timelineMessage = formatCharacterTrackingReport(report);
+
+      const userMessage: ChatMessage = {
+        id: randomId('msg'),
+        role: 'user',
+        scope,
+        content: `Seguimiento de personaje: ${normalizedName} (caps ${normalizedRange.label})`,
+        createdAt: getNowIso(),
+      };
+
+      const assistantMessage: ChatMessage = {
+        id: randomId('msg'),
+        role: 'assistant',
+        scope,
+        content: timelineMessage,
+        createdAt: getNowIso(),
+      };
+
+      await persistScopeMessages(scope, [...history, userMessage, assistantMessage], scopeChapterId);
+
+      if (report.mentions.length === 0) {
+        setStatus(`Seguimiento generado: sin menciones de "${normalizedName}" en caps ${normalizedRange.label}.`);
+        return;
+      }
+
+      setStatus(
+        `Seguimiento generado para "${normalizedName}" (caps ${normalizedRange.label}): ${report.mentions.length} menciones en ${report.mentionsByChapter.length} capitulo/s.`,
+      );
+    },
+    [book, activeChapterId, ensureScopeMessagesLoaded, orderedChapters, persistScopeMessages],
+  );
+
+  const handleSummarizeStory = useCallback(
+    async (scope: ChatScope, rangeFilter: ChapterRangeFilter) => {
+      if (!book) {
+        return;
+      }
+
+      if (scope === 'chapter' && !activeChapterId) {
+        setStatus('No hay capitulo activo para guardar el resumen en ese chat.');
+        return;
+      }
+
+      const scopeChapterId = scope === 'chapter' ? activeChapterId ?? undefined : undefined;
+      const history =
+        scope === 'book'
+          ? await ensureScopeMessagesLoaded('book')
+          : await ensureScopeMessagesLoaded('chapter', scopeChapterId);
+
+      const normalizedRange = normalizeChapterRange(orderedChapters.length, rangeFilter);
+      const rangeChapters = sliceByChapterRange(orderedChapters, normalizedRange);
+      if (rangeChapters.length === 0) {
+        setStatus(`No hay capitulos para resumir en el rango ${normalizedRange.label}.`);
+        return;
+      }
+
+      const digest = buildStoryProgressDigest({
+        chapters: rangeChapters,
+        storyBible: book.metadata.storyBible,
+      });
+      const userMessage: ChatMessage = {
+        id: randomId('msg'),
+        role: 'user',
+        scope,
+        content: `Resumen historia (caps ${normalizedRange.label})`,
+        createdAt: getNowIso(),
+      };
+
+      setAiBusy(true);
+      setStatus(`Generando resumen de historia (caps ${normalizedRange.label})...`);
+
+      try {
+        const prompt = buildStoryProgressPrompt({
+          bookTitle: book.metadata.title,
+          language: activeLanguage,
+          storyBible: book.metadata.storyBible,
+          range: normalizedRange,
+          digest,
+        });
+
+        const aiSummary = normalizeAiOutput(
+          await generateWithOllama({
+            config,
+            prompt,
+          }),
+        );
+
+        const summaryText =
+          aiSummary ||
+          formatStoryProgressFallback(book.metadata.title, normalizedRange, digest);
+
+        const assistantMessage: ChatMessage = {
+          id: randomId('msg'),
+          role: 'assistant',
+          scope,
+          content: summaryText,
+          createdAt: getNowIso(),
+        };
+        await persistScopeMessages(scope, [...history, userMessage, assistantMessage], scopeChapterId);
+        setStatus(`Resumen generado (caps ${normalizedRange.label}).`);
+      } catch (error) {
+        const fallbackSummary = formatStoryProgressFallback(book.metadata.title, normalizedRange, digest);
+        const assistantMessage: ChatMessage = {
+          id: randomId('msg'),
+          role: 'assistant',
+          scope,
+          content: fallbackSummary,
+          createdAt: getNowIso(),
+        };
+        await persistScopeMessages(scope, [...history, userMessage, assistantMessage], scopeChapterId);
+        setStatus(
+          `Resumen generado en modo local por error IA (${formatUnknownError(error)}).`,
+        );
+      } finally {
+        setAiBusy(false);
+      }
+    },
+    [book, activeChapterId, ensureScopeMessagesLoaded, orderedChapters, activeLanguage, config, persistScopeMessages],
   );
 
   const handleSendChat = useCallback(
@@ -2293,6 +3188,8 @@ function App() {
           }
 
           let lastSummaryMessage = '';
+          let appliedIterations = 0;
+          let cancelledBySafeMode = false;
 
           if (config.continuousAgentEnabled) {
             const maxRounds = Math.max(1, Math.min(12, config.continuousAgentMaxRounds));
@@ -2357,6 +3254,23 @@ function App() {
                 parsed.summary ||
                 lastSummaryMessage;
 
+              if (
+                config.aiSafeMode &&
+                shouldRequireAiSafeReview(currentChapterText, nextChapterText)
+              ) {
+                const approved = await requestAiSafeReview({
+                  title: `Modo seguro IA - ${chapter.title}`,
+                  subtitle: `Agente continuo ronda ${round}/${maxRounds}. Revisa el diff antes de aplicar.`,
+                  beforeText: currentChapterText,
+                  afterText: nextChapterText,
+                });
+                if (!approved) {
+                  cancelledBySafeMode = true;
+                  setStatus('Modo seguro IA: cambio cancelado por el usuario.');
+                  break;
+                }
+              }
+
               const chapterDraft = {
                 ...chapter,
                 content: plainTextToHtml(nextChapterText),
@@ -2368,6 +3282,7 @@ function App() {
                 ...workingChapters,
                 [chapter.id]: chapter,
               };
+              appliedIterations += 1;
 
               setStatus(`Agente continuo en capitulo (${round}/${maxRounds})...`);
 
@@ -2430,6 +3345,23 @@ function App() {
               const nextChapterText = continuityResult.text;
               lastSummaryMessage = continuityResult.summaryText || guardedResult.summaryText || lastSummaryMessage;
 
+              if (
+                config.aiSafeMode &&
+                shouldRequireAiSafeReview(currentChapterText, nextChapterText)
+              ) {
+                const approved = await requestAiSafeReview({
+                  title: `Modo seguro IA - ${chapter.title}`,
+                  subtitle: `Chat auto-aplicar iteracion ${iteration}/${iterations}. Revisa el diff antes de aplicar.`,
+                  beforeText: currentChapterText,
+                  afterText: nextChapterText,
+                });
+                if (!approved) {
+                  cancelledBySafeMode = true;
+                  setStatus('Modo seguro IA: cambio cancelado por el usuario.');
+                  break;
+                }
+              }
+
               const chapterDraft = {
                 ...chapter,
                 content: plainTextToHtml(nextChapterText),
@@ -2441,9 +3373,22 @@ function App() {
                 ...workingChapters,
                 [chapter.id]: chapter,
               };
+              appliedIterations += 1;
 
               setStatus(`Aplicando cambios al capitulo (${iteration}/${iterations})...`);
             }
+          }
+
+          if (appliedIterations === 0 && cancelledBySafeMode) {
+            const assistantMessage: ChatMessage = {
+              id: randomId('msg'),
+              role: 'assistant',
+              scope,
+              content: 'Modo seguro IA: no se aplicaron cambios porque el diff fue rechazado.',
+              createdAt: getNowIso(),
+            };
+            await persistScopeMessages(scope, [...withUser, assistantMessage], scopeChapterId);
+            return;
           }
 
           setBook((previous) => {
@@ -2617,6 +3562,7 @@ function App() {
       syncBookToLibrary,
       enforceExpansionResult,
       enforceContinuityResult,
+      requestAiSafeReview,
       activeLanguage,
       bookLengthInfo,
     ],
@@ -2729,6 +3675,22 @@ function App() {
           });
           summaryText = continuityResult.summaryText || summaryText;
 
+          if (
+            config.aiSafeMode &&
+            shouldRequireAiSafeReview(chapterText, continuityResult.text)
+          ) {
+            const approved = await requestAiSafeReview({
+              title: `Modo seguro IA - ${action?.label ?? actionId}`,
+              subtitle: 'Se detecto un cambio grande. Revisa el diff antes de aplicar.',
+              beforeText: chapterText,
+              afterText: continuityResult.text,
+            });
+            if (!approved) {
+              setStatus('Modo seguro IA: cambio rechazado antes de aplicar.');
+              return;
+            }
+          }
+
           if (actionId === 'draft-from-idea' || !hasSelection) {
             editor.replaceDocumentWithText(continuityResult.text);
           } else if (continuityResult.corrected) {
@@ -2827,6 +3789,7 @@ function App() {
       syncBookToLibrary,
       enforceExpansionResult,
       enforceContinuityResult,
+      requestAiSafeReview,
       activeLanguage,
       currentMessages,
     ],
@@ -3052,6 +4015,94 @@ function App() {
     }
   }, [book, activeChapter, syncBookToLibrary]);
 
+  const handleSaveMilestone = useCallback(() => {
+    if (!book || !activeChapter) {
+      setStatus('Abre un capitulo para guardar un hito.');
+      return;
+    }
+
+    setPromptModal({
+      title: `Guardar hito - ${activeChapter.title}`,
+      label: 'Nombre del hito',
+      defaultValue: '',
+      placeholder: 'Ej: Antes de correccion final',
+      confirmLabel: 'Guardar hito',
+      onConfirm: (milestoneLabel) => {
+        setPromptModal(null);
+        void (async () => {
+          try {
+            const snapshot = await saveChapterSnapshot(
+              book.path,
+              activeChapter,
+              `Hito manual: ${milestoneLabel}`,
+              { milestoneLabel },
+            );
+            snapshotRedoStackRef.current[activeChapter.id] = [];
+            setSnapshotRedoNonce((value) => value + 1);
+
+            let syncNote = '';
+            try {
+              const sync = await syncStoryBibleFromChapter(activeChapter);
+              if (sync.addedCharacters > 0 || sync.addedLocations > 0) {
+                syncNote = ` Biblia auto-actualizada (+${sync.addedCharacters} personaje/s, +${sync.addedLocations} lugar/es).`;
+              }
+            } catch (syncError) {
+              syncNote = ` Auto-sincronizacion de biblia pendiente (${formatUnknownError(syncError)}).`;
+            }
+
+            setStatus(`Hito guardado: "${milestoneLabel}" (v${snapshot.version}).${syncNote}`);
+          } catch (error) {
+            setStatus(`No se pudo guardar el hito: ${formatUnknownError(error)}`);
+          }
+        })();
+      },
+    });
+  }, [book, activeChapter, syncStoryBibleFromChapter]);
+
+  const handleCreatePromptTemplate = useCallback(
+    async (title: string, content: string) => {
+      if (!book) {
+        return;
+      }
+
+      const now = getNowIso();
+      const template: PromptTemplate = {
+        id: randomId('prompt'),
+        title: title.trim(),
+        content: content.trim(),
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const nextTemplates = [...promptTemplates, template];
+      setPromptTemplates(nextTemplates);
+      try {
+        await savePromptTemplates(book.path, nextTemplates);
+        setStatus(`Prompt guardado: ${template.title}`);
+      } catch (error) {
+        setStatus(`No se pudo guardar prompt: ${formatUnknownError(error)}`);
+      }
+    },
+    [book, promptTemplates],
+  );
+
+  const handleDeletePromptTemplate = useCallback(
+    async (templateId: string) => {
+      if (!book) {
+        return;
+      }
+
+      const nextTemplates = promptTemplates.filter((template) => template.id !== templateId);
+      setPromptTemplates(nextTemplates);
+      try {
+        await savePromptTemplates(book.path, nextTemplates);
+      } catch (error) {
+        setStatus(`No se pudo eliminar prompt: ${formatUnknownError(error)}`);
+      }
+    },
+    [book, promptTemplates],
+  );
+
   const handlePickCover = useCallback(async () => {
     if (!book) {
       return;
@@ -3202,6 +4253,157 @@ function App() {
     }
   }, [book, syncBookToLibrary]);
 
+  const queueEditorialGuardedAction = useCallback(
+    (intentLabel: string, action: () => Promise<void>) => {
+      if (!book) {
+        return;
+      }
+
+      const report = buildEditorialChecklist(book.metadata, config);
+      setEditorialIntent({
+        isOpen: true,
+        report,
+        allowProceed: report.isReady,
+        intentLabel,
+        onProceed: report.isReady
+          ? () => {
+              void action();
+            }
+          : null,
+      });
+
+      if (!report.isReady) {
+        setStatus('Checklist editorial: hay errores bloqueantes antes de exportar/publicar.');
+      }
+    },
+    [book, config],
+  );
+
+  const handleExportCollaborationPatch = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    try {
+      const patch: CollaborationPatch = {
+        version: 1,
+        patchId: randomId('patch'),
+        createdAt: getNowIso(),
+        sourceBookTitle: book.metadata.title,
+        sourceAuthor: book.metadata.author,
+        sourceLanguage: normalizeLanguageCode(book.metadata.amazon.language),
+        notes: '',
+        chapters: orderedChapters.map((chapter) => ({
+          chapterId: chapter.id,
+          title: chapter.title,
+          content: chapter.content,
+          updatedAt: chapter.updatedAt,
+        })),
+      };
+      const outputPath = await writeCollaborationPatchExport(book.path, patch);
+      setStatus(`Patch colaborativo exportado: ${outputPath}`);
+    } catch (error) {
+      setStatus(`No se pudo exportar patch colaborativo: ${formatUnknownError(error)}`);
+    }
+  }, [book, orderedChapters]);
+
+  const handleImportCollaborationPatch = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    try {
+      const selectedResult = await open({
+        multiple: false,
+        title: 'Selecciona patch de colaboracion',
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+      const selectedPath = extractDialogPath(selectedResult);
+      if (!selectedPath) {
+        return;
+      }
+
+      const patch = await readCollaborationPatchFile(selectedPath);
+      const preview = buildCollaborationPatchPreview({
+        patch,
+        chapters: book.chapters,
+      });
+      const accepted = await confirm(
+        formatCollaborationPatchPreviewMessage(patch, preview, { maxItems: 10 }),
+        {
+          title: 'Importar patch colaborativo',
+          kind: 'warning',
+          okLabel: 'Aplicar patch',
+          cancelLabel: 'Cancelar',
+        },
+      );
+
+      if (!accepted) {
+        return;
+      }
+
+      let nextMetadata = {
+        ...book.metadata,
+        chapterOrder: [...book.metadata.chapterOrder],
+        updatedAt: getNowIso(),
+      };
+      let nextChapters: BookProject['chapters'] = { ...book.chapters };
+      const now = getNowIso();
+      let createdCount = 0;
+      let updatedCount = 0;
+
+      for (const patchChapter of patch.chapters) {
+        let targetChapterId = patchChapter.chapterId.trim();
+        const existing = nextChapters[targetChapterId];
+        if (!targetChapterId || (targetChapterId in nextChapters && !existing)) {
+          targetChapterId = getNextChapterIdFromOrder(nextMetadata.chapterOrder);
+        }
+
+        if (nextChapters[targetChapterId]) {
+          if (config.autoVersioning) {
+            await saveChapterSnapshot(book.path, nextChapters[targetChapterId], `Patch colaborativo ${patch.patchId}`);
+          }
+          updatedCount += 1;
+        } else {
+          createdCount += 1;
+          nextMetadata = {
+            ...nextMetadata,
+            chapterOrder: [...nextMetadata.chapterOrder, targetChapterId],
+          };
+        }
+
+        const baseChapter = nextChapters[targetChapterId];
+        const persisted = await saveChapter(book.path, {
+          id: targetChapterId,
+          title: patchChapter.title || baseChapter?.title || `Capitulo ${targetChapterId}`,
+          content: patchChapter.content,
+          contentJson: null,
+          lengthPreset: baseChapter?.lengthPreset ?? 'media',
+          createdAt: baseChapter?.createdAt ?? now,
+          updatedAt: now,
+        });
+
+        nextChapters = {
+          ...nextChapters,
+          [targetChapterId]: persisted,
+        };
+      }
+
+      const savedMetadata = await saveBookMetadata(book.path, nextMetadata);
+      const nextProject: BookProject = {
+        ...book,
+        metadata: savedMetadata,
+        chapters: nextChapters,
+      };
+
+      setBook(nextProject);
+      await syncBookToLibrary(nextProject);
+      setStatus(`Patch aplicado: ${updatedCount} capitulo/s actualizados, ${createdCount} creados.`);
+    } catch (error) {
+      setStatus(`No se pudo importar patch colaborativo: ${formatUnknownError(error)}`);
+    }
+  }, [book, config.autoVersioning, syncBookToLibrary]);
+
   const handleExportChapter = useCallback(async () => {
     if (!book || !activeChapter) {
       return;
@@ -3221,70 +4423,80 @@ function App() {
       return;
     }
 
-    try {
-      const { exportBookMarkdownSingleFile } = await loadExportModule();
-      const path = await exportBookMarkdownSingleFile(book.path, book.metadata, orderedChapters);
-      setStatus(`Libro exportado: ${path}`);
-    } catch (error) {
-      setStatus(`No se pudo exportar libro: ${formatUnknownError(error)}`);
-    }
-  }, [book, orderedChapters]);
+    queueEditorialGuardedAction('Exportar libro (archivo unico)', async () => {
+      try {
+        const { exportBookMarkdownSingleFile } = await loadExportModule();
+        const path = await exportBookMarkdownSingleFile(book.path, book.metadata, orderedChapters);
+        setStatus(`Libro exportado: ${path}`);
+      } catch (error) {
+        setStatus(`No se pudo exportar libro: ${formatUnknownError(error)}`);
+      }
+    });
+  }, [book, orderedChapters, queueEditorialGuardedAction]);
 
   const handleExportBookSplit = useCallback(async () => {
     if (!book) {
       return;
     }
 
-    try {
-      const { exportBookMarkdownByChapter } = await loadExportModule();
-      const files = await exportBookMarkdownByChapter(book.path, orderedChapters);
-      setStatus(`Capitulos exportados: ${files.length} archivos`);
-    } catch (error) {
-      setStatus(`No se pudo exportar libro: ${formatUnknownError(error)}`);
-    }
-  }, [book, orderedChapters]);
+    queueEditorialGuardedAction('Exportar libro por capitulos', async () => {
+      try {
+        const { exportBookMarkdownByChapter } = await loadExportModule();
+        const files = await exportBookMarkdownByChapter(book.path, orderedChapters);
+        setStatus(`Capitulos exportados: ${files.length} archivos`);
+      } catch (error) {
+        setStatus(`No se pudo exportar libro: ${formatUnknownError(error)}`);
+      }
+    });
+  }, [book, orderedChapters, queueEditorialGuardedAction]);
 
   const handleExportAmazonBundle = useCallback(async () => {
     if (!book) {
       return;
     }
 
-    try {
-      const { exportBookAmazonBundle } = await loadExportModule();
-      const files = await exportBookAmazonBundle(book.path, book.metadata, orderedChapters);
-      setStatus(`Pack Amazon exportado (${files.length} archivos).`);
-    } catch (error) {
-      setStatus(`No se pudo exportar pack Amazon: ${formatUnknownError(error)}`);
-    }
-  }, [book, orderedChapters]);
+    queueEditorialGuardedAction('Exportar pack Amazon', async () => {
+      try {
+        const { exportBookAmazonBundle } = await loadExportModule();
+        const files = await exportBookAmazonBundle(book.path, book.metadata, orderedChapters);
+        setStatus(`Pack Amazon exportado (${files.length} archivos).`);
+      } catch (error) {
+        setStatus(`No se pudo exportar pack Amazon: ${formatUnknownError(error)}`);
+      }
+    });
+  }, [book, orderedChapters, queueEditorialGuardedAction]);
 
   const handleExportBookDocx = useCallback(async () => {
     if (!book) {
       return;
     }
 
-    try {
-      const { exportBookDocx } = await loadExportModule();
-      const path = await exportBookDocx(book.path, book.metadata, orderedChapters);
-      setStatus(`DOCX editorial exportado: ${path}`);
-    } catch (error) {
-      setStatus(`No se pudo exportar DOCX: ${formatUnknownError(error)}`);
-    }
-  }, [book, orderedChapters]);
+    queueEditorialGuardedAction('Exportar DOCX editorial', async () => {
+      try {
+        const { exportBookDocx } = await loadExportModule();
+        const path = await exportBookDocx(book.path, book.metadata, orderedChapters);
+        setStatus(`DOCX editorial exportado: ${path}`);
+      } catch (error) {
+        setStatus(`No se pudo exportar DOCX: ${formatUnknownError(error)}`);
+      }
+    });
+  }, [book, orderedChapters, queueEditorialGuardedAction]);
 
   const handleExportBookEpub = useCallback(async () => {
     if (!book) {
       return;
     }
 
-    try {
-      const { exportBookEpub } = await loadExportModule();
-      const path = await exportBookEpub(book.path, book.metadata, orderedChapters);
-      setStatus(`EPUB editorial exportado: ${path}`);
-    } catch (error) {
-      setStatus(`No se pudo exportar EPUB: ${formatUnknownError(error)}`);
-    }
-  }, [book, orderedChapters]);
+    queueEditorialGuardedAction('Exportar EPUB editorial', async () => {
+      try {
+        const { exportBookEpub } = await loadExportModule();
+        const path = await exportBookEpub(book.path, book.metadata, orderedChapters);
+        setStatus(`EPUB editorial exportado: ${path}`);
+      } catch (error) {
+        setStatus(`No se pudo exportar EPUB: ${formatUnknownError(error)}`);
+      }
+    });
+  }, [book, orderedChapters, queueEditorialGuardedAction]);
 
   const handleExportStyleReport = useCallback(async () => {
     if (!book) {
@@ -3402,6 +4614,22 @@ function App() {
       );
       try {
         const project = book && book.path === bookPath ? book : await loadBookProject(bookPath);
+        if (published) {
+          const report = buildEditorialChecklist(project.metadata, config);
+          if (!report.isReady) {
+            if (book && book.path === project.path) {
+              setEditorialIntent({
+                isOpen: true,
+                report,
+                allowProceed: false,
+                intentLabel: 'Marcar como publicado',
+                onProceed: null,
+              });
+            }
+            setStatus('No se puede marcar como publicado: checklist editorial con errores.');
+            return;
+          }
+        }
         const nextMetadata = await saveBookMetadata(project.path, {
           ...project.metadata,
           isPublished: published,
@@ -3422,7 +4650,7 @@ function App() {
         setStatus(`No se pudo actualizar estado de publicacion: ${formatUnknownError(error)}`);
       }
     },
-    [book, libraryIndex.books, syncBookToLibrary],
+    [book, libraryIndex.books, syncBookToLibrary, config],
   );
 
   const centerView = useMemo(() => {
@@ -3430,6 +4658,12 @@ function App() {
       return (
         <LazyOutlineView
           chapters={orderedChapters}
+          onMoveChapter={(chapterId, direction) => {
+            void handleMoveChapter(chapterId, direction);
+          }}
+          onMoveToPosition={(chapterId, position) => {
+            void handleMoveChapterToPosition(chapterId, position);
+          }}
           onSelectChapter={(chapterId) => {
             setActiveChapterId(chapterId);
             setMainView('editor');
@@ -3479,11 +4713,16 @@ function App() {
         <LazyCoverView
           coverSrc={coverSrc}
           backCoverSrc={backCoverSrc}
+          coverDiagnostic={coverLoadDiagnostics.cover}
+          backCoverDiagnostic={coverLoadDiagnostics.backCover}
+          coverFileInfo={coverFileInfo.cover}
+          backCoverFileInfo={coverFileInfo.backCover}
           spineText={book?.metadata.spineText ?? ''}
           onPickCover={handlePickCover}
           onClearCover={handleClearCover}
           onPickBackCover={handlePickBackCover}
           onClearBackCover={handleClearBackCover}
+          onRetryLoad={handleRetryCoverLoad}
           onSpineTextChange={handleSpineTextChange}
           onSaveSpineText={handleSaveCoverData}
         />
@@ -3517,7 +4756,11 @@ function App() {
             locations: [],
             continuityRules: '',
           }}
+          hasActiveChapter={Boolean(activeChapter)}
           onChange={handleStoryBibleChange}
+          onSyncFromActiveChapter={() => {
+            void handleSyncStoryBibleFromActiveChapter();
+          }}
           onSave={handleSaveStoryBible}
         />
       );
@@ -3553,6 +4796,7 @@ function App() {
           onCaseSensitiveChange={setSearchCaseSensitive}
           onWholeWordChange={setSearchWholeWord}
           onRunSearch={handleRunBookSearch}
+          onPreviewReplaceInBook={handlePreviewReplaceInBook}
           onReplaceInChapter={() => {
             void handleReplaceInActiveChapter();
           }}
@@ -3563,6 +4807,7 @@ function App() {
             setActiveChapterId(chapterId);
             setMainView('editor');
           }}
+          previewReport={searchPreviewReport}
         />
       );
     }
@@ -3570,10 +4815,13 @@ function App() {
     if (mainView === 'settings') {
       return (
         <LazySettingsPanel
+          key={book?.path ?? 'no-book'}
           config={config}
           bookPath={book?.path ?? null}
           onChange={setConfig}
           onSave={handleSaveSettings}
+          onPickBackupDirectory={handlePickBackupDirectory}
+          onRunBackupNow={handleBackupNow}
         />
       );
     }
@@ -3638,6 +4886,8 @@ function App() {
     config,
     coverSrc,
     backCoverSrc,
+    coverLoadDiagnostics,
+    coverFileInfo,
     flushChapterSave,
     handleClearBackCover,
     handleClearCover,
@@ -3652,15 +4902,22 @@ function App() {
     languageSaveState,
     handleReplaceInBook,
     handleReplaceInActiveChapter,
+    handlePreviewReplaceInBook,
     handleRunBookSearch,
     handlePickBackCover,
     handleFoundationChange,
     handleSaveFoundation,
     handleStoryBibleChange,
     handleSaveStoryBible,
+    handleSyncStoryBibleFromActiveChapter,
+    handleMoveChapter,
+    handleMoveChapterToPosition,
     handlePickCover,
     handleSaveCoverData,
+    handleRetryCoverLoad,
     handleSaveSettings,
+    handlePickBackupDirectory,
+    handleBackupNow,
     handleSpineTextChange,
     handleUndoEdit,
     handleRedoEdit,
@@ -3681,6 +4938,7 @@ function App() {
     searchQuery,
     searchTotalMatches,
     searchWholeWord,
+    searchPreviewReport,
   ]);
 
   return (
@@ -3717,6 +4975,9 @@ function App() {
             onExportAmazonBundle={handleExportAmazonBundle}
             onExportBookDocx={handleExportBookDocx}
             onExportBookEpub={handleExportBookEpub}
+            onExportCollaborationPatch={handleExportCollaborationPatch}
+            onImportCollaborationPatch={handleImportCollaborationPatch}
+            onOpenEditorialChecklist={() => openEditorialChecklist('Continuar de todos modos')}
           />
         }
         center={
@@ -3753,10 +5014,20 @@ function App() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setHelpOpen(true)}
-                      title="Abre la guia con funciones, atajos y pasos recomendados."
+                      onClick={() => {
+                        setHelpOpen(false);
+                        setOnboardingOpen(true);
+                      }}
+                      title="Abre la guia inicial con checklist y recorrido paso a paso."
                     >
-                      Ayuda
+                      Guia inicial
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHelpOpen(true)}
+                      title="Abre la guia completa de uso por funciones."
+                    >
+                      Ayuda completa
                     </button>
                   </div>
                 </div>
@@ -3771,10 +5042,20 @@ function App() {
                   <div className="active-book-banner-actions">
                     <button
                       type="button"
-                      onClick={() => setHelpOpen(true)}
-                      title="Abre la guia con funciones, atajos y pasos recomendados."
+                      onClick={() => {
+                        setHelpOpen(false);
+                        setOnboardingOpen(true);
+                      }}
+                      title="Abre la guia inicial con checklist y recorrido paso a paso."
                     >
-                      Ayuda
+                      Guia inicial
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHelpOpen(true)}
+                      title="Abre la guia completa de uso por funciones."
+                    >
+                      Ayuda completa
                     </button>
                   </div>
                 </div>
@@ -3835,11 +5116,18 @@ function App() {
                 chatApplyIterations={config.chatApplyIterations}
                 continuousAgentEnabled={config.continuousAgentEnabled}
                 continuousAgentMaxRounds={config.continuousAgentMaxRounds}
+                promptTemplates={promptTemplates}
                 onScopeChange={setChatScope}
                 onRunAction={handleRunAction}
                 onSendChat={handleSendChat}
+                onTrackCharacter={handleTrackCharacter}
+                onSummarizeStory={handleSummarizeStory}
+                chapterCount={orderedChapters.length}
                 onUndoSnapshot={handleUndoSnapshot}
                 onRedoSnapshot={handleRedoSnapshot}
+                onSaveMilestone={handleSaveMilestone}
+                onCreatePromptTemplate={handleCreatePromptTemplate}
+                onDeletePromptTemplate={handleDeletePromptTemplate}
               />
             </Suspense>
           ) : (
@@ -3853,26 +5141,75 @@ function App() {
         }
         status={book ? `Libro activo: ${book.metadata.title} | ${status}` : status}
       />
-      <button
-        type="button"
-        className="help-fab"
-        onClick={() => setHelpOpen(true)}
-        title="Guia rapida de uso: funciones, atajos y flujo recomendado."
-      >
-        Ayuda
-      </button>
-      {helpOpen ? (
-        <Suspense fallback={null}>
-          <LazyHelpPanel
-            isOpen={helpOpen}
-            focusMode={focusMode}
-            onClose={() => setHelpOpen(false)}
-            onCreateBook={handleCreateBook}
-            onOpenBook={handleOpenBook}
-            onToggleFocusMode={toggleFocusMode}
-          />
-        </Suspense>
+      <OnboardingPanel
+        isOpen={onboardingOpen}
+        hasBook={Boolean(book)}
+        hasChapters={orderedChapters.length > 0}
+        hasFoundation={hasFoundationData}
+        hasStoryBible={hasStoryBibleData}
+        hasCover={Boolean(book?.metadata.coverImage || book?.metadata.backCoverImage)}
+        hasAmazonCore={hasAmazonCoreData}
+        onClose={() => setOnboardingOpen(false)}
+        onDismissForever={dismissOnboardingForever}
+        onCreateBook={() => {
+          setOnboardingOpen(false);
+          void handleCreateBook();
+        }}
+        onOpenBook={() => {
+          setOnboardingOpen(false);
+          void handleOpenBook();
+        }}
+        onGoToView={(view) => {
+          setMainView(view);
+        }}
+      />
+      <Suspense fallback={null}>
+        <LazyHelpPanel
+          isOpen={helpOpen}
+          focusMode={focusMode}
+          onClose={() => setHelpOpen(false)}
+          onCreateBook={() => {
+            void handleCreateBook();
+          }}
+          onOpenBook={() => {
+            void handleOpenBook();
+          }}
+          onToggleFocusMode={toggleFocusMode}
+        />
+      </Suspense>
+      {aiSafeReview ? (
+        <ChangeReviewModal
+          isOpen
+          title={aiSafeReview.title}
+          subtitle={aiSafeReview.subtitle}
+          beforeText={aiSafeReview.beforeText}
+          afterText={aiSafeReview.afterText}
+          confirmLabel="Aplicar cambios"
+          cancelLabel="Cancelar cambios"
+          onConfirm={() => {
+            const resolver = aiSafeReview.resolve;
+            setAiSafeReview(null);
+            resolver(true);
+          }}
+          onCancel={() => {
+            const resolver = aiSafeReview.resolve;
+            setAiSafeReview(null);
+            resolver(false);
+          }}
+        />
       ) : null}
+      <EditorialChecklistModal
+        isOpen={editorialIntent.isOpen}
+        report={editorialIntent.report}
+        intentLabel={editorialIntent.intentLabel}
+        allowProceed={editorialIntent.allowProceed}
+        onClose={closeEditorialChecklist}
+        onProceed={() => {
+          const proceed = editorialIntent.onProceed;
+          closeEditorialChecklist();
+          proceed?.();
+        }}
+      />
       {promptModal && (
         <PromptModal
           key={`${promptModal.title}-${promptModal.label}-${promptModal.defaultValue ?? ''}`}

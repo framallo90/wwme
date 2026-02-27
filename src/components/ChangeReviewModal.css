@@ -1,0 +1,87 @@
+.change-review-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(9, 19, 47, 0.6);
+  display: grid;
+  place-items: center;
+  z-index: 1210;
+  padding: 1rem;
+}
+
+.change-review-panel {
+  width: min(1080px, 100%);
+  max-height: min(92vh, 920px);
+  overflow: auto;
+  border: 1px solid rgba(30, 62, 125, 0.4);
+  border-radius: 16px;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.98), rgba(237, 247, 255, 0.98));
+  box-shadow: 0 22px 50px rgba(8, 18, 45, 0.34);
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.change-review-header h2 {
+  margin: 0;
+  color: #102048;
+}
+
+.change-review-header p {
+  margin: 0.2rem 0 0;
+  color: #28416e;
+}
+
+.change-review-summary {
+  margin: 0;
+  color: #294271;
+}
+
+.change-review-diff {
+  border: 1px solid rgba(22, 49, 104, 0.24);
+  border-radius: 12px;
+  padding: 0.55rem;
+  background: rgba(255, 255, 255, 0.92);
+  display: grid;
+  gap: 0.45rem;
+  max-height: 58vh;
+  overflow: auto;
+}
+
+.change-review-block {
+  border: 1px solid rgba(20, 43, 92, 0.2);
+  border-radius: 10px;
+  padding: 0.4rem 0.5rem;
+}
+
+.change-review-block header {
+  font-family: Consolas, 'Courier New', monospace;
+  font-weight: 700;
+  color: #213a69;
+}
+
+.change-review-block p {
+  margin: 0.2rem 0 0;
+  white-space: pre-wrap;
+  color: #213a69;
+}
+
+.change-review-block.diff-insert {
+  background: rgba(222, 248, 232, 0.72);
+  border-color: rgba(22, 122, 62, 0.32);
+}
+
+.change-review-block.diff-delete {
+  background: rgba(255, 228, 228, 0.72);
+  border-color: rgba(173, 35, 35, 0.32);
+}
+
+.change-review-block.diff-equal {
+  background: rgba(237, 241, 250, 0.6);
+}
+
+.change-review-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}

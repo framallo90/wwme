@@ -1,11 +1,16 @@
 interface CoverViewProps {
   coverSrc: string | null;
   backCoverSrc: string | null;
+  coverDiagnostic: string | null;
+  backCoverDiagnostic: string | null;
+  coverFileInfo: { extension: string; bytes: number } | null;
+  backCoverFileInfo: { extension: string; bytes: number } | null;
   spineText: string;
   onPickCover: () => void;
   onClearCover: () => void;
   onPickBackCover: () => void;
   onClearBackCover: () => void;
+  onRetryLoad: () => void;
   onSpineTextChange: (value: string) => void;
   onSaveSpineText: () => void;
 }
@@ -30,7 +35,16 @@ function CoverView(props: CoverViewProps) {
             <button type="button" onClick={props.onClearCover} disabled={!props.coverSrc} title="Elimina la portada actual del libro.">
               Quitar portada
             </button>
+            <button type="button" onClick={props.onRetryLoad} title="Reintenta cargar la portada desde disco.">
+              Reintentar
+            </button>
           </div>
+          {props.coverFileInfo ? (
+            <p className="muted">
+              Archivo portada: .{props.coverFileInfo.extension} ({Math.round(props.coverFileInfo.bytes / 1024)} KB)
+            </p>
+          ) : null}
+          {props.coverDiagnostic ? <p className="warning-text">{props.coverDiagnostic}</p> : null}
         </article>
 
         <article className="cover-slot">
@@ -45,7 +59,16 @@ function CoverView(props: CoverViewProps) {
             <button type="button" onClick={props.onClearBackCover} disabled={!props.backCoverSrc} title="Elimina la contraportada actual del libro.">
               Quitar contraportada
             </button>
+            <button type="button" onClick={props.onRetryLoad} title="Reintenta cargar la contraportada desde disco.">
+              Reintentar
+            </button>
           </div>
+          {props.backCoverFileInfo ? (
+            <p className="muted">
+              Archivo contraportada: .{props.backCoverFileInfo.extension} ({Math.round(props.backCoverFileInfo.bytes / 1024)} KB)
+            </p>
+          ) : null}
+          {props.backCoverDiagnostic ? <p className="warning-text">{props.backCoverDiagnostic}</p> : null}
         </article>
       </div>
 

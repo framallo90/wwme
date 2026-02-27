@@ -1,8 +1,12 @@
+import { useState } from 'react';
+
 import type { StoryBible, StoryCharacter, StoryLocation } from '../types/book';
 
 interface StoryBiblePanelProps {
   storyBible: StoryBible;
+  hasActiveChapter: boolean;
   onChange: (next: StoryBible) => void;
+  onSyncFromActiveChapter: () => void;
   onSave: () => void;
 }
 
@@ -34,6 +38,8 @@ function createEmptyLocation(): StoryLocation {
 }
 
 function StoryBiblePanel(props: StoryBiblePanelProps) {
+  const [showAdvice, setShowAdvice] = useState(false);
+
   const updateCharacter = (id: string, patch: Partial<StoryCharacter>) => {
     props.onChange({
       ...props.storyBible,
@@ -65,9 +71,39 @@ function StoryBiblePanel(props: StoryBiblePanelProps) {
   return (
     <section className="settings-view story-bible-view">
       <header>
-        <h2>Biblia de la historia</h2>
+        <div className="story-bible-header-top">
+          <h2>Biblia de la historia</h2>
+          <div className="story-bible-header-actions">
+            <button type="button" onClick={() => setShowAdvice((previous) => !previous)}>
+              {showAdvice ? 'Ocultar consejo' : 'Consejo de coherencia'}
+            </button>
+            <button
+              type="button"
+              onClick={props.onSyncFromActiveChapter}
+              disabled={!props.hasActiveChapter}
+              title="Detecta personajes y lugares nuevos del capitulo activo y los agrega a la biblia."
+            >
+              Sincronizar capitulo activo
+            </button>
+          </div>
+        </div>
         <p>Define personajes, lugares y reglas de continuidad para dar contexto estable a la IA.</p>
       </header>
+      {showAdvice ? (
+        <section className="story-bible-advice">
+          <h3>Como usarla para mantener coherencia</h3>
+          <ol>
+            <li>Completa nombre, rol y objetivo de protagonistas antes de arrancar.</li>
+            <li>Cada vez que cierres una escena importante, guarda un hito desde IA.</li>
+            <li>Tras cada hito, WriteWMe sincroniza automaticamente la biblia con entidades nuevas detectadas.</li>
+            <li>Revisa esas altas automaticas y completa rasgos, notas y reglas para evitar contradicciones.</li>
+            <li>Si queres forzar la sincronizacion, usa "Sincronizar capitulo activo".</li>
+          </ol>
+          <p className="muted">
+            Flujo recomendado: escribir, guardar hito, revisar biblia y continuar con el siguiente capitulo.
+          </p>
+        </section>
+      ) : null}
 
       <section className="bible-section">
         <div className="bible-section-head">

@@ -1,4 +1,4 @@
-import type { ChapterSearchMatch } from '../lib/searchReplace';
+import type { ChapterSearchMatch, ReplacePreviewReport } from '../lib/searchReplace';
 
 interface SearchReplacePanelProps {
   hasBook: boolean;
@@ -16,9 +16,11 @@ interface SearchReplacePanelProps {
   onCaseSensitiveChange: (value: boolean) => void;
   onWholeWordChange: (value: boolean) => void;
   onRunSearch: () => void;
+  onPreviewReplaceInBook: () => void;
   onReplaceInChapter: () => void;
   onReplaceInBook: () => void;
   onSelectChapter: (chapterId: string) => void;
+  previewReport: ReplacePreviewReport | null;
 }
 
 function SearchReplacePanel(props: SearchReplacePanelProps) {
@@ -80,6 +82,9 @@ function SearchReplacePanel(props: SearchReplacePanelProps) {
         <button type="button" onClick={props.onRunSearch} disabled={props.busy}>
           Buscar en libro
         </button>
+        <button type="button" onClick={props.onPreviewReplaceInBook} disabled={props.busy}>
+          Simular reemplazo global
+        </button>
         <button type="button" onClick={props.onReplaceInChapter} disabled={props.busy || !props.activeChapterId}>
           Reemplazar en capitulo activo
         </button>
@@ -91,6 +96,38 @@ function SearchReplacePanel(props: SearchReplacePanelProps) {
       <p className="muted">
         Coincidencias encontradas: <strong>{props.totalMatches}</strong> en <strong>{props.results.length}</strong> capitulo/s.
       </p>
+
+      {props.previewReport ? (
+        <section className="search-preview">
+          <h3>Simulacion de reemplazo global</h3>
+          <p className="muted">
+            Query: <strong>{props.previewReport.query || '(vacio)'}</strong> | Reemplazo:{' '}
+            <strong>{props.previewReport.replacement || '(vacio)'}</strong>
+          </p>
+          <p className="muted">
+            Cambios estimados: <strong>{props.previewReport.totalMatches}</strong> en{' '}
+            <strong>{props.previewReport.affectedChapters}</strong> capitulo/s.
+          </p>
+          <div className="search-preview-list">
+            {props.previewReport.items.length === 0 ? (
+              <p className="muted">La simulacion no encontro coincidencias.</p>
+            ) : (
+              props.previewReport.items.map((item) => (
+                <article key={`preview-${item.chapterId}`} className="search-preview-item">
+                  <header>
+                    <strong>
+                      {item.chapterId} - {item.chapterTitle}
+                    </strong>
+                    <span>{item.matches} cambio/s</span>
+                  </header>
+                  <p className="muted">Antes: {item.beforeSample || '(sin muestra)'}</p>
+                  <p className="muted">Despues: {item.afterSample || '(sin muestra)'}</p>
+                </article>
+              ))
+            )}
+          </div>
+        </section>
+      ) : null}
 
       <div className="search-results">
         {props.results.length === 0 ? (
