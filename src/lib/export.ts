@@ -1,11 +1,12 @@
-import type { BookMetadata, ChapterDocument } from '../types/book';
+import type { BookMetadata, ChapterDocument, SagaProject } from '../types/book';
 import { buildAmazonCopyPack, buildAmazonMetadataCsv } from './amazon';
 import { validateAmazonMetadata } from './amazonValidation';
 import { normalizeLanguageCode } from './language';
-import { htmlToMarkdown, randomId, safeFileName, stripHtml } from './text';
+import { htmlToMarkdown, randomId, safeFileName, sanitizeHtmlForPreview, stripHtml } from './text';
 import { writeBinaryExport, writeMarkdownExport, writeTextExport } from './storage';
 import { analyzeBookStyleFromChapters, getStyleLevelLabel } from './styleMetrics';
 import { createZipArchive } from './zip';
+import { countWordsFromHtml } from './metrics';
 
 function resolveTrimSize(metadata: BookMetadata): { width: number; height: number } {
   const trim = metadata.interiorFormat.trimSize;
@@ -43,6 +44,531 @@ function escapeXml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
+}
+
+function escapeCsvCell(value: string | number | null | undefined): string {
+  const text = value === null || value === undefined ? '' : String(value);
+  if (!/[",\n]/.test(text)) {
+    return text;
+  }
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function buildCsv(rows: Array<Array<string | number | null | undefined>>): string {
+  return rows.map((row) => row.map((cell) => escapeCsvCell(cell)).join(',')).join('\n');
+}
+
+export function buildSagaCartographerPackArchive(saga: SagaProject): Uint8Array {
+  const atlas = saga.metadata.worldBible.atlas;
+  const layersCsv = buildCsv([
+    ['layerId', 'name', 'color', 'visible', 'description'],
+    ...atlas.layers.map((layer) => [
+      layer.id,
+      layer.name,
+      layer.color,
+      layer.visible ? 'yes' : 'no',
+      layer.description,
+    ]),
+  ]);
+  const pinsCsv = buildCsv([
+    ['pinId', 'locationId', 'label', 'layerId', 'xPct', 'yPct', 'notes'],
+    ...atlas.pins.map((pin) => [
+      pin.id,
+      pin.locationId,
+      pin.label,
+      pin.layerId,
+      pin.xPct.toFixed(2),
+      pin.yPct.toFixed(2),
+      pin.notes,
+    ]),
+  ]);
+  const locationsCsv = buildCsv([
+    ['locationId', 'name', 'aliases', 'summary', 'notes'],
+    ...saga.metadata.worldBible.locations.map((location) => [
+      location.id,
+      location.name,
+      location.aliases,
+      location.summary,
+      location.notes,
+    ]),
+  ]);
+  const routesCsv = buildCsv([
+    ['measurementId', 'routeId', 'fromPinId', 'toPinId', 'distanceOverride', 'travelHours', 'notes'],
+    ...atlas.routeMeasurements.map((measurement) => [
+      measurement.id,
+      measurement.routeId,
+      measurement.fromPinId,
+      measurement.toPinId,
+      measurement.distanceOverride ?? '',
+      measurement.travelHours ?? '',
+      measurement.notes,
+    ]),
+  ]);
+  const notesMd = [
+    `# Pack cartografo - ${saga.metadata.title}`,
+    '',
+    `Mapa base: ${atlas.mapImagePath || '(sin mapa cargado)'}`,
+    `Escala horizontal: ${atlas.distanceScale} ${atlas.distanceUnit}`,
+    `Modo de viaje por defecto: ${atlas.defaultTravelMode || '(sin definir)'}`,
+    '',
+    '## Capas',
+    ...atlas.layers.map((layer) => `- ${layer.name} (${layer.color})${layer.description ? `: ${layer.description}` : ''}`),
+    '',
+    '## Rutas medidas',
+    ...(atlas.routeMeasurements.length > 0
+      ? atlas.routeMeasurements.map((measurement) => {
+          const fromPin = atlas.pins.find((pin) => pin.id === measurement.fromPinId);
+          const toPin = atlas.pins.find((pin) => pin.id === measurement.toPinId);
+          return `- ${fromPin?.label || measurement.fromPinId} -> ${toPin?.label || measurement.toPinId} | distancia: ${measurement.distanceOverride ?? 'auto'} | horas: ${measurement.travelHours ?? 'sin dato'}`;
+        })
+      : ['- (sin rutas medidas)']),
+  ].join('\n');
+
+  return createZipArchive([
+    {
+      name: 'atlas-config.json',
+      data: JSON.stringify(
+        {
+          title: saga.metadata.title,
+          atlas,
+        },
+        null,
+        2,
+      ),
+    },
+    { name: 'layers.csv', data: layersCsv },
+    { name: 'locations.csv', data: locationsCsv },
+    { name: 'pins.csv', data: pinsCsv },
+    { name: 'routes.csv', data: routesCsv },
+    { name: 'notes.md', data: notesMd },
+  ]);
+}
+
+export function buildSagaHistorianPackArchive(saga: SagaProject): Uint8Array {
+  const secrets = saga.metadata.worldBible.secrets ?? [];
+  const timelineRows = buildCsv([
+    ['eventId', 'title', 'lane', 'era', 'startOrder', 'endOrder', 'category', 'books', 'summary'],
+    ...saga.metadata.worldBible.timeline.map((event) => [
+      event.id,
+      event.title,
+      event.laneLabel || event.laneId || '',
+      event.eraLabel || '',
+      event.startOrder,
+      event.endOrder ?? '',
+      event.category,
+      event.bookRefs.map((entry) => entry.bookPath).filter(Boolean).join(' | '),
+      event.summary,
+    ]),
+  ]);
+  const notesMd = [
+    `# Pack cronologia - ${saga.metadata.title}`,
+    '',
+    '## Carriles',
+    ...saga.metadata.worldBible.timelineLanes.map((lane) => `- ${lane.label} (${lane.era || 'sin era'})`),
+    '',
+    '## Secretos',
+    ...(secrets.length > 0
+      ? secrets.map((secret) => `- ${secret.title}: ${secret.summary || secret.objectiveTruth}`)
+      : ['- (sin secretos cargados)']),
+  ].join('\n');
+
+  return createZipArchive([
+    {
+      name: 'timeline.json',
+      data: JSON.stringify(saga.metadata.worldBible.timeline, null, 2),
+    },
+    { name: 'timeline.csv', data: timelineRows },
+    {
+      name: 'secrets.json',
+      data: JSON.stringify(secrets, null, 2),
+    },
+    { name: 'chronicle.md', data: notesMd },
+  ]);
+}
+
+export function buildBookEditorPackArchive(
+  bookPath: string,
+  metadata: BookMetadata,
+  orderedChapters: ChapterDocument[],
+  saga?: SagaProject | null,
+): Uint8Array {
+  const manuscriptMd = [
+    `# ${metadata.title}`,
+    `Autor: ${metadata.author}`,
+    '',
+    ...orderedChapters.map((chapter, index) => {
+      const markdown = htmlToMarkdown(chapter.content);
+      return `## ${index + 1}. ${chapter.title}\n\n${markdown}`;
+    }),
+  ].join('\n\n');
+  const sagaConnections = saga
+    ? saga.metadata.worldBible.timeline
+        .filter((event) => event.bookRefs.some((entry) => entry.bookPath === bookPath))
+        .map((event) => {
+          const relatedBooks = event.bookRefs
+            .filter((entry) => entry.bookPath !== bookPath)
+            .map((entry) => saga.metadata.books.find((book) => book.bookPath === entry.bookPath)?.title || entry.bookPath)
+            .filter(Boolean);
+          return [
+            `- ${event.title || event.id}`,
+            `  Carril: ${event.laneLabel || event.laneId || 'sin carril'}`,
+            `  Orden: ${event.startOrder}${event.endOrder ? `-${event.endOrder}` : ''}`,
+            `  Otros libros: ${relatedBooks.length > 0 ? relatedBooks.join(', ') : '(solo este libro)'}`,
+            `  Resumen: ${event.summary || 'Sin resumen.'}`,
+          ].join('\n');
+        })
+    : [];
+  const editorialContextMd = [
+    `# Contexto editorial - ${metadata.title}`,
+    '',
+    saga
+      ? `Saga: ${saga.metadata.title}`
+      : 'Saga: (libro no vinculado a saga activa)',
+    '',
+    '## Conexiones narrativas registradas',
+    ...(sagaConnections.length > 0 ? sagaConnections : ['- (sin conexiones externas registradas)']),
+  ].join('\n');
+
+  return createZipArchive([
+    { name: 'manuscript.md', data: manuscriptMd },
+    { name: 'editorial-context.md', data: editorialContextMd },
+    {
+      name: 'book-metadata.json',
+      data: JSON.stringify(metadata, null, 2),
+    },
+  ]);
+}
+
+export function buildBookLayoutPackArchive(
+  metadata: BookMetadata,
+  orderedChapters: ChapterDocument[],
+): Uint8Array {
+  const chapterRows = buildCsv([
+    ['chapterId', 'title', 'wordCount', 'paragraphCount'],
+    ...orderedChapters.map((chapter) => {
+      const paragraphs = extractChapterParagraphs(chapter);
+      const wordCount = countWordsFromHtml(chapter.content);
+      return [chapter.id, chapter.title, wordCount, paragraphs.length];
+    }),
+  ]);
+
+  const layoutSummary = [
+    `# Pack maquetacion - ${metadata.title}`,
+    '',
+    `Autor: ${metadata.author}`,
+    '',
+    '## Formato interior',
+    `- Trim: ${metadata.interiorFormat.trimSize}`,
+    `- Tamano custom: ${metadata.interiorFormat.pageWidthIn} x ${metadata.interiorFormat.pageHeightIn} in`,
+    `- Margenes mm: top ${metadata.interiorFormat.marginTopMm}, bottom ${metadata.interiorFormat.marginBottomMm}, inside ${metadata.interiorFormat.marginInsideMm}, outside ${metadata.interiorFormat.marginOutsideMm}`,
+    `- Sangria parrafo: ${metadata.interiorFormat.paragraphIndentEm}em`,
+    `- Interlineado: ${metadata.interiorFormat.lineHeight}`,
+    `- Control viudas/huerfanas: ${metadata.interiorFormat.widowOrphanControl ? 'si' : 'no'}`,
+    `- Apertura capitulo: ${metadata.interiorFormat.chapterOpeningStyle}`,
+    `- Capitulare: ${metadata.interiorFormat.dropCapEnabled ? 'si' : 'no'}`,
+    `- Ornamento de escena: ${metadata.interiorFormat.sceneBreakGlyph || '* * *'}`,
+    '',
+    '## Entregables',
+    '- interior.css',
+    '- interior-sample.html',
+    '- chapter-metrics.csv',
+    '- interior-format.json',
+  ].join('\n');
+
+  return createZipArchive([
+    {
+      name: 'interior.css',
+      data: buildInteriorCss(metadata),
+    },
+    {
+      name: 'interior-sample.html',
+      data: buildBookInteriorHtml(metadata, orderedChapters),
+    },
+    {
+      name: 'chapter-metrics.csv',
+      data: chapterRows,
+    },
+    {
+      name: 'interior-format.json',
+      data: JSON.stringify(metadata.interiorFormat, null, 2),
+    },
+    {
+      name: 'README.md',
+      data: layoutSummary,
+    },
+  ]);
+}
+
+export function buildBookConsultantPackArchive(
+  bookPath: string,
+  metadata: BookMetadata,
+  orderedChapters: ChapterDocument[],
+  saga?: SagaProject | null,
+): Uint8Array {
+  const manuscriptMd = [
+    `# ${metadata.title}`,
+    `Autor: ${metadata.author}`,
+    '',
+    ...orderedChapters.map((chapter, index) => {
+      const markdown = htmlToMarkdown(chapter.content);
+      return `## ${index + 1}. ${chapter.title}\n\n${markdown}`;
+    }),
+  ].join('\n\n');
+
+  const storyBibleJson = JSON.stringify(
+    {
+      foundation: metadata.foundation,
+      storyBible: metadata.storyBible,
+      looseThreads: metadata.looseThreads ?? [],
+      editorialChecklistCustom: metadata.editorialChecklistCustom ?? [],
+    },
+    null,
+    2,
+  );
+
+  const timelineRows = saga
+    ? buildCsv([
+        ['eventId', 'displayLabel', 'title', 'lane', 'startOrder', 'endOrder', 'mode', 'chapterId', 'summary'],
+        ...saga.metadata.worldBible.timeline
+          .filter((event) => event.bookRefs.some((ref) => ref.bookPath === bookPath))
+          .flatMap((event) =>
+            event.bookRefs
+              .filter((ref) => ref.bookPath === bookPath)
+              .map((ref) => [
+                event.id,
+                event.displayLabel || `T${event.startOrder}`,
+                event.title,
+                event.laneLabel || event.laneId || '',
+                event.startOrder,
+                event.endOrder ?? '',
+                ref.mode,
+                ref.chapterId || '',
+                event.summary,
+              ]),
+          ),
+      ])
+    : buildCsv([['eventId', 'displayLabel', 'title', 'lane', 'startOrder', 'endOrder', 'mode', 'chapterId', 'summary']]);
+
+  const notes = [
+    `# Pack consultoria - ${metadata.title}`,
+    '',
+    `Saga vinculada: ${saga ? saga.metadata.title : '(sin saga activa)'}`,
+    '',
+    'Este paquete esta pensado para lectura analitica (mundo, tono, politica, economia, continuidad).',
+    '',
+    'Incluye:',
+    '- manuscript.md',
+    '- consultant-context.json',
+    '- timeline-links.csv',
+  ].join('\n');
+
+  return createZipArchive([
+    {
+      name: 'manuscript.md',
+      data: manuscriptMd,
+    },
+    {
+      name: 'consultant-context.json',
+      data: storyBibleJson,
+    },
+    {
+      name: 'timeline-links.csv',
+      data: timelineRows,
+    },
+    {
+      name: 'README.md',
+      data: notes,
+    },
+  ]);
+}
+
+export function buildSagaBibleDossierHtml(saga: SagaProject): string {
+  const world = saga.metadata.worldBible;
+  const timelineItems = world.timeline
+    .slice()
+    .sort((left, right) => left.startOrder - right.startOrder || left.title.localeCompare(right.title))
+    .map(
+      (event) => `
+        <li>
+          <strong>${escapeXml(event.displayLabel || `T${event.startOrder}`)} · ${escapeXml(event.title || 'Evento sin titulo')}</strong>
+          <div>${escapeXml(event.summary || 'Sin resumen.')}</div>
+          <small>${escapeXml(event.laneLabel || event.laneId || 'sin carril')} · ${escapeXml(event.category)}</small>
+        </li>`,
+    )
+    .join('');
+  const relationshipItems = world.relationships
+    .map(
+      (relationship) => `
+        <li>
+          <strong>${escapeXml(relationship.type || 'Relacion')}</strong>
+          <div>${escapeXml(`${relationship.from.id} -> ${relationship.to.id}`)}</div>
+          <small>${escapeXml(relationship.notes || 'Sin notas.')}</small>
+        </li>`,
+    )
+    .join('');
+  const conlangItems = world.conlangs
+    .map(
+      (conlang) => `
+        <li>
+          <strong>${escapeXml(conlang.name)}</strong>
+          <div>${escapeXml(conlang.phonetics || 'Sin fonetica registrada.')}</div>
+          <small>${escapeXml(conlang.grammarNotes || conlang.styleRules || 'Sin gramatica registrada.')}</small>
+        </li>`,
+    )
+    .join('');
+  const magicItems = world.magicSystems
+    .map(
+      (system) => `
+        <li>
+          <strong>${escapeXml(system.name)}</strong>
+          <div>${escapeXml(system.source || 'Sin fuente definida.')}</div>
+          <small>${escapeXml(system.summary || system.limits || 'Sin reglas registradas.')}</small>
+        </li>`,
+    )
+    .join('');
+
+  return `<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeXml(saga.metadata.title)} · Biblia de saga</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #17345f;
+        --muted: #52627c;
+        --paper: #f7f1e8;
+        --card: rgba(255,255,255,0.94);
+        --line: rgba(23,52,95,0.14);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Georgia", "Times New Roman", serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top, rgba(210,190,163,0.18), transparent 34%),
+          linear-gradient(180deg, #fcfaf6, var(--paper));
+      }
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 2.5rem 1.5rem 4rem;
+      }
+      header, section {
+        margin-bottom: 1.4rem;
+        padding: 1.2rem 1.3rem;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: var(--card);
+        box-shadow: 0 18px 38px rgba(19, 41, 75, 0.05);
+      }
+      h1, h2, h3 { margin: 0 0 0.55rem; }
+      p, li, small { line-height: 1.55; }
+      .kicker { text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.75rem; color: var(--muted); }
+      .grid { display: grid; gap: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      ul { margin: 0.5rem 0 0; padding-left: 1.2rem; display: grid; gap: 0.5rem; }
+      .muted { color: var(--muted); }
+      @media print {
+        body { background: white; }
+        header, section { box-shadow: none; break-inside: avoid; }
+      }
+      @media (max-width: 800px) {
+        .grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="kicker">Biblia de saga</div>
+        <h1>${escapeXml(saga.metadata.title)}</h1>
+        <p class="muted">${escapeXml(saga.metadata.description || 'Sin descripcion general.')}</p>
+      </header>
+
+      <section>
+        <h2>Volumenes vinculados</h2>
+        <ul>
+          ${
+            saga.metadata.books.length > 0
+              ? saga.metadata.books
+                  .map(
+                    (book) =>
+                      `<li><strong>Vol. ${book.volumeNumber || '?'}</strong> · ${escapeXml(book.title)} <small>${escapeXml(book.author || 'Autor sin definir')}</small></li>`,
+                  )
+                  .join('')
+              : '<li>Sin libros vinculados todavia.</li>'
+          }
+        </ul>
+      </section>
+
+      <div class="grid">
+        <section>
+          <h2>Canon de personajes</h2>
+          <ul>
+            ${
+              world.characters.length > 0
+                ? world.characters
+                    .map(
+                      (character) =>
+                        `<li><strong>${escapeXml(character.name)}</strong><div>${escapeXml(character.summary || 'Sin resumen.')}</div></li>`,
+                    )
+                    .join('')
+                : '<li>Sin personajes cargados.</li>'
+            }
+          </ul>
+        </section>
+        <section>
+          <h2>Lugares y geografia</h2>
+          <ul>
+            ${
+              world.locations.length > 0
+                ? world.locations
+                    .map(
+                      (location) =>
+                        `<li><strong>${escapeXml(location.name)}</strong><div>${escapeXml(location.summary || 'Sin resumen.')}</div></li>`,
+                    )
+                    .join('')
+                : '<li>Sin lugares cargados.</li>'
+            }
+          </ul>
+        </section>
+      </div>
+
+      <div class="grid">
+        <section>
+          <h2>Atlas y capas</h2>
+          <p><strong>Mapa base:</strong> ${escapeXml(world.atlas.mapImagePath || '(sin mapa cargado)')}</p>
+          <p><strong>Capas:</strong> ${world.atlas.layers.length}</p>
+          <p><strong>Pines:</strong> ${world.atlas.pins.length}</p>
+          <p><strong>Rutas medidas:</strong> ${world.atlas.routeMeasurements.length}</p>
+        </section>
+        <section>
+          <h2>Carriles y cronologia</h2>
+          <p><strong>Carriles:</strong> ${world.timelineLanes.length}</p>
+          <p><strong>Eventos:</strong> ${world.timeline.length}</p>
+          <ul>${timelineItems || '<li>Sin eventos cronologicos cargados.</li>'}</ul>
+        </section>
+      </div>
+
+      <div class="grid">
+        <section>
+          <h2>Genealogias y relaciones</h2>
+          <ul>${relationshipItems || '<li>Sin relaciones registradas.</li>'}</ul>
+        </section>
+        <section>
+          <h2>Sistemas de poder</h2>
+          <ul>${magicItems || '<li>Sin sistemas de poder registrados.</li>'}</ul>
+        </section>
+      </div>
+
+      <section>
+        <h2>Conlangs y voces del mundo</h2>
+        <ul>${conlangItems || '<li>Sin lenguas registradas.</li>'}</ul>
+      </section>
+    </main>
+  </body>
+</html>`;
 }
 
 function normalizeBookLanguage(metadata: BookMetadata): string {
@@ -248,6 +774,7 @@ function buildEpubArchive(metadata: BookMetadata, orderedChapters: ChapterDocume
   const language = normalizeBookLanguage(metadata);
   const nowIso = new Date().toISOString();
   const bookId = `urn:uuid:${randomId('writewme')}-${Date.now()}`;
+  const sceneBreakGlyph = (metadata.interiorFormat.sceneBreakGlyph || '* * *').trim() || '* * *';
   const titlePage = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${escapeXml(language)}" lang="${escapeXml(language)}">
@@ -279,7 +806,24 @@ function buildEpubArchive(metadata: BookMetadata, orderedChapters: ChapterDocume
 p {
   margin: 0 0 0.8em;
   text-indent: 1.2em;
-}`;
+  ${metadata.interiorFormat.widowOrphanControl ? 'orphans: 3;\n  widows: 3;' : ''}
+}
+.scene-break {
+  text-align: center;
+  letter-spacing: 0.35em;
+  text-indent: 0;
+}
+.scene-break::before {
+  content: "${escapeXml(sceneBreakGlyph)}";
+}
+${metadata.interiorFormat.dropCapEnabled || metadata.interiorFormat.chapterOpeningStyle === 'dropcap'
+    ? `.chapter p:first-of-type::first-letter {
+  float: left;
+  font-size: 3em;
+  line-height: 0.86;
+  padding-right: 0.12em;
+}`
+    : ''}`;
 
   const chapterEntries = orderedChapters.map((chapter, index) => {
     const href = `chapter-${String(index + 1).padStart(2, '0')}.xhtml`;
@@ -379,6 +923,25 @@ p {
 export function buildInteriorCss(metadata: BookMetadata): string {
   const trim = resolveTrimSize(metadata);
   const interior = metadata.interiorFormat;
+  const sceneBreakGlyph = (interior.sceneBreakGlyph || '* * *').trim() || '* * *';
+  const openingSelector =
+    interior.chapterOpeningStyle === 'dropcap' || interior.dropCapEnabled
+      ? `.chapter p:first-of-type::first-letter {
+  float: left;
+  font-size: 3.2em;
+  line-height: 0.86;
+  padding-right: 0.12em;
+  font-family: "Palatino Linotype", "Book Antiqua", serif;
+}`
+      : interior.chapterOpeningStyle === 'ornamental'
+        ? `.chapter p:first-of-type::before {
+  content: "§";
+  display: inline-block;
+  margin-right: 0.45em;
+  color: #8c6a2e;
+  font-weight: 700;
+}`
+        : '';
   return `@page {
   size: ${trim.width}in ${trim.height}in;
   margin-top: ${interior.marginTopMm}mm;
@@ -410,14 +973,39 @@ body {
 p {
   margin: 0 0 0.5em 0;
   text-indent: ${interior.paragraphIndentEm}em;
-}`;
+  ${interior.widowOrphanControl ? 'orphans: 3;\n  widows: 3;' : ''}
+}
+.scene-break {
+  text-align: center;
+  letter-spacing: 0.35em;
+  margin: 1.4em 0 1.1em;
+  text-indent: 0;
+}
+.scene-break span {
+  display: inline-block;
+  padding-left: 0.35em;
+}
+${openingSelector}
+/* glyph: ${sceneBreakGlyph} */`;
+}
+
+export function sanitizeChapterHtmlForExport(html: string): string {
+  const sanitized = sanitizeHtmlForPreview(html);
+  if (!sanitized.trim()) {
+    return '<p></p>';
+  }
+
+  return sanitized.replace(
+    /<p>\s*(\* \* \*|\*\*\*|~\s*~\s*~|—\s*—\s*—)\s*<\/p>/g,
+    (_match, glyph: string) => `<p class="scene-break"><span>${escapeXml(glyph.replace(/\s+/g, ' ').trim())}</span></p>`,
+  );
 }
 
 function buildBookInteriorHtml(metadata: BookMetadata, orderedChapters: ChapterDocument[]): string {
   const chaptersHtml = orderedChapters
     .map(
       (chapter, index) =>
-        `<section class="chapter"><h2>${index + 1}. ${chapter.title}</h2>${chapter.content}</section>`,
+        `<section class="chapter"><h2>${index + 1}. ${escapeXml(chapter.title)}</h2>${sanitizeChapterHtmlForExport(chapter.content)}</section>`,
     )
     .join('\n');
 
@@ -425,14 +1013,14 @@ function buildBookInteriorHtml(metadata: BookMetadata, orderedChapters: ChapterD
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>${metadata.title}</title>
+  <title>${escapeXml(metadata.title)}</title>
   <style>${buildInteriorCss(metadata)}</style>
 </head>
 <body>
   <section class="title-page">
-    <h1>${metadata.title}</h1>
-    <p>${metadata.author}</p>
-    <p>${metadata.spineText || metadata.title}</p>
+    <h1>${escapeXml(metadata.title)}</h1>
+    <p>${escapeXml(metadata.author)}</p>
+    <p>${escapeXml(metadata.spineText || metadata.title)}</p>
   </section>
   ${chaptersHtml}
 </body>
@@ -613,6 +1201,93 @@ export async function exportBookStyleReport(
     `${safeFileName(metadata.title)}-style-report.txt`,
     lines.join('\n'),
     'txt',
+  );
+}
+
+export async function exportSagaCartographerPack(
+  sagaPath: string,
+  saga: SagaProject,
+): Promise<string> {
+  const archive = buildSagaCartographerPackArchive(saga);
+
+  return writeBinaryExport(
+    sagaPath,
+    `${safeFileName(saga.metadata.title)}-pack-cartografo.zip`,
+    archive,
+    'zip',
+  );
+}
+
+export async function exportSagaHistorianPack(
+  sagaPath: string,
+  saga: SagaProject,
+): Promise<string> {
+  const archive = buildSagaHistorianPackArchive(saga);
+
+  return writeBinaryExport(
+    sagaPath,
+    `${safeFileName(saga.metadata.title)}-pack-cronologia.zip`,
+    archive,
+    'zip',
+  );
+}
+
+export async function exportSagaBibleDossier(
+  sagaPath: string,
+  saga: SagaProject,
+): Promise<string> {
+  return writeTextExport(
+    sagaPath,
+    `${safeFileName(saga.metadata.title)}-biblia-de-saga.html`,
+    buildSagaBibleDossierHtml(saga),
+    'html',
+  );
+}
+
+export async function exportBookEditorPack(
+  bookPath: string,
+  metadata: BookMetadata,
+  orderedChapters: ChapterDocument[],
+  saga?: SagaProject | null,
+): Promise<string> {
+  const archive = buildBookEditorPackArchive(bookPath, metadata, orderedChapters, saga);
+
+  return writeBinaryExport(
+    bookPath,
+    `${safeFileName(metadata.title)}-pack-editorial.zip`,
+    archive,
+    'zip',
+  );
+}
+
+export async function exportBookLayoutPack(
+  bookPath: string,
+  metadata: BookMetadata,
+  orderedChapters: ChapterDocument[],
+): Promise<string> {
+  const archive = buildBookLayoutPackArchive(metadata, orderedChapters);
+
+  return writeBinaryExport(
+    bookPath,
+    `${safeFileName(metadata.title)}-pack-maquetacion.zip`,
+    archive,
+    'zip',
+  );
+}
+
+export async function exportBookConsultantPack(
+  bookPath: string,
+  metadata: BookMetadata,
+  orderedChapters: ChapterDocument[],
+  saga?: SagaProject | null,
+): Promise<string> {
+  const archive = buildBookConsultantPackArchive(bookPath, metadata, orderedChapters, saga);
+
+  return writeBinaryExport(
+    bookPath,
+    `${safeFileName(metadata.title)}-pack-consultoria.zip`,
+    archive,
+    'zip',
   );
 }
 

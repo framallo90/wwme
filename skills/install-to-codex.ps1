@@ -18,7 +18,10 @@ $skillsToInstall = @(
   "writewme-storycraft-pro",
   "writewme-editorial-qa",
   "writewme-kdp-production",
-  "writewme-writing-suite"
+  "writewme-writing-suite",
+  "writewme-visual-audit",
+  "writewme-saga-stress-ui",
+  "writewme-export-qa"
 )
 
 try {

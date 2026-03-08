@@ -133,7 +133,7 @@ function VersionDiffView(props: VersionDiffViewProps) {
       const milestone = snapshot.milestoneLabel?.trim() ?? '';
       choices.push({
         key: snapshotKey(snapshot.version),
-        label: milestone ? `Snapshot v${snapshot.version} - ${milestone}` : `Snapshot v${snapshot.version}`,
+        label: milestone ? `Version ${snapshot.version} - ${milestone}` : `Version ${snapshot.version}`,
         details: `${createdAt}${snapshot.reason ? ` | ${snapshot.reason}` : ''}${milestone ? ` | Hito: ${milestone}` : ''}`,
       });
     }
@@ -206,7 +206,7 @@ function VersionDiffView(props: VersionDiffViewProps) {
       <header>
         <h2>Control de cambios</h2>
         <p>
-          Compara snapshots historicos con el estado actual del capitulo. Verde = agregado, rojo = eliminado.
+          Compara versiones historicas con el estado actual del capitulo. Verde = agregado, rojo = eliminado.
         </p>
       </header>
 
@@ -266,8 +266,8 @@ function VersionDiffView(props: VersionDiffViewProps) {
         </p>
       </div>
 
-      {visibleLoadError ? <p className="warning-text">No se pudieron cargar snapshots: {visibleLoadError}</p> : null}
-      {visibleLoading ? <p className="muted">Cargando snapshots...</p> : null}
+      {visibleLoadError ? <p className="warning-text">No se pudieron cargar versiones: {visibleLoadError}</p> : null}
+      {visibleLoading ? <p className="muted">Cargando versiones...</p> : null}
 
       {!activeChapter ? (
         <p className="muted">Abre un libro y selecciona un capitulo para comparar versiones.</p>

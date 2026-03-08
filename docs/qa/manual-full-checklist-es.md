@@ -130,7 +130,8 @@ Resultado esperado:
 - Ejecutar backup manual.
 
 Resultado esperado:
-- Config persistente y backup generado sin errores.
+- Config persistente y backup snapshot generado sin errores.
+- En la carpeta destino debe existir un subdirectorio nuevo con `backup-manifest.json`.
 
 ## 13) Exportaciones
 

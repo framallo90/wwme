@@ -1,4 +1,5 @@
-import type { ChapterDocument, StoryBible } from '../types/book';
+import type { ChapterDocument, SagaWorldBible, StoryBible } from '../types/book';
+import { normalizeCanonStatus } from './canon';
 import { stripHtml } from './text';
 
 export interface CharacterTrackingMention {
@@ -25,7 +26,13 @@ interface BuildCharacterTrackingInput {
   requestedName: string;
   chapters: ChapterDocument[];
   storyBible: StoryBible;
+  sagaWorld?: SagaWorldBible | null;
   maxMentions?: number;
+}
+
+interface TrackedCharacterCandidate {
+  canonicalName: string;
+  aliases: string[];
 }
 
 function normalize(value: string): string {
@@ -77,19 +84,80 @@ function shortenExcerpt(value: string): string {
   return `${trimmed.slice(0, 227).trimEnd()}...`;
 }
 
-function resolveTrackedTerms(requestedName: string, storyBible: StoryBible): { canonicalName: string | null; terms: string[] } {
+function mergeCharacterCandidate(
+  map: Map<string, TrackedCharacterCandidate>,
+  canonicalName: string,
+  aliases: string[],
+): void {
+  const cleanCanonicalName = canonicalName.trim();
+  if (!cleanCanonicalName) {
+    return;
+  }
+
+  const key = normalize(cleanCanonicalName);
+  if (!key) {
+    return;
+  }
+
+  const existing = map.get(key);
+  if (!existing) {
+    map.set(key, {
+      canonicalName: cleanCanonicalName,
+      aliases: aliases.map((entry) => entry.trim()).filter(Boolean),
+    });
+    return;
+  }
+
+  const aliasSet = new Set<string>([
+    ...existing.aliases.map((entry) => entry.trim()).filter(Boolean),
+    ...aliases.map((entry) => entry.trim()).filter(Boolean),
+  ]);
+  existing.aliases = Array.from(aliasSet);
+}
+
+function collectTrackedCandidates(storyBible: StoryBible, sagaWorld?: SagaWorldBible | null): TrackedCharacterCandidate[] {
+  const candidates = new Map<string, TrackedCharacterCandidate>();
+  for (const character of storyBible.characters) {
+    if (normalizeCanonStatus(character.canonStatus) !== 'canonical') {
+      continue;
+    }
+    mergeCharacterCandidate(candidates, character.name, parseAliases(character.aliases));
+  }
+
+  if (!sagaWorld) {
+    return Array.from(candidates.values());
+  }
+
+  for (const character of sagaWorld.characters) {
+    if (normalizeCanonStatus(character.canonStatus) !== 'canonical') {
+      continue;
+    }
+    const timelineAliases = (character.aliasTimeline ?? [])
+      .map((entry) => entry.value.trim())
+      .filter(Boolean);
+    mergeCharacterCandidate(candidates, character.name, [...parseAliases(character.aliases), ...timelineAliases]);
+  }
+
+  return Array.from(candidates.values());
+}
+
+function resolveTrackedTerms(
+  requestedName: string,
+  storyBible: StoryBible,
+  sagaWorld?: SagaWorldBible | null,
+): { canonicalName: string | null; terms: string[] } {
   const requested = requestedName.trim();
   const normalizedRequested = normalize(requested);
   if (!normalizedRequested) {
     return { canonicalName: null, terms: [] };
   }
 
-  let bestMatch: StoryBible['characters'][number] | null = null;
+  const candidates = collectTrackedCandidates(storyBible, sagaWorld);
+  let bestMatch: TrackedCharacterCandidate | null = null;
   let bestScore = 0;
 
-  for (const character of storyBible.characters) {
-    const aliases = parseAliases(character.aliases);
-    const names = [character.name, ...aliases].filter((entry) => entry.trim().length > 0);
+  for (const candidate of candidates) {
+    const names = [candidate.canonicalName, ...candidate.aliases].filter((entry) => entry.trim().length > 0);
     let score = 0;
     for (const name of names) {
       const normalizedName = normalize(name);
@@ -107,14 +175,14 @@ function resolveTrackedTerms(requestedName: string, storyBible: StoryBible): { c
 
     if (score > bestScore) {
       bestScore = score;
-      bestMatch = character;
+      bestMatch = candidate;
     }
   }
 
   const rawTerms = new Set<string>([requested]);
   if (bestMatch) {
-    rawTerms.add(bestMatch.name);
-    for (const alias of parseAliases(bestMatch.aliases)) {
+    rawTerms.add(bestMatch.canonicalName);
+    for (const alias of bestMatch.aliases) {
       rawTerms.add(alias);
     }
   }
@@ -124,14 +192,14 @@ function resolveTrackedTerms(requestedName: string, storyBible: StoryBible): { c
     .filter((item) => normalize(item).length > 0);
 
   return {
-    canonicalName: bestMatch?.name?.trim() || null,
+    canonicalName: bestMatch?.canonicalName?.trim() || null,
     terms,
   };
 }
 
 export function buildCharacterTrackingReport(input: BuildCharacterTrackingInput): CharacterTrackingReport {
   const maxMentions = Math.max(8, Math.min(500, input.maxMentions ?? 160));
-  const resolved = resolveTrackedTerms(input.requestedName, input.storyBible);
+  const resolved = resolveTrackedTerms(input.requestedName, input.storyBible, input.sagaWorld);
   const mentions: CharacterTrackingMention[] = [];
 
   if (resolved.terms.length === 0) {

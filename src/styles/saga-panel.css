@@ -1,0 +1,263 @@
+.story-bible-view {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.story-bible-header-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.story-bible-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.story-bible-advice {
+  border: 1px solid rgba(18, 46, 92, 0.18);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(243, 249, 255, 0.9), rgba(255, 251, 245, 0.86)),
+    linear-gradient(90deg, rgba(121, 217, 234, 0.12) 0, transparent 12%);
+  padding: 0.75rem 0.85rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.story-bible-advice h3 {
+  margin: 0;
+}
+
+.story-bible-advice ol {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.22rem;
+}
+
+.bible-section {
+  border: 1px solid rgba(22, 49, 104, 0.16);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 250, 253, 0.9)),
+    linear-gradient(90deg, rgba(232, 214, 192, 0.1), transparent 12%);
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.55rem;
+  box-shadow: 0 10px 24px rgba(19, 41, 75, 0.06);
+}
+
+.bible-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.bible-section-head h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  color: #14315c;
+}
+
+.bible-card-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.bible-card {
+  border: 1px solid rgba(22, 49, 104, 0.14);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(249, 251, 254, 0.9)),
+    linear-gradient(90deg, rgba(121, 217, 234, 0.08) 0, transparent 10%);
+  padding: 0.65rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.bible-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.bible-two-col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.saga-command-view {
+  gap: 0.95rem;
+}
+
+.saga-command-hero {
+  border: 1px solid rgba(22, 49, 104, 0.18);
+  border-radius: 22px;
+  padding: 1rem 1.05rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(240, 246, 252, 0.92)),
+    radial-gradient(circle at top right, rgba(121, 217, 234, 0.16), transparent 36%);
+  display: grid;
+  gap: 0.85rem;
+  box-shadow: 0 16px 30px rgba(19, 41, 75, 0.1);
+}
+
+.saga-command-copy {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.saga-command-titlebar h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  color: #12325b;
+}
+
+.saga-command-titlebar p,
+.saga-command-summary {
+  margin: 0;
+  color: var(--muted-text);
+  line-height: 1.4;
+}
+
+.saga-command-actions {
+  align-items: center;
+}
+
+.saga-command-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid rgba(22, 49, 104, 0.14);
+  background: rgba(255, 255, 255, 0.8);
+  color: #173862;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.saga-command-ledger {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.saga-command-card {
+  border-radius: 16px;
+  padding: 0.75rem 0.8rem;
+  border: 1px solid rgba(22, 49, 104, 0.14);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 252, 255, 0.92)),
+    linear-gradient(90deg, rgba(121, 217, 234, 0.14) 0, rgba(121, 217, 234, 0.14) 5px, transparent 5px);
+  display: grid;
+  gap: 0.15rem;
+}
+
+.saga-command-card strong {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  color: #14315c;
+}
+
+.saga-command-card small {
+  color: var(--muted-text);
+  line-height: 1.35;
+}
+
+.saga-tab-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.1rem;
+  padding: 0.25rem 0 0.2rem;
+}
+
+.saga-tab-btn {
+  padding: 0.42rem 0.8rem;
+  border: 1px solid rgba(22, 49, 104, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  color: #153963;
+  font-size: 0.82rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.saga-tab-btn:hover {
+  background: rgba(121, 217, 234, 0.16);
+  border-color: rgba(121, 217, 234, 0.48);
+}
+
+.saga-tab-btn.is-active {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(238, 248, 252, 0.92)),
+    linear-gradient(90deg, rgba(121, 217, 234, 0.22) 0, rgba(121, 217, 234, 0.22) 5px, transparent 5px);
+  color: #0e315c;
+  border-color: rgba(121, 217, 234, 0.72);
+  font-weight: 700;
+  box-shadow: 0 8px 18px rgba(19, 41, 75, 0.08);
+}
+
+.saga-tab-btn-issues {
+  background: rgba(255, 242, 242, 0.92);
+  border-color: rgba(220, 38, 38, 0.26);
+  color: #b42318;
+}
+
+.saga-tab-btn-issues.is-active {
+  background: rgba(220, 38, 38, 0.94);
+  color: #fff;
+  border-color: rgba(220, 38, 38, 0.9);
+}
+
+.saga-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
+  gap: 0.8rem;
+}
+
+.saga-overview-core {
+  grid-column: 1 / -1;
+}
+
+.saga-validation-summary {
+  margin-top: 0.15rem;
+}
+
+@media (max-width: 980px) {
+  .story-bible-header-top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .story-bible-header-actions {
+    width: 100%;
+  }
+
+  .bible-section-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .bible-two-col,
+  .saga-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .saga-command-ledger {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .saga-command-ledger {
+    grid-template-columns: 1fr;
+  }
+}

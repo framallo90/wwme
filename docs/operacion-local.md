@@ -42,6 +42,11 @@ Notas de almacenamiento del libro:
 - `book.json` guarda metadatos del proyecto (sin historial de chat pesado).
 - `config.json` guarda configuracion persistente por libro. Si no trae `language`, se toma `amazon.language` desde `book.json`.
 - `chats/book.json` y `chats/NN.json` guardan historial de chat por libro/capitulo.
+- Los backups manuales/automaticos generan snapshots versionados en la carpeta destino con `backup-manifest.json`.
+
+Notas de almacenamiento de saga:
+- `saga.json` guarda metadatos globales, libros vinculados y la biblia compartida del mundo.
+- La biblioteca global (`library.json`) ya indexa tanto libros como sagas.
 
 ## 3) Comandos clave y para que sirve cada uno
 
@@ -81,6 +86,10 @@ Notas de almacenamiento del libro:
    - revisar readiness score y lista de advertencias/errores
    - revisar tabla de pricing (marketplace, moneda, precio eBook/print) despues de cambiar idioma base
    - exportar pack y validar salida de archivos (`.txt`, `.html`, `.md`, `.csv`, validacion `.txt`)
+4. Si el libro pertenece a una saga:
+   - abrir `Saga` y validar que el volumen y el libro vinculado sean correctos
+   - revisar al menos un personaje con aliases y un evento en la linea temporal
+   - abrir `Timeline` y comprobar filtro por personaje y detalle del evento
 
 ## 5) Troubleshooting rapido
 
@@ -121,7 +130,12 @@ Si no responden, falta PATH de Rust.
 
 ### Error de Ollama no disponible
 
-Validar:
+Primero valida el estado dentro de la app:
+
+- `Settings` -> bloque `IA local`
+- boton `Revisar IA local`
+
+Si sigue marcando `offline`, recien ahi valida por consola:
 
 ```powershell
 ollama --version

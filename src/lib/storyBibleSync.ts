@@ -7,46 +7,151 @@ const WORD_PATTERN = /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+/g;
 
 const CONNECTOR_WORDS = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'e']);
 const COMMON_NON_ENTITY_WORDS = new Set([
+  'ademas',
+  'ahi',
+  'asi',
   'abril',
   'agosto',
-  'ahi',
+  'ahora',
+  'algo',
+  'alguien',
+  'alla',
   'aqui',
+  'aunque',
   'ayer',
+  'bien',
+  'bueno',
+  'cada',
+  'casi',
+  'cierto',
+  'claro',
+  'como',
+  'con',
+  'conoce',
+  'contra',
+  'cual',
   'capitulo',
+  'decia',
+  'desde',
+  'despues',
+  'donde',
   'diciembre',
+  'dijo',
+  'durante',
+  'entonces',
   'el',
   'ella',
   'ellos',
+  'ello',
+  'era',
+  'eran',
   'enero',
+  'entre',
+  'esa',
+  'ese',
+  'eso',
   'esta',
   'este',
+  'esto',
+  'estuvo',
   'febrero',
+  'fue',
+  'fuera',
+  'habia',
+  'hacia',
+  'han',
+  'hasta',
+  'hay',
   'hoy',
+  'igual',
   'julio',
   'junio',
   'la',
   'las',
   'lunes',
+  'luego',
+  'mal',
+  'manera',
   'martes',
   'marzo',
+  'mas',
   'mayo',
+  'mejor',
+  'menos',
   'miercoles',
+  'mismo',
+  'misma',
+  'momento',
+  'mucho',
+  'mucha',
+  'muy',
+  'nada',
+  'nadie',
   'jueves',
   'viernes',
   'noviembre',
+  'nuevo',
+  'nueva',
+  'noche',
   'octubre',
+  'otra',
+  'otro',
   'para',
+  'parecia',
+  'parte',
+  'poco',
+  'poca',
+  'porque',
   'pero',
   'por',
+  'primero',
+  'primera',
+  'puede',
+  'pudo',
+  'punto',
+  'queria',
+  'quien',
+  'sabia',
+  'segun',
+  'siempre',
+  'sido',
+  'sino',
+  'sobre',
+  'solo',
   'sabado',
   'domingo',
   'septiembre',
   'si',
   'sin',
+  'siguiente',
+  'supo',
+  'tal',
+  'tambien',
+  'tan',
+  'tanto',
+  'tenia',
   'texto',
+  'tiempo',
+  'toda',
+  'todas',
+  'todavia',
+  'todo',
+  'todos',
+  'tras',
   'tu',
+  'tuvo',
+  'ultimo',
+  'ultima',
   'un',
   'una',
+  'usted',
+  'varios',
+  'varias',
+  'verdad',
+  'vez',
+  'cuando',
+  'mientras',
+  'nunca',
   'yo',
 ]);
 
@@ -205,6 +310,11 @@ function shouldIgnoreEntity(entityName: string): boolean {
     return true;
   }
 
+  // Nombres de una sola palabra con menos de 3 letras son casi siempre ruido
+  if (normalizedWords.length === 1 && normalizedWords[0].length < 3) {
+    return true;
+  }
+
   if (normalizedWords.length === 1 && COMMON_NON_ENTITY_WORDS.has(normalizedWords[0])) {
     return true;
   }
@@ -290,24 +400,33 @@ function createAutoEntryId(prefix: 'char' | 'loc'): string {
 }
 
 function classifyCandidate(candidate: CandidateInfo): 'character' | 'location' | null {
-  const hasLocationSignal = candidate.hasLocationKeyword || candidate.locationHints > 0;
+  const isSingleWord = candidate.significantWords.length === 1;
+  const hasStrongLocationSignal =
+    candidate.hasLocationKeyword ||
+    candidate.locationHints >= 2 ||
+    (candidate.locationHints >= 1 && !isSingleWord);
+  const hasWeakLocationNoise = !candidate.hasLocationKeyword && candidate.locationHints > 0 && isSingleWord;
   const hasCharacterSignal = candidate.characterHints > 0;
   const isMultiWord = candidate.significantWords.length >= 2;
   const hasFrequency = candidate.occurrences >= 2;
 
-  if (!hasFrequency && !hasLocationSignal && !hasCharacterSignal && !isMultiWord) {
+  if (!hasFrequency && !hasStrongLocationSignal && !hasCharacterSignal && !isMultiWord) {
     return null;
   }
 
-  if (hasLocationSignal && !hasCharacterSignal) {
-    return 'location';
-  }
-
-  if (hasCharacterSignal && !hasLocationSignal) {
+  if (hasWeakLocationNoise && !hasCharacterSignal) {
     return 'character';
   }
 
-  if (hasLocationSignal && hasCharacterSignal) {
+  if (hasStrongLocationSignal && !hasCharacterSignal) {
+    return 'location';
+  }
+
+  if (hasCharacterSignal && !hasStrongLocationSignal) {
+    return 'character';
+  }
+
+  if (hasStrongLocationSignal && hasCharacterSignal) {
     return candidate.hasLocationKeyword ? 'location' : 'character';
   }
 
@@ -399,6 +518,7 @@ export function buildStoryBibleAutoSyncFromChapter(
         description: '',
         atmosphere: '',
         notes: `Detectado automaticamente en ${chapter.title}. Revisar detalles del lugar.`,
+        canonStatus: 'canonical',
       };
       addedLocations.push(location);
       knownNames.push(candidate.normalized);
@@ -417,6 +537,7 @@ export function buildStoryBibleAutoSyncFromChapter(
         traits: '',
         goal: '',
         notes: `Detectado automaticamente en ${chapter.title}. Completar rol y continuidad.`,
+        canonStatus: 'canonical',
       };
       addedCharacters.push(character);
       knownNames.push(candidate.normalized);

@@ -794,6 +794,45 @@ function AmazonPanel(props: AmazonPanelProps) {
               }
             />
           </label>
+          <label>
+            Apertura de capitulo
+            <select
+              value={interior.chapterOpeningStyle}
+              onChange={(event) =>
+                updateInterior({
+                  chapterOpeningStyle: event.target.value as BookMetadata['interiorFormat']['chapterOpeningStyle'],
+                })
+              }
+            >
+              <option value="standard">Estandar</option>
+              <option value="dropcap">Capitular</option>
+              <option value="ornamental">Ornamental</option>
+            </select>
+          </label>
+          <label className="atlas-inline-check">
+            <input
+              type="checkbox"
+              checked={interior.dropCapEnabled}
+              onChange={(event) => updateInterior({ dropCapEnabled: event.target.checked })}
+            />
+            Capitular automatica
+          </label>
+          <label className="atlas-inline-check">
+            <input
+              type="checkbox"
+              checked={interior.widowOrphanControl}
+              onChange={(event) => updateInterior({ widowOrphanControl: event.target.checked })}
+            />
+            Control de viudas/huerfanas
+          </label>
+          <label>
+            Ornamento de salto de escena
+            <input
+              value={interior.sceneBreakGlyph}
+              onChange={(event) => updateInterior({ sceneBreakGlyph: event.target.value })}
+              placeholder="* * *"
+            />
+          </label>
         </div>
         <details>
           <summary>Ver CSS de maquetado</summary>

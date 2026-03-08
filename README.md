@@ -2,7 +2,8 @@
 
 Procesador de libro offline para crear, escribir, reescribir, revisar y modificar texto + portada/contraportada con IA local (Ollama).
 
-Version actual: `0.3.0`
+Version base publicada: `0.3.0`
+Estado de desarrollo actual: `camino a v4`
 
 Stack:
 - Tauri + React + TypeScript + Vite
@@ -88,6 +89,26 @@ Para agregar futuras pruebas, sumas un nuevo entry en el array `$checks` de `scr
 Regla de calidad del proyecto:
 - Cada funcion nueva o cambio de comportamiento debe venir con un test nuevo o actualizado en `tests/unit/suite.ts`.
 
+## Documentacion principal
+
+- `README.md`: vision general, stack y comandos base.
+- `docs/operacion-local.md`: ejecucion, verificacion y troubleshooting.
+- `docs/saga-timeline-guia.md`: uso diario de saga, timeline canonica y seguimiento de personajes.
+- `docs/v4-status.md`: estado funcional desde `0.3.0`, alcance ya incorporado y pendientes para la futura `v4`.
+- `docs/versioning.md`: versionado y liberaciones.
+- `CHANGELOG.md`: historial de cambios por version.
+
+## Camino a v4
+
+Resumen corto del estado actual:
+
+- Ya incorporado: saga compartida, timeline canonica, plot board por actos/subtramas, grafo de relaciones, atlas visual con mapa/pines/capas/rutas, banco de ideas, modo foco, control de cambios con hitos, reglas fijadas para IA y contexto visible.
+- Ya incorporado: trust layer para IA con `aiSafeMode`, revision manual para cambios de riesgo, rollback de sesiones, auditoria local y transacciones recuperables.
+- Ya incorporado: validacion Amazon/KDP, export DOCX/EPUB/pack Amazon + packs modulares (cartografo/editor/cronologia/maquetacion/consultoria), analisis de estilo, lectura/exportacion de audio y verificaciones locales.
+- Pendiente para objetivo v4: continuidad semantica multi-escena mas profunda, dependencias visuales cruzadas timeline/atlas, evidencia consultor mas precisa y stress-tests UI reales para sagas grandes.
+
+Detalle completo en `docs/v4-status.md`.
+
 ## Estructura de libro en disco
 
 ```text
@@ -111,6 +132,13 @@ Regla de calidad del proyecto:
     libro-demo-interior-kdp.html
 ```
 
+Estructura minima de saga en disco:
+
+```text
+/mi-saga/
+  saga.json
+```
+
 `book.json`:
 - titulo, autor
 - orden de capitulos (`chapterOrder`)
@@ -122,6 +150,15 @@ Regla de calidad del proyecto:
 - seccion Amazon/KDP (`amazon`)
 - formato interior para maquetado (`interiorFormat`)
 - estado de publicacion (`isPublished`, `publishedAt`)
+- referencia opcional a saga (`sagaId`, `sagaPath`, `volumeNumber`)
+
+`saga.json`:
+- identificador y titulo de saga
+- descripcion general
+- libros vinculados (`books`)
+- biblia global del mundo (`worldBible`)
+- timeline canonica compartida
+- fechas de creacion y actualizacion
 
 `chats/`:
 - `book.json`: historial del chat de libro
@@ -131,6 +168,8 @@ Regla de calidad del proyecto:
 Biblioteca global:
 - Se guarda en `%APPDATA%/library.json` (vía `appDataDir()` de Tauri).
 - Mantiene lista de libros, ultimo acceso y estado: `recien_creado`, `avanzado`, `publicado`.
+- Tambien mantiene un indice de sagas con ubicacion, cantidad de libros y ultimo acceso.
+- Un libro puede estar suelto o vinculado a una saga sin perder su carpeta propia.
 
 `config.json` (persistente por libro):
 - `model` (default `llama3.2:3b`)
@@ -168,6 +207,19 @@ Cada capitulo (`chapters/NN.json`) guarda:
   - boton `Consejo de coherencia` con flujo sugerido para usuarios no tecnicos
   - sincronizacion manual desde capitulo activo para detectar entidades nuevas
   - auto-sincronizacion al guardar hitos (agrega borradores de personajes/lugares para revision)
+- Capa de saga:
+  - creacion, guardado y apertura de sagas
+  - biblioteca con apartado propio para sagas
+  - vinculacion de libros a saga con orden de volumen
+  - biblia global del mundo compartido
+  - personajes de saga con aliases temporales y estado de ciclo de vida
+  - timeline canonica independiente del orden de lectura/publicacion
+- Solapa `Timeline` de saga:
+  - filtro por personaje y por libro
+  - ruta cronologica del personaje con aliases activos por tramo
+  - detalle del evento con referencias narrativas (`occurs`, `mentioned`, `revealed`)
+  - detalle de impactos sobre personajes por evento
+  - flechas de dependencia visual por carril (vista Gantt)
 - Carga diferida del panel IA (`AIPanel`): no se descarga/renderiza hasta abrir un libro, para acelerar arranque inicial.
 - Carga bajo demanda del pipeline de exportacion (`lib/export`): se importa solo cuando ejecutas una exportacion.
 - Apertura de libro optimizada: no reescribe masivamente `chapters/` ni `chats/` en cada carga; solo guarda cuando hay normalizacion/migracion real.
@@ -177,6 +229,7 @@ Cada capitulo (`chapters/NN.json`) guarda:
   - analisis de mercado por reglas transparentes (`kdp-rules-v1`) con racionales visibles
 - Formato interior editable (trim size, margenes, sangria, interlineado)
 - Editor TipTap + auto-guardado
+- Referencias semanticas en editor con autocompletado contextual (`@Personaje`, `#Lugar`)
 - Panel IA:
   - acciones rapidas (escribir desde idea, pulir, reescribir, expandir, acortar, consistencia, transiciones, profundidad, alineacion con base)
   - devolucion de capitulo/libro
@@ -184,10 +237,12 @@ Cada capitulo (`chapters/NN.json`) guarda:
   - seguimiento de personaje en chat (timeline por nombre + aliases detectados en capitulos)
   - filtro por rango de capitulos (`Desde cap` / `Hasta cap`) para seguimiento y resumen
   - boton `Resumen historia` (hechos relevantes + estado de conflicto/personajes)
+  - modo consultor con saltos contextuales a capitulo/timeline/reglas
   - modo auto-aplicar sin preguntar (iterativo)
   - agente continuo por rondas en chat de capitulo
   - bloqueo opcional de continuidad antes de persistir texto generado por IA
   - inyeccion automatica de `foundation` + `storyBible` en prompts (sin repetir contexto manual)
+  - inyeccion automatica del contexto de saga (`worldBible`) cuando el libro esta vinculado
   - filtrado contextual tipo RAG-light de personajes/lugares segun instruccion y capitulo activo
   - priorizacion por recencia de menciones (chat/contexto reciente) para mejorar seleccion de entidades
 - Presets de trabajo en Settings (borrador, precision, revision final)
@@ -212,6 +267,12 @@ Cada capitulo (`chapters/NN.json`) guarda:
 - Export editorial:
   - manuscrito `.docx` (editorial)
   - eBook `.epub`
+- Export modular por rol:
+  - pack cartografo `.zip`
+  - pack editor `.zip`
+  - pack cronologia `.zip`
+  - pack maquetacion `.zip`
+  - pack consultoria `.zip`
 - Export de estilo:
   - reporte `.txt` con resumen del libro y detalle por capitulo
 - Export Amazon:

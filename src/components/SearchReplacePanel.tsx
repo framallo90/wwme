@@ -1,4 +1,4 @@
-import type { ChapterSearchMatch, ReplacePreviewReport } from '../lib/searchReplace';
+import type { ChapterSearchMatch, ReplacePreviewReport, SagaBookSearchMatch } from '../lib/searchReplace';
 
 interface SearchReplacePanelProps {
   hasBook: boolean;
@@ -21,6 +21,12 @@ interface SearchReplacePanelProps {
   onReplaceInBook: () => void;
   onSelectChapter: (chapterId: string) => void;
   previewReport: ReplacePreviewReport | null;
+  hasSaga?: boolean;
+  sagaTitle?: string;
+  sagaSearchResults?: SagaBookSearchMatch[];
+  sagaSearchTotalMatches?: number;
+  onRunSagaSearch?: () => void;
+  onOpenSagaBook?: (bookPath: string) => void;
 }
 
 function SearchReplacePanel(props: SearchReplacePanelProps) {
@@ -149,6 +155,49 @@ function SearchReplacePanel(props: SearchReplacePanelProps) {
           ))
         )}
       </div>
+
+      {props.hasSaga && props.onRunSagaSearch && (
+        <section className="search-saga-section">
+          <header>
+            <h3>Busqueda global en saga</h3>
+            <p className="muted">
+              Saga: <strong>{props.sagaTitle || 'Sin titulo'}</strong>
+            </p>
+          </header>
+          <button type="button" onClick={props.onRunSagaSearch} disabled={props.busy}>
+            Buscar en toda la saga
+          </button>
+          {(props.sagaSearchTotalMatches ?? 0) > 0 && (
+            <p className="muted">
+              Total en saga: <strong>{props.sagaSearchTotalMatches}</strong> coincidencia/s en{' '}
+              <strong>{(props.sagaSearchResults ?? []).length}</strong> libro/s.
+            </p>
+          )}
+          <div className="search-saga-results">
+            {(props.sagaSearchResults ?? []).map((bookMatch) => (
+              <article key={bookMatch.bookPath} className="search-saga-book">
+                <header>
+                  <strong>{bookMatch.bookTitle}</strong>
+                  <span>{bookMatch.totalMatches} coincidencia/s</span>
+                  {props.onOpenSagaBook && (
+                    <button type="button" onClick={() => props.onOpenSagaBook?.(bookMatch.bookPath)}>
+                      Abrir libro
+                    </button>
+                  )}
+                </header>
+                <div className="search-saga-chapters">
+                  {bookMatch.chapters.map((ch) => (
+                    <div key={ch.chapterId} className="search-saga-chapter">
+                      <span>{ch.chapterTitle}</span>
+                      <span className="muted">{ch.matches} coincidencia/s</span>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
     </section>
   );
 }

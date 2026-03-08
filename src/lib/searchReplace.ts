@@ -1,4 +1,4 @@
-import type { ChapterDocument } from '../types/book';
+import type { BookProject, ChapterDocument } from '../types/book';
 
 export interface SearchReplaceOptions {
   caseSensitive: boolean;
@@ -9,6 +9,13 @@ export interface ChapterSearchMatch {
   chapterId: string;
   chapterTitle: string;
   matches: number;
+}
+
+export interface SagaBookSearchMatch {
+  bookPath: string;
+  bookTitle: string;
+  chapters: ChapterSearchMatch[];
+  totalMatches: number;
 }
 
 export interface ReplacePreviewItem {
@@ -320,4 +327,39 @@ export async function buildBookReplacePreviewAsync(
     affectedChapters: items.length,
     items: items.slice(0, Math.max(1, maxItems)),
   };
+}
+
+export async function buildSagaSearchMatchesAsync(
+  linkedBooks: BookProject[],
+  query: string,
+  options: SearchReplaceOptions,
+): Promise<{ books: SagaBookSearchMatch[]; totalMatches: number }> {
+  const normalizedQuery = query.trim();
+  if (!normalizedQuery) {
+    return { books: [], totalMatches: 0 };
+  }
+
+  const results: SagaBookSearchMatch[] = [];
+  let grandTotal = 0;
+
+  for (const book of linkedBooks) {
+    const orderedChapters = (book.metadata.chapterOrder ?? [])
+      .map((id) => book.chapters[id])
+      .filter((ch): ch is ChapterDocument => Boolean(ch));
+
+    const report = await buildBookSearchMatchesAsync(orderedChapters, normalizedQuery, options, 4);
+    if (report.totalMatches > 0) {
+      results.push({
+        bookPath: book.path,
+        bookTitle: book.metadata.title || book.path,
+        chapters: report.matches,
+        totalMatches: report.totalMatches,
+      });
+      grandTotal += report.totalMatches;
+    }
+
+    await yieldToEventLoop();
+  }
+
+  return { books: results, totalMatches: grandTotal };
 }

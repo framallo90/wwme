@@ -1,6 +1,6 @@
 import { validateAmazonMetadata } from './amazonValidation';
 import { normalizeLanguageCode } from './language';
-import type { AppConfig, BookMetadata } from '../types/book';
+import type { AppConfig, BookMetadata, EditorialChecklistCustomItem } from '../types/book';
 
 export type EditorialIssueLevel = 'error' | 'warning';
 
@@ -49,6 +49,23 @@ function toIssue(
   message: string,
 ): EditorialIssue {
   return { id, level, title, message };
+}
+
+function appendCustomChecklistIssues(issues: EditorialIssue[], customItems: EditorialChecklistCustomItem[]): void {
+  for (const item of customItems) {
+    if (item.checked) {
+      continue;
+    }
+
+    issues.push(
+      toIssue(
+        `editorial.custom.${item.id}`,
+        item.level,
+        item.title,
+        item.description || 'Pendiente editorial personalizado sin descripcion.',
+      ),
+    );
+  }
 }
 
 export function buildEditorialChecklist(metadata: BookMetadata, config: AppConfig): EditorialChecklistReport {
@@ -143,6 +160,8 @@ export function buildEditorialChecklist(metadata: BookMetadata, config: AppConfi
       ),
     );
   }
+
+  appendCustomChecklistIssues(issues, metadata.editorialChecklistCustom ?? []);
 
   const errors = issues.filter((item) => item.level === 'error');
   const warnings = issues.filter((item) => item.level === 'warning');

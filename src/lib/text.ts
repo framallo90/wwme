@@ -36,10 +36,23 @@ export function randomId(prefix = 'id'): string {
   return `${prefix}_${seed}`;
 }
 
+function parseHtmlToText(html: string): string {
+  const sanitized = html
+    .replace(
+      /<\s*(script|style|iframe|object|embed|link|meta|base|frame|frameset)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi,
+      '',
+    )
+    .replace(
+      /<\s*(script|style|iframe|object|embed|link|meta|base|frame|frameset)\b[^>]*\/?\s*>/gi,
+      '',
+    );
+  const parser = new DOMParser();
+  const parsed = parser.parseFromString(`<body>${sanitized}</body>`, 'text/html');
+  return parsed.body?.textContent ?? '';
+}
+
 export function stripHtml(html: string): string {
-  const element = document.createElement('div');
-  element.innerHTML = html;
-  return (element.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
+  return parseHtmlToText(html).replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function escapeHtml(value: string): string {
@@ -64,10 +77,33 @@ export function plainTextToHtml(value: string): string {
   return blocks.join('');
 }
 
+const NAMED_HTML_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: '\u00A0',
+};
+
 function decodeEntities(value: string): string {
-  const textArea = document.createElement('textarea');
-  textArea.innerHTML = value;
-  return textArea.value;
+  return value.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]+);/g, (entityMatch, entityValue: string) => {
+    if (entityValue.startsWith('#')) {
+      const raw = entityValue.slice(1);
+      const isHex = raw.startsWith('x') || raw.startsWith('X');
+      const numericValue = Number.parseInt(isHex ? raw.slice(1) : raw, isHex ? 16 : 10);
+      if (Number.isFinite(numericValue) && numericValue > 0 && numericValue <= 0x10ffff) {
+        try {
+          return String.fromCodePoint(numericValue);
+        } catch {
+          return entityMatch;
+        }
+      }
+      return entityMatch;
+    }
+
+    return NAMED_HTML_ENTITIES[entityValue.toLowerCase()] ?? entityMatch;
+  });
 }
 
 export function htmlToMarkdown(html: string): string {
@@ -151,6 +187,43 @@ const SUMMARY_HEADING_PATTERN =
 const SUMMARY_LINE_PATTERN =
   /^\s*[*_#>\-\s]*(resumen(?:\s+de)?\s+cambios?|cambios(?:\s+realizados)?|summary)\s*:?\s*(.*?)\s*[*_]*\s*$/i;
 const BULLET_LINE_PATTERN = /^\s*(?:[-*\u2022]\s+|\d+[.)]\s+)(.+?)\s*$/;
+const AI_CONTROL_LINE_PATTERN = /^\s*[*_#>\-\s]*(ESTADO|RESUMEN|RAZON|TEXTO)\s*[*_]*\s*:\s*(.*?)\s*[*_]*\s*$/i;
+
+function parseLeadingAiControlLines(lines: string[]): { remainingLines: string[]; summaryHints: string[] } {
+  let cursor = 0;
+  const summaryHints: string[] = [];
+
+  while (cursor < lines.length) {
+    const current = lines[cursor].trim();
+    if (!current) {
+      cursor += 1;
+      continue;
+    }
+
+    const match = current.match(AI_CONTROL_LINE_PATTERN);
+    if (!match) {
+      break;
+    }
+
+    const label = (match[1] ?? '').toUpperCase();
+    const inline = (match[2] ?? '').trim();
+    if ((label === 'RESUMEN' || label === 'RAZON') && inline) {
+      summaryHints.push(inline);
+    }
+
+    if (label === 'TEXTO' && inline) {
+      lines[cursor] = inline;
+      break;
+    }
+
+    cursor += 1;
+  }
+
+  return {
+    remainingLines: lines.slice(cursor),
+    summaryHints,
+  };
+}
 
 function extractBullet(line: string): string | null {
   const match = line.match(BULLET_LINE_PATTERN);
@@ -185,13 +258,48 @@ export interface ParsedAiOutput {
   summaryText: string;
 }
 
+function parseInlineTrailingBullets(value: string): ParsedAiOutput | null {
+  const firstBulletIndex = value.indexOf('•');
+  if (firstBulletIndex <= 0) {
+    return null;
+  }
+
+  const bulletBlock = value.slice(firstBulletIndex).trim();
+  const bulletItems = bulletBlock
+    .split('•')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (bulletItems.length < 4) {
+    return null;
+  }
+
+  if (bulletItems.some((item) => item.length > 220 || /\b(ESTADO|TEXTO|RAZON)\s*:/i.test(item))) {
+    return null;
+  }
+
+  const cleanText = value.slice(0, firstBulletIndex).trim();
+  if (!cleanText) {
+    return null;
+  }
+
+  return {
+    cleanText,
+    summaryBullets: bulletItems,
+    summaryText: bulletItems.map((bullet) => `- ${bullet}`).join('\n'),
+  };
+}
+
 export function splitAiOutputAndSummary(value: string): ParsedAiOutput {
   const normalized = normalizeAiOutput(value);
   if (!normalized) {
     return { cleanText: '', summaryBullets: [], summaryText: '' };
   }
 
-  const lines = normalized.replace(/\r\n/g, '\n').split('\n');
+  const baseLines = normalized.replace(/\r\n/g, '\n').split('\n');
+  const controlParse = parseLeadingAiControlLines(baseLines);
+  const lines = controlParse.remainingLines;
+  const leadingSummaryText = controlParse.summaryHints.join('\n').trim();
 
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const summaryLine = parseSummaryLine(lines[index]);
@@ -210,7 +318,7 @@ export function splitAiOutputAndSummary(value: string): ParsedAiOutput {
       return {
         cleanText: before,
         summaryBullets: bullets,
-        summaryText: bullets.map((bullet) => `- ${bullet}`).join('\n'),
+        summaryText: bullets.map((bullet) => `- ${bullet}`).join('\n') || leadingSummaryText,
       };
     }
 
@@ -219,7 +327,7 @@ export function splitAiOutputAndSummary(value: string): ParsedAiOutput {
       return {
         cleanText: before,
         summaryBullets: [],
-        summaryText,
+        summaryText: summaryText || leadingSummaryText,
       };
     }
 
@@ -227,7 +335,7 @@ export function splitAiOutputAndSummary(value: string): ParsedAiOutput {
       return {
         cleanText: before,
         summaryBullets: [],
-        summaryText: '',
+        summaryText: leadingSummaryText,
       };
     }
   }
@@ -268,11 +376,20 @@ export function splitAiOutputAndSummary(value: string): ParsedAiOutput {
       return {
         cleanText,
         summaryBullets: bullets,
-        summaryText: bullets.map((bullet) => `- ${bullet}`).join('\n'),
+        summaryText: bullets.map((bullet) => `- ${bullet}`).join('\n') || leadingSummaryText,
       };
     }
   }
 
-  return { cleanText: normalized, summaryBullets: [], summaryText: '' };
+  const sanitizedText = lines.join('\n').trim() || normalized;
+  const inlineBullets = parseInlineTrailingBullets(sanitizedText);
+  if (inlineBullets) {
+    return {
+      ...inlineBullets,
+      summaryText: inlineBullets.summaryText || leadingSummaryText,
+    };
+  }
+
+  return { cleanText: sanitizedText, summaryBullets: [], summaryText: leadingSummaryText };
 }
 

@@ -12,7 +12,8 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   aiResponseMode: 'equilibrado',
   autoVersioning: true,
   aiSafeMode: true,
-  autoApplyChatChanges: true,
+  autoApplyChatChanges: false,
+  bookAutoApplyEnabled: false,
   chatApplyIterations: 1,
   continuousAgentEnabled: true,
   continuousAgentMaxRounds: 3,
@@ -21,6 +22,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   backupEnabled: false,
   backupDirectory: '',
   backupIntervalMs: 120000,
+  expertWriterMode: false,
   accessibilityHighContrast: false,
   accessibilityLargeText: false,
   ollamaOptions: {

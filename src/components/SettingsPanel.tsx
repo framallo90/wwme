@@ -1,11 +1,16 @@
 import { useEffect, useState, type InputHTMLAttributes } from 'react';
 import type { AppConfig } from '../types/book';
+import { SYSTEM_PROMPT_PRESETS } from '../lib/prompts';
+import type { OllamaServiceStatus } from '../lib/ollamaClient';
 
 interface SettingsPanelProps {
   config: AppConfig;
   bookPath: string | null;
+  bookAutoApplyReleaseEnabled: boolean;
+  ollamaStatus: OllamaServiceStatus;
   onChange: (next: AppConfig) => void;
   onSave: () => void;
+  onRefreshOllamaStatus: () => void;
   onPickBackupDirectory: () => void;
   onRunBackupNow: () => void;
 }
@@ -43,14 +48,39 @@ function SettingsPanel(props: SettingsPanelProps) {
   return (
     <section className="settings-view">
       <header>
-        <h2>Settings</h2>
-        <p>Configuracion persistente local para IA y versionado.</p>
+        <h2>Preferencias</h2>
+        <p>Configuracion persistente local para IA, continuidad y resguardo.</p>
         <p>
           {props.bookPath
             ? `Ruta: ${props.bookPath}/config.json`
             : 'Abri un libro para guardar en mi-libro/config.json'}
         </p>
       </header>
+
+      <section className="settings-status-card">
+        <div className="settings-status-head">
+          <div>
+            <strong>IA local</strong>
+            <p className="muted">Si aqui ves "listo", la app ya puede usar Ollama sin abrir consola.</p>
+          </div>
+          <button
+            type="button"
+            onClick={props.onRefreshOllamaStatus}
+            disabled={props.ollamaStatus.state === 'checking'}
+          >
+            {props.ollamaStatus.state === 'checking' ? 'Revisando...' : 'Revisar IA local'}
+          </button>
+        </div>
+        <p className={`settings-status-text is-${props.ollamaStatus.state}`}>{props.ollamaStatus.message}</p>
+        <p className="muted">
+          Modelo configurado: {props.ollamaStatus.configuredModel || '(sin definir)'}
+        </p>
+        {props.ollamaStatus.availableModels.length > 0 ? (
+          <p className="muted">
+            Modelos detectados: {props.ollamaStatus.availableModels.slice(0, 6).join(', ')}
+          </p>
+        ) : null}
+      </section>
 
       <label>
         Modelo por defecto
@@ -123,13 +153,14 @@ function SettingsPanel(props: SettingsPanelProps) {
       </label>
 
       <label>
-        Auto-guardado (ms)
+        Auto-guardado continuo (ms)
         <NumericInput
           min="1000"
           value={config.autosaveIntervalMs}
           onChange={(val) => props.onChange({ ...config, autosaveIntervalMs: val })}
         />
       </label>
+      <p className="muted">WriteWMe guarda mientras escribes. `Ctrl + S` solo fuerza un flush inmediato.</p>
 
       <label className="checkbox-row">
         <input
@@ -148,6 +179,19 @@ function SettingsPanel(props: SettingsPanelProps) {
         />
         Chat aplica cambios automaticamente sin preguntar
       </label>
+
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={config.bookAutoApplyEnabled}
+          disabled={!props.bookAutoApplyReleaseEnabled}
+          onChange={(event) => props.onChange({ ...config, bookAutoApplyEnabled: event.target.checked })}
+        />
+        Permitir auto-aplicado en scope libro (alto impacto)
+      </label>
+      {!props.bookAutoApplyReleaseEnabled ? (
+        <p className="muted">Politica de release activa: auto-aplicado de libro bloqueado en esta build.</p>
+      ) : null}
 
       <label>
         Iteraciones automaticas del chat
@@ -181,6 +225,15 @@ function SettingsPanel(props: SettingsPanelProps) {
           onChange={(event) => props.onChange({ ...config, continuityGuardEnabled: event.target.checked })}
         />
         Bloqueo de continuidad IA (revisa contradicciones antes de guardar)
+      </label>
+
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={config.expertWriterMode}
+          onChange={(event) => props.onChange({ ...config, expertWriterMode: event.target.checked })}
+        />
+        Modo escritor experto (reduce ayudas basicas y no abre la guia inicial automaticamente)
       </label>
 
       <label className="checkbox-row">
@@ -261,6 +314,9 @@ function SettingsPanel(props: SettingsPanelProps) {
       >
         Backup ahora
       </button>
+      <p className="muted">
+        Cada backup crea una copia de resguardo versionada con timestamp y `backup-manifest.json`. Si el libro pertenece a una saga, se intenta copiar tambien.
+      </p>
 
       <div className="preset-row">
         <button
@@ -274,6 +330,7 @@ function SettingsPanel(props: SettingsPanelProps) {
               continuousAgentEnabled: false,
               continuousAgentMaxRounds: 2,
               continuityGuardEnabled: false,
+              bookAutoApplyEnabled: false,
             })
           }
         >
@@ -290,6 +347,7 @@ function SettingsPanel(props: SettingsPanelProps) {
               continuousAgentEnabled: true,
               continuousAgentMaxRounds: 3,
               continuityGuardEnabled: true,
+              bookAutoApplyEnabled: false,
             })
           }
         >
@@ -306,12 +364,31 @@ function SettingsPanel(props: SettingsPanelProps) {
               continuousAgentEnabled: true,
               continuousAgentMaxRounds: 4,
               continuityGuardEnabled: true,
+              bookAutoApplyEnabled: false,
             })
           }
         >
           Preset revision final
         </button>
       </div>
+
+      <label>
+        Preset de genero (carga un system prompt base)
+        <select
+          defaultValue=""
+          onChange={(event) => {
+            const preset = SYSTEM_PROMPT_PRESETS.find((p) => p.id === event.target.value);
+            if (preset) {
+              props.onChange({ ...config, systemPrompt: preset.prompt });
+            }
+          }}
+        >
+          <option value="">— Elegir preset —</option>
+          {SYSTEM_PROMPT_PRESETS.map((preset) => (
+            <option key={preset.id} value={preset.id}>{preset.label}</option>
+          ))}
+        </select>
+      </label>
 
       <label>
         System prompt fijo

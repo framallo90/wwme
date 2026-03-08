@@ -6,6 +6,15 @@ import { exists, readFile } from '@tauri-apps/plugin-fs';
 import AppShell from './app/AppShell';
 import Sidebar from './components/Sidebar';
 import TopToolbar from './components/TopToolbar';
+import './styles/tokens.css';
+import './App.css';
+import './styles/ai-panel.css';
+import './styles/atlas.css';
+import './styles/editor.css';
+import './styles/saga-panel.css';
+import './styles/sidebar.css';
+import './styles/timeline.css';
+import './styles/top-toolbar.css';
 import type { TiptapEditorHandle } from './components/TiptapEditor';
 import { formatChapterLengthLabel, getChapterLengthProfile, resolveChapterLengthPreset } from './lib/chapterLength';
 import { DEFAULT_APP_CONFIG } from './lib/config';
@@ -19,7 +28,7 @@ import {
   pickSpeechVoice,
   type AudioPlaybackState,
 } from './lib/audio';
-import { generateWithOllama } from './lib/ollamaClient';
+import { generateWithOllama, inspectOllamaService, type OllamaServiceStatus } from './lib/ollamaClient';
 import {
   AI_ACTIONS,
   buildActionPrompt,
@@ -27,7 +36,9 @@ import {
   buildChatPrompt,
   buildContinuityGuardPrompt,
   buildContinuousChapterPrompt,
+  parseContinuousAgentOutput,
   parseContinuityGuardOutput,
+  selectSagaWorldForPrompt,
   selectStoryBibleForPrompt,
 } from './lib/prompts';
 import { getLanguageInstruction, normalizeLanguageCode } from './lib/language';
@@ -36,11 +47,14 @@ import OnboardingPanel from './components/OnboardingPanel';
 import ChangeReviewModal from './components/ChangeReviewModal';
 import EditorialChecklistModal from './components/EditorialChecklistModal';
 import {
+  attachBookToSaga,
   clearBackCoverImage,
   clearCoverImage,
   createBookProject,
+  createSagaProject,
   createChapter,
   deleteChapter,
+  detachBookFromSaga,
   duplicateChapter,
   getBackCoverAbsolutePath,
   getCoverAbsolutePath,
@@ -51,14 +65,25 @@ import {
   loadBookChatMessages,
   loadChapterChatMessages,
   loadPromptTemplates,
+  recoverPendingAiTransactions,
+  recordAiTrustIncident,
+  loadSagaProject,
   savePromptTemplates,
   readCollaborationPatchFile,
+  rollbackAiTransaction,
+  startAiTransaction,
+  saveSagaMetadata,
+  writeAiSessionAudit,
+  commitAiTransaction,
   writeCollaborationPatchExport,
   syncBookToBackupDirectory,
+  syncBookReferenceInLinkedSaga,
   resolveBookDirectory,
   moveChapter,
+  moveSagaBook,
   renameChapter,
   removeBookFromLibrary,
+  removeSagaFromLibrary,
   saveAppConfig,
   saveBookMetadata,
   saveBookChatMessages,
@@ -67,12 +92,15 @@ import {
   saveChapterSnapshot,
   setBackCoverImage,
   setCoverImage,
+  updateSagaBookVolume,
   upsertBookInLibrary,
+  upsertSagaInLibrary,
 } from './lib/storage';
 import {
   buildBookSearchMatches,
   buildBookSearchMatchesAsync,
   buildBookReplacePreviewAsync,
+  buildSagaSearchMatchesAsync,
   replaceMatchesInHtml,
   type ChapterSearchMatch,
   type ReplacePreviewReport,
@@ -85,28 +113,43 @@ import {
   formatCollaborationPatchPreviewMessage,
 } from './lib/collaborationPatchPreview';
 import { buildStoryBibleAutoSyncFromChapter } from './lib/storyBibleSync';
+import { buildContinuityGuardReport, buildContinuityHighlights } from './lib/continuityGuard';
+import { buildChapterContinuityBriefing } from './lib/chapterContinuityBriefing';
+import { applyBookCreationTemplate, type BookCreationTemplateId } from './lib/projectTemplates';
+import { buildSagaCanonicalView, buildUnifiedStoryBibleIndex, filterStoryBibleByCanon } from './lib/canon';
+import {
+  buildSemanticReferenceCatalog,
+  findSemanticReferenceMatch,
+  type SemanticReferenceKind,
+} from './lib/semanticReferences';
 import {
   buildStoryProgressDigest,
   buildStoryProgressPrompt,
   formatStoryProgressFallback,
 } from './lib/storyProgressSummary';
+import { buildSagaConsistencyReport } from './lib/sagaConsistency';
 import { buildEditorialChecklist, type EditorialChecklistReport } from './lib/editorialChecklist';
+import { applyBookAutoRewrite } from './lib/bookAutoApply';
 import { getNowIso, normalizeAiOutput, plainTextToHtml, randomId, splitAiOutputAndSummary, stripHtml } from './lib/text';
 import type {
+  AiAssistantMode,
   AppConfig,
   BookChats,
   BookProject,
+  ChapterDocument,
   ChapterLengthPreset,
+  ChapterManuscriptNote,
   ChapterRangeFilter,
   ChatMessage,
   ChatScope,
   CollaborationPatch,
+  EditorialChecklistCustomItem,
   LibraryIndex,
   MainView,
   PromptTemplate,
+  SagaProject,
 } from './types/book';
 
-import './App.css';
 
 const LazyAIPanel = lazy(() => import('./components/AIPanel'));
 const LazyAmazonPanel = lazy(() => import('./components/AmazonPanel'));
@@ -117,11 +160,19 @@ const LazyHelpPanel = lazy(() => import('./components/HelpPanel'));
 const LazyLanguagePanel = lazy(() => import('./components/LanguagePanel'));
 const LazyOutlineView = lazy(() => import('./components/OutlineView'));
 const LazyPreviewView = lazy(() => import('./components/PreviewView'));
+const LazyPlotBoardView = lazy(() => import('./components/PlotBoardView'));
+const LazyRelationshipGraphView = lazy(() => import('./components/RelationshipGraphView'));
+const LazySagaPanel = lazy(() => import('./components/SagaPanel'));
 const LazySearchReplacePanel = lazy(() => import('./components/SearchReplacePanel'));
 const LazySettingsPanel = lazy(() => import('./components/SettingsPanel'));
 const LazyStoryBiblePanel = lazy(() => import('./components/StoryBiblePanel'));
 const LazyStylePanel = lazy(() => import('./components/StylePanel'));
+const LazyTimelineView = lazy(() => import('./components/TimelineView'));
 const LazyVersionDiffView = lazy(() => import('./components/VersionDiffView'));
+const LazyWorldMapView = lazy(() => import('./components/WorldMapView'));
+const LazyScratchpadView = lazy(() => import('./components/ScratchpadView'));
+const LazyLooseThreadsView = lazy(() => import('./components/LooseThreadsView'));
+const LazyCharacterMatrixView = lazy(() => import('./components/CharacterMatrixView'));
 
 let exportModulePromise: Promise<typeof import('./lib/export')> | null = null;
 
@@ -147,19 +198,6 @@ function buildBookContext(book: BookProject, chaptersOverride?: BookProject['cha
     .join('\n\n');
 }
 
-function parseContinuousAgentOutput(raw: string): { status: 'DONE' | 'CONTINUE'; summary: string; text: string } {
-  const normalized = raw.trim();
-  const statusMatch = normalized.match(/ESTADO:\s*(DONE|CONTINUE)/i);
-  const summaryMatch = normalized.match(/RESUMEN:\s*(.*)/i);
-  const textMatch = normalized.match(/TEXTO:\s*([\s\S]*)$/i);
-
-  const status = (statusMatch?.[1]?.toUpperCase() as 'DONE' | 'CONTINUE' | undefined) ?? 'CONTINUE';
-  const summary = summaryMatch?.[1]?.trim() ?? '';
-  const text = textMatch?.[1]?.trim() || normalized;
-
-  return { status, summary, text };
-}
-
 function buildSummaryMessage(summaryText: string, title?: string): string {
   const trimmed = summaryText.trim();
   if (!trimmed) {
@@ -171,6 +209,247 @@ function buildSummaryMessage(summaryText: string, title?: string): string {
   }
 
   return `${title}\n${trimmed}`;
+}
+
+function buildIdleOllamaStatus(configuredModel: string): OllamaServiceStatus {
+  return {
+    state: 'idle',
+    configuredModel: configuredModel.trim(),
+    availableModels: [],
+    message: 'Chequea IA local para validar Ollama y el modelo configurado.',
+  };
+}
+
+interface AiChangeCardEntry {
+  chapterId?: string;
+  label: string;
+  beforeText: string;
+  afterText: string;
+}
+
+function formatSignedDelta(value: number): string {
+  if (value > 0) {
+    return `+${formatNumber(value)}`;
+  }
+  return formatNumber(value);
+}
+
+function splitPinnedRules(value: string): string[] {
+  return value
+    .split(/\r?\n|;/g)
+    .map((entry) => entry.replace(/^[-*]\s*/, '').trim())
+    .filter(Boolean);
+}
+
+const CONTEXT_TOKEN_PATTERN = /[\p{L}\p{N}']+/gu;
+const CONTEXT_STOPWORDS = new Set([
+  'a',
+  'al',
+  'con',
+  'como',
+  'de',
+  'del',
+  'el',
+  'ella',
+  'en',
+  'es',
+  'esta',
+  'este',
+  'la',
+  'las',
+  'lo',
+  'los',
+  'para',
+  'por',
+  'que',
+  'se',
+  'sin',
+  'un',
+  'una',
+  'y',
+]);
+
+function normalizeContextToken(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function extractContextTokens(value: string, maxTokens = 180): Set<string> {
+  const tokens = new Set<string>();
+  const matches = value.match(CONTEXT_TOKEN_PATTERN) ?? [];
+  for (const token of matches) {
+    const normalized = normalizeContextToken(token);
+    if (normalized.length < 3 || CONTEXT_STOPWORDS.has(normalized)) {
+      continue;
+    }
+    tokens.add(normalized);
+    if (tokens.size >= maxTokens) {
+      break;
+    }
+  }
+  return tokens;
+}
+
+function scoreContextOverlap(base: Set<string>, candidate: Set<string>): number {
+  let score = 0;
+  for (const token of candidate) {
+    if (base.has(token)) {
+      score += 1;
+    }
+  }
+  return score;
+}
+
+interface ContextJumpMarker {
+  kind: 'chapter' | 'timeline' | 'saga-rule';
+  id: string;
+  label: string;
+}
+
+interface ContextEvidenceMarker {
+  kind: 'chapter' | 'timeline' | 'saga-rule';
+  id: string;
+  label: string;
+  snippet: string;
+}
+
+function sanitizeContextMarkerValue(value: string, maxLength = 200): string {
+  const compact = value.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!compact) {
+    return '';
+  }
+  const cleaned = compact.replace(/[|\]]+/g, ' ');
+  if (cleaned.length <= maxLength) {
+    return cleaned;
+  }
+  return `${cleaned.slice(0, Math.max(40, maxLength - 1)).trim()}…`;
+}
+
+function extractContextEvidenceSnippet(
+  source: string,
+  tokens: Set<string>,
+  maxLength = 170,
+): string {
+  const normalizedSource = source.replace(/\s+/g, ' ').trim();
+  if (!normalizedSource) {
+    return '';
+  }
+
+  const sentences = normalizedSource
+    .split(/[.!?\n]+/g)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (sentences.length === 0) {
+    return sanitizeContextMarkerValue(normalizedSource, maxLength);
+  }
+
+  let bestSentence = sentences[0];
+  let bestScore = -1;
+  for (const sentence of sentences) {
+    const score = scoreContextOverlap(tokens, extractContextTokens(sentence, 64));
+    if (score > bestScore) {
+      bestScore = score;
+      bestSentence = sentence;
+    }
+  }
+
+  return sanitizeContextMarkerValue(bestSentence, maxLength);
+}
+
+function appendContextJumpMarkers(
+  answer: string,
+  markers: ContextJumpMarker[],
+  evidenceMarkers: ContextEvidenceMarker[] = [],
+): string {
+  if (markers.length === 0 && evidenceMarkers.length === 0) {
+    return answer;
+  }
+
+  const lines: string[] = [answer.trim()];
+  if (markers.length > 0) {
+    lines.push('', 'Saltos contextuales sugeridos:');
+    lines.push(
+      ...markers.map((marker) => {
+        const label = sanitizeContextMarkerValue(marker.label, 120);
+        return `[[JUMP:${marker.kind}:${marker.id}|${label}]]`;
+      }),
+    );
+  }
+
+  if (evidenceMarkers.length > 0) {
+    lines.push('', 'Evidencia interna consultada:');
+    lines.push(
+      ...evidenceMarkers.map((marker) => {
+        const label = sanitizeContextMarkerValue(marker.label, 110);
+        const snippet = sanitizeContextMarkerValue(marker.snippet, 180);
+        return `[[CITE:${marker.kind}:${marker.id}|${label}|${snippet}]]`;
+      }),
+    );
+  }
+
+  return lines.filter((line) => line.length > 0).join('\n');
+}
+
+function buildAiChangeCard(input: {
+  operation: string;
+  scopeLabel: string;
+  entries: AiChangeCardEntry[];
+  continuityCorrections?: number;
+  extractedSummaries?: number;
+  interrupted?: boolean;
+}): string {
+  const scopedEntries = input.entries.filter((entry) => entry.label.trim().length > 0);
+  if (scopedEntries.length === 0) {
+    return `Tarjeta de cambios IA:\n- Operacion: ${input.operation}\n- Alcance: ${input.scopeLabel}\n- Sin cambios aplicados.`;
+  }
+
+  const entryStats = scopedEntries.map((entry) => {
+    const beforeWords = countWordsFromPlainText(entry.beforeText);
+    const afterWords = countWordsFromPlainText(entry.afterText);
+    return {
+      ...entry,
+      beforeWords,
+      afterWords,
+      deltaWords: afterWords - beforeWords,
+    };
+  });
+
+  const totalBeforeWords = entryStats.reduce((total, entry) => total + entry.beforeWords, 0);
+  const totalAfterWords = entryStats.reduce((total, entry) => total + entry.afterWords, 0);
+  const totalDeltaWords = totalAfterWords - totalBeforeWords;
+  const deltaRatio = totalBeforeWords > 0 ? (totalDeltaWords / totalBeforeWords) * 100 : null;
+
+  const lines = [
+    'Tarjeta de cambios IA:',
+    `- Operacion: ${input.operation}`,
+    `- Alcance: ${input.scopeLabel}`,
+    `- Capitulos tocados: ${entryStats.length}`,
+    `- Palabras: ${formatNumber(totalBeforeWords)} -> ${formatNumber(totalAfterWords)} (${formatSignedDelta(totalDeltaWords)}${deltaRatio === null ? '' : `, ${deltaRatio >= 0 ? '+' : ''}${deltaRatio.toFixed(1)}%`})`,
+  ];
+  if (typeof input.extractedSummaries === 'number') {
+    lines.push(`- Resumenes detectados: ${input.extractedSummaries}`);
+  }
+  if (typeof input.continuityCorrections === 'number') {
+    lines.push(`- Correcciones continuidad: ${input.continuityCorrections}`);
+  }
+  if (input.interrupted) {
+    lines.push('- Estado: proceso interrumpido por validacion manual.');
+  }
+
+  lines.push('Detalle:');
+  for (const entry of entryStats.slice(0, 6)) {
+    lines.push(
+      `- ${entry.label}: ${formatNumber(entry.beforeWords)} -> ${formatNumber(entry.afterWords)} (${formatSignedDelta(entry.deltaWords)})`,
+    );
+  }
+
+  if (entryStats.length > 6) {
+    lines.push(`- ... ${entryStats.length - 6} capitulo/s adicional/es.`);
+  }
+
+  return lines.join('\n');
 }
 
 function formatUnknownError(error: unknown): string {
@@ -297,12 +576,166 @@ const FALLBACK_INTERIOR_FORMAT = {
   marginOutsideMm: 16,
   paragraphIndentEm: 1.4,
   lineHeight: 1.55,
+  dropCapEnabled: false,
+  sceneBreakGlyph: '* * *',
+  widowOrphanControl: true,
+  chapterOpeningStyle: 'standard' as const,
 };
 const AUTOSAVE_TIMEOUT_MS = 15_000;
 const REPLACE_BOOK_YIELD_EVERY = 3;
-const ONBOARDING_DISMISSED_KEY = 'writewme:onboarding-dismissed-v1';
+const ONBOARDING_DISMISSED_LEGACY_KEY = 'writewme:onboarding-dismissed-v1';
+const ONBOARDING_STATE_KEY = 'writewme:onboarding-state-v2';
+const SESSION_STATE_KEY = 'writewme:last-session-v1';
 const AI_SAFE_MIN_DIFF_WORDS = 120;
 const AI_SAFE_MIN_CHANGE_RATIO = 0.28;
+const RELEASE_BOOK_AUTO_APPLY_ENABLED =
+  String((import.meta as ImportMeta & { env?: Record<string, unknown> }).env?.VITE_ALLOW_BOOK_AUTO_APPLY ?? 'false')
+    .toLowerCase()
+    .trim() === 'true';
+const RESTORABLE_MAIN_VIEWS = new Set<MainView>([
+  'editor',
+  'outline',
+  'preview',
+  'diff',
+  'style',
+  'cover',
+  'foundation',
+  'bible',
+  'saga',
+  'timeline',
+  'plot',
+  'relations',
+  'atlas',
+  'amazon',
+  'search',
+  'settings',
+  'language',
+]);
+
+interface PersistedSessionState {
+  bookPath: string;
+  activeChapterId: string | null;
+  mainView: MainView;
+  savedAt: string;
+}
+
+interface PersistedOnboardingState {
+  autoOpenedOnce: boolean;
+  dismissedForever: boolean;
+  writingStarted: boolean;
+  completed: boolean;
+  lastUpdated: string;
+}
+
+function createDefaultOnboardingState(): PersistedOnboardingState {
+  return {
+    autoOpenedOnce: false,
+    dismissedForever: false,
+    writingStarted: false,
+    completed: false,
+    lastUpdated: '',
+  };
+}
+
+function loadPersistedOnboardingState(): PersistedOnboardingState {
+  const fallback = createDefaultOnboardingState();
+
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return fallback;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(ONBOARDING_STATE_KEY);
+    if (!raw) {
+      const legacyDismissed = window.localStorage.getItem(ONBOARDING_DISMISSED_LEGACY_KEY) === '1';
+      return legacyDismissed ? { ...fallback, dismissedForever: true } : fallback;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<PersistedOnboardingState> | null;
+    if (!parsed || typeof parsed !== 'object') {
+      return fallback;
+    }
+
+    return {
+      autoOpenedOnce: parsed.autoOpenedOnce === true,
+      dismissedForever: parsed.dismissedForever === true,
+      writingStarted: parsed.writingStarted === true,
+      completed: parsed.completed === true,
+      lastUpdated: typeof parsed.lastUpdated === 'string' ? parsed.lastUpdated : '',
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function savePersistedOnboardingState(state: PersistedOnboardingState): void {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(ONBOARDING_STATE_KEY, JSON.stringify(state));
+    if (state.dismissedForever) {
+      window.localStorage.setItem(ONBOARDING_DISMISSED_LEGACY_KEY, '1');
+    } else {
+      window.localStorage.removeItem(ONBOARDING_DISMISSED_LEGACY_KEY);
+    }
+  } catch {
+    // Ignora errores de persistencia para no bloquear la app.
+  }
+}
+
+function loadPersistedSessionState(): PersistedSessionState | null {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(SESSION_STATE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<PersistedSessionState> | null;
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+
+    if (typeof parsed.bookPath !== 'string' || !parsed.bookPath.trim()) {
+      return null;
+    }
+    if (typeof parsed.mainView !== 'string' || !RESTORABLE_MAIN_VIEWS.has(parsed.mainView as MainView)) {
+      return null;
+    }
+    if (
+      parsed.activeChapterId !== null &&
+      parsed.activeChapterId !== undefined &&
+      typeof parsed.activeChapterId !== 'string'
+    ) {
+      return null;
+    }
+
+    return {
+      bookPath: parsed.bookPath.trim(),
+      activeChapterId: typeof parsed.activeChapterId === 'string' ? parsed.activeChapterId : null,
+      mainView: parsed.mainView as MainView,
+      savedAt: typeof parsed.savedAt === 'string' ? parsed.savedAt : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function savePersistedSessionState(state: PersistedSessionState): void {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(SESSION_STATE_KEY, JSON.stringify(state));
+  } catch {
+    // Ignora errores de persistencia para no bloquear la app.
+  }
+}
 
 interface CoverFileInfo {
   extension: string;
@@ -329,6 +762,39 @@ interface EditorialIntentState {
   report: EditorialChecklistReport | null;
   intentLabel: string;
   onProceed?: (() => void) | null;
+}
+
+interface AiRollbackSessionState {
+  id: string;
+  label: string;
+  scope: ChatScope;
+  bookPath: string;
+  createdAt: string;
+  chapterOrder: string[];
+  chaptersBefore: Record<string, ChapterDocument>;
+}
+
+function cloneContentJsonForRollback(value: unknown | null | undefined): unknown | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  try {
+    return structuredClone(value);
+  } catch {
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch {
+      return null;
+    }
+  }
+}
+
+function cloneChapterForRollback(chapter: ChapterDocument): ChapterDocument {
+  return {
+    ...chapter,
+    contentJson: cloneContentJsonForRollback(chapter.contentJson),
+  };
 }
 
 function inferImageMimeFromPath(path: string): string {
@@ -390,12 +856,16 @@ interface ExpansionGuardResult {
   text: string;
   summaryText: string;
   corrected: boolean;
+  highRisk: boolean;
+  riskReason: string;
 }
 
 interface ContinuityGuardResult {
   text: string;
   summaryText: string;
   corrected: boolean;
+  highRisk: boolean;
+  riskReason: string;
 }
 
 type CoverProject = {
@@ -519,6 +989,8 @@ function App() {
   const backCoverSrcRef = useRef<string | null>(null);
   const backupInFlightRef = useRef(false);
   const lastBackupAtRef = useRef(0);
+  const ollamaStatusRequestRef = useRef(0);
+  const onboardingAutoHandledRef = useRef(false);
   const audioUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const chatMessagesRef = useRef<BookChats>({
     book: [],
@@ -535,13 +1007,19 @@ function App() {
   });
 
   const [config, setConfig] = useState<AppConfig>(DEFAULT_APP_CONFIG);
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaServiceStatus>(() => buildIdleOllamaStatus(DEFAULT_APP_CONFIG.model));
   const [book, setBook] = useState<BookProject | null>(null);
+  const [activeSaga, setActiveSaga] = useState<SagaProject | null>(null);
+  const [sagaChapterOptionsByBook, setSagaChapterOptionsByBook] = useState<
+    Record<string, Array<{ id: string; title: string }>>
+  >({});
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [mainView, setMainView] = useState<MainView>('editor');
   const [status, setStatus] = useState('Listo.');
   const [aiBusy, setAiBusy] = useState(false);
   const [audioPlaybackState, setAudioPlaybackState] = useState<AudioPlaybackState>('idle');
   const [chatScope, setChatScope] = useState<ChatScope>('chapter');
+  const [aiAssistantMode, setAiAssistantMode] = useState<AiAssistantMode>('rewrite');
   const [chatMessages, setChatMessages] = useState<BookChats>({
     book: [],
     chapters: {},
@@ -550,12 +1028,14 @@ function App() {
   const [backCoverSrc, setBackCoverSrc] = useState<string | null>(null);
   const [libraryIndex, setLibraryIndex] = useState<LibraryIndex>({
     books: [],
+    sagas: [],
     statusRules: {
       advancedChapterThreshold: 6,
     },
     updatedAt: getNowIso(),
   });
   const [libraryExpanded, setLibraryExpanded] = useState(true);
+  const [libraryLoaded, setLibraryLoaded] = useState(false);
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -568,8 +1048,12 @@ function App() {
   const [searchMatches, setSearchMatches] = useState<ChapterSearchMatch[]>([]);
   const [searchTotalMatches, setSearchTotalMatches] = useState(0);
   const [searchPreviewReport, setSearchPreviewReport] = useState<ReplacePreviewReport | null>(null);
+  const [sagaSearchResults, setSagaSearchResults] = useState<import('./lib/searchReplace').SagaBookSearchMatch[]>([]);
+  const [sagaSearchTotalMatches, setSagaSearchTotalMatches] = useState(0);
   const [canUndoEdit, setCanUndoEdit] = useState(false);
   const [canRedoEdit, setCanRedoEdit] = useState(false);
+  const [continuityHighlightEnabled, setContinuityHighlightEnabled] = useState(true);
+  const [continuityBriefingRefreshNonce, setContinuityBriefingRefreshNonce] = useState(0);
   const [snapshotRedoNonce, setSnapshotRedoNonce] = useState(0);
   const [coverLoadDiagnostics, setCoverLoadDiagnostics] = useState<{ cover: string | null; backCover: string | null }>({
     cover: null,
@@ -586,6 +1070,7 @@ function App() {
   } | null>(null);
   const [languageSaveState, setLanguageSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [aiSafeReview, setAiSafeReview] = useState<AiSafeReviewState | null>(null);
+  const [lastAiRollbackSession, setLastAiRollbackSession] = useState<AiRollbackSessionState | null>(null);
   const [editorialIntent, setEditorialIntent] = useState<EditorialIntentState>({
     isOpen: false,
     allowProceed: false,
@@ -606,6 +1091,78 @@ function App() {
     onConfirm: (value: string) => void;
   } | null>(null);
   const focusMode = leftPanelCollapsed && rightPanelCollapsed;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!activeSaga) {
+      setSagaChapterOptionsByBook({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const loadOptions = async () => {
+      const pairs = await Promise.all(
+        activeSaga.metadata.books.map(async (linkedBook) => {
+          try {
+            const project = await loadBookProject(linkedBook.bookPath);
+            const options = project.metadata.chapterOrder.map((chapterId, index) => ({
+              id: chapterId,
+              title: project.chapters[chapterId]?.title || `Capitulo ${index + 1}`,
+            }));
+            return [linkedBook.bookPath, options] as const;
+          } catch {
+            return [linkedBook.bookPath, []] as const;
+          }
+        }),
+      );
+
+      if (cancelled) {
+        return;
+      }
+
+      setSagaChapterOptionsByBook(Object.fromEntries(pairs));
+    };
+
+    void loadOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSaga]);
+
+  const refreshOllamaStatus = useCallback(async () => {
+    const requestId = ollamaStatusRequestRef.current + 1;
+    ollamaStatusRequestRef.current = requestId;
+    setOllamaStatus((previous) => ({
+      ...previous,
+      state: 'checking',
+      configuredModel: config.model.trim(),
+      message: 'Comprobando Ollama local...',
+    }));
+
+    const statusReport = await inspectOllamaService(config.model);
+    if (ollamaStatusRequestRef.current !== requestId) {
+      return;
+    }
+
+    setOllamaStatus(statusReport);
+  }, [config.model]);
+
+  useEffect(() => {
+    if (!book?.path) {
+      setOllamaStatus(buildIdleOllamaStatus(config.model));
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void refreshOllamaStatus();
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [book?.path, config.model, refreshOllamaStatus]);
 
   const orderedChapters = useMemo(() => {
     if (!book) {
@@ -636,6 +1193,109 @@ function App() {
 
     return book.chapters[activeChapterId] ?? null;
   }, [activeChapterId, book]);
+
+  const activeChapterNumber = useMemo(() => {
+    if (!book || !activeChapter) {
+      return null;
+    }
+
+    const index = book.metadata.chapterOrder.indexOf(activeChapter.id);
+    return index >= 0 ? index + 1 : null;
+  }, [activeChapter, book]);
+
+  const canonicalStoryBible = useMemo(() => {
+    if (!book) {
+      return null;
+    }
+    return filterStoryBibleByCanon(book.metadata.storyBible);
+  }, [book]);
+
+  const canonicalLinkedSagaWorld = useMemo(() => {
+    if (!book?.metadata.sagaPath) {
+      return null;
+    }
+
+    if (!activeSaga || activeSaga.path !== book.metadata.sagaPath) {
+      return null;
+    }
+
+    return buildSagaCanonicalView(activeSaga)?.metadata.worldBible ?? null;
+  }, [activeSaga, book?.metadata.sagaPath]);
+
+  const storyBibleChronicleIndex = useMemo(() => {
+    if (!canonicalStoryBible) {
+      return null;
+    }
+
+    return buildUnifiedStoryBibleIndex(canonicalStoryBible, canonicalLinkedSagaWorld);
+  }, [canonicalLinkedSagaWorld, canonicalStoryBible]);
+
+  const continuityHighlights = useMemo(() => {
+    if (!storyBibleChronicleIndex) {
+      return [];
+    }
+
+    return buildContinuityHighlights(storyBibleChronicleIndex);
+  }, [storyBibleChronicleIndex]);
+
+  const activeChapterContinuityReport = useMemo(() => {
+    if (!book || !activeChapter) {
+      return null;
+    }
+
+    const activeIndex = orderedChapters.findIndex((chapter) => chapter.id === activeChapter.id);
+    const priorChapterTexts =
+      activeIndex > 0
+        ? orderedChapters
+            .slice(Math.max(0, activeIndex - 8), activeIndex)
+            .map((chapter) => stripHtml(chapter.content))
+        : [];
+
+    return buildContinuityGuardReport({
+      chapterText: stripHtml(activeChapter.content),
+      storyBible: storyBibleChronicleIndex ?? canonicalStoryBible ?? book.metadata.storyBible,
+      chapterNumber: activeChapterNumber,
+      priorChapterTexts,
+    });
+  }, [activeChapter, activeChapterNumber, book, canonicalStoryBible, orderedChapters, storyBibleChronicleIndex]);
+
+  const semanticReferencesCatalog = useMemo(
+    () =>
+      buildSemanticReferenceCatalog({
+        storyBible: storyBibleChronicleIndex ?? canonicalStoryBible ?? book?.metadata.storyBible ?? null,
+        targetView: activeSaga ? 'saga' : 'bible',
+        continuityReport: activeChapterContinuityReport,
+      }),
+    [activeChapterContinuityReport, activeSaga, book?.metadata.storyBible, canonicalStoryBible, storyBibleChronicleIndex],
+  );
+  const semanticReferenceCharacterCount = useMemo(
+    () => semanticReferencesCatalog.filter((entry) => entry.kind === 'character').length,
+    [semanticReferencesCatalog],
+  );
+  const semanticReferenceLocationCount = useMemo(
+    () => semanticReferencesCatalog.filter((entry) => entry.kind === 'location').length,
+    [semanticReferencesCatalog],
+  );
+  const activeChapterContinuityBriefing = useMemo(
+    () => {
+      void continuityBriefingRefreshNonce;
+      return buildChapterContinuityBriefing({
+        chapters: orderedChapters,
+        activeChapterId,
+        storyBible: storyBibleChronicleIndex ?? canonicalStoryBible ?? book?.metadata.storyBible ?? null,
+        looseThreads: book?.metadata.looseThreads ?? [],
+      });
+    },
+    [
+      activeChapterId,
+      book?.metadata.looseThreads,
+      book?.metadata.storyBible,
+      canonicalStoryBible,
+      orderedChapters,
+      storyBibleChronicleIndex,
+      continuityBriefingRefreshNonce,
+    ],
+  );
 
   const currentMessages = useMemo(() => {
     if (!book) {
@@ -673,33 +1333,63 @@ function App() {
   }, [book]);
 
   const hasStoryBibleData = useMemo(() => {
-    if (!book) {
+    if (!storyBibleChronicleIndex) {
       return false;
     }
 
     return (
-      book.metadata.storyBible.characters.length > 0 ||
-      book.metadata.storyBible.locations.length > 0 ||
-      book.metadata.storyBible.continuityRules.trim().length > 0
+      storyBibleChronicleIndex.characters.length > 0 ||
+      storyBibleChronicleIndex.locations.length > 0 ||
+      storyBibleChronicleIndex.continuityRules.trim().length > 0
     );
-  }, [book]);
+  }, [storyBibleChronicleIndex]);
 
-  const hasAmazonCoreData = useMemo(() => {
-    if (!book) {
-      return false;
+  const hasMeaningfulWriting = useMemo(
+    () =>
+      orderedChapters.some((chapter) => {
+        if (countWordsFromHtml(chapter.content) > 0) {
+          return true;
+        }
+
+        return stripHtml(chapter.content).trim().length > 0;
+      }),
+    [orderedChapters],
+  );
+
+  const hasCompletedOnboardingCore = Boolean(book) && orderedChapters.length > 0 && hasMeaningfulWriting && (
+    hasFoundationData || hasStoryBibleData
+  );
+
+  const linkedSagaForBook = useMemo(() => {
+    if (!book?.metadata.sagaPath) {
+      return null;
     }
 
-    const amazon = book.metadata.amazon;
-    const hasKeyword = amazon.keywords.some((item) => item.trim().length > 0);
-    const hasCategory = amazon.categories.some((item) => item.trim().length > 0);
-    return Boolean(
-      amazon.kdpTitle.trim() &&
-      amazon.penName.trim() &&
-      amazon.longDescription.trim().length >= 40 &&
-      hasKeyword &&
-      hasCategory,
-    );
-  }, [book]);
+    if (!activeSaga || activeSaga.path !== book.metadata.sagaPath) {
+      return null;
+    }
+
+    return activeSaga;
+  }, [activeSaga, book?.metadata.sagaPath]);
+
+  const activeBookSagaTitle = useMemo(() => {
+    if (!book?.metadata.sagaPath) {
+      return null;
+    }
+
+    const fromLibrary = libraryIndex.sagas.find((entry) => entry.path === book.metadata.sagaPath);
+    if (fromLibrary) {
+      return fromLibrary.title;
+    }
+
+    if (activeSaga && activeSaga.path === book.metadata.sagaPath) {
+      return activeSaga.metadata.title;
+    }
+
+    return 'Saga vinculada';
+  }, [activeSaga, book?.metadata.sagaPath, libraryIndex.sagas]);
+
+  const activeSagaChronicleView = useMemo(() => buildSagaCanonicalView(activeSaga), [activeSaga]);
 
   const editorialChecklistReport = useMemo(() => {
     if (!book) {
@@ -708,6 +1398,93 @@ function App() {
 
     return buildEditorialChecklist(book.metadata, config);
   }, [book, config]);
+
+  const buildSagaPromptContext = useCallback(
+    (
+      queryText: string,
+      options?: {
+        recentText?: string;
+        recencyWeight?: number;
+        maxEntitiesPerSection?: number;
+        maxTimelineEvents?: number;
+      },
+    ): { sagaTitle: string | null; sagaWorld: SagaProject['metadata']['worldBible'] | null } => {
+      if (!linkedSagaForBook) {
+        return {
+          sagaTitle: null,
+          sagaWorld: null,
+        };
+      }
+
+      return {
+        sagaTitle: linkedSagaForBook.metadata.title,
+        sagaWorld: selectSagaWorldForPrompt(linkedSagaForBook.metadata.worldBible, queryText, options),
+      };
+    },
+    [linkedSagaForBook],
+  );
+
+  const aiContextSummary = useMemo(() => {
+    if (!book) {
+      return null;
+    }
+
+    const historyPreview = currentMessages
+      .slice(-8)
+      .map((item) => `${item.role === 'user' ? 'Usuario' : 'Asistente'}: ${item.content}`)
+      .join('\n');
+    const chapterText = activeChapter ? stripHtml(activeChapter.content) : '';
+    const querySeed = [
+      book.metadata.title,
+      activeChapter?.title ?? '',
+      chapterText.slice(0, 3000),
+      historyPreview,
+    ]
+      .filter(Boolean)
+      .join('\n');
+    const storyBibleSelection = selectStoryBibleForPrompt(
+      storyBibleChronicleIndex ?? canonicalStoryBible ?? book.metadata.storyBible,
+      querySeed,
+      {
+        recentText: historyPreview,
+        recencyWeight: 1.1,
+      },
+    );
+    const sagaContextSelection = buildSagaPromptContext(querySeed, {
+      recentText: historyPreview,
+      recencyWeight: 1.1,
+    });
+    const pinnedRules = splitPinnedRules(sagaContextSelection.sagaWorld?.pinnedAiRules ?? '');
+
+    return {
+      scopeLabel: chatScope === 'chapter' ? 'Capitulo activo' : 'Libro completo',
+      manuscriptLabel:
+        chatScope === 'chapter'
+          ? activeChapter?.title?.trim() || 'Capitulo activo'
+          : `${orderedChapters.length} capitulo/s del manuscrito`,
+      storyBibleCharacters: storyBibleSelection.characters.length,
+      storyBibleLocations: storyBibleSelection.locations.length,
+      storyBibleHasRules: storyBibleSelection.continuityRules.trim().length > 0,
+      sagaTitle: sagaContextSelection.sagaTitle,
+      sagaCharacters: sagaContextSelection.sagaWorld?.characters.length ?? 0,
+      sagaLocations: sagaContextSelection.sagaWorld?.locations.length ?? 0,
+      sagaTimelineEvents: sagaContextSelection.sagaWorld?.timeline.length ?? 0,
+      sagaSecrets: sagaContextSelection.sagaWorld?.secrets?.length ?? 0,
+      sagaRelationships: sagaContextSelection.sagaWorld?.relationships.length ?? 0,
+      pinnedRuleCount: pinnedRules.length,
+      pinnedRulesPreview: pinnedRules.slice(0, 3),
+      historyMessageCount: Math.min(currentMessages.length, 8),
+    };
+  }, [
+    activeChapter,
+    book,
+    buildSagaPromptContext,
+    canonicalStoryBible,
+    chatScope,
+    currentMessages,
+    orderedChapters.length,
+    storyBibleChronicleIndex,
+  ]);
 
   useEffect(() => {
     chatMessagesRef.current = chatMessages;
@@ -740,16 +1517,67 @@ function App() {
   }, [book]);
 
   useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(ONBOARDING_DISMISSED_KEY);
-      const dismissed = stored === '1';
-      if (!dismissed) {
-        setOnboardingOpen(true);
-      }
-    } catch {
-      setOnboardingOpen(true);
+    if (!libraryLoaded || onboardingAutoHandledRef.current) {
+      return;
     }
-  }, []);
+
+    const persisted = loadPersistedOnboardingState();
+    const hasExistingWorkspace = libraryIndex.books.length > 0 || libraryIndex.sagas.length > 0;
+
+    if (config.expertWriterMode) {
+      onboardingAutoHandledRef.current = true;
+      return;
+    }
+
+    if (persisted.dismissedForever || persisted.autoOpenedOnce || persisted.completed || persisted.writingStarted) {
+      onboardingAutoHandledRef.current = true;
+      return;
+    }
+
+    if (hasExistingWorkspace || hasMeaningfulWriting || hasCompletedOnboardingCore) {
+      savePersistedOnboardingState({
+        ...persisted,
+        autoOpenedOnce: true,
+        writingStarted: persisted.writingStarted || hasMeaningfulWriting,
+        completed: persisted.completed || hasCompletedOnboardingCore,
+        lastUpdated: getNowIso(),
+      });
+      onboardingAutoHandledRef.current = true;
+      return;
+    }
+
+    setOnboardingOpen(true);
+    savePersistedOnboardingState({
+      ...persisted,
+      autoOpenedOnce: true,
+      lastUpdated: getNowIso(),
+    });
+    onboardingAutoHandledRef.current = true;
+  }, [
+    hasCompletedOnboardingCore,
+    hasMeaningfulWriting,
+    libraryIndex.books.length,
+    libraryIndex.sagas.length,
+    libraryLoaded,
+    config.expertWriterMode,
+  ]);
+
+  useEffect(() => {
+    if (!hasMeaningfulWriting && !hasCompletedOnboardingCore) {
+      return;
+    }
+
+    const persisted = loadPersistedOnboardingState();
+    const nextState: PersistedOnboardingState = {
+      ...persisted,
+      autoOpenedOnce: persisted.autoOpenedOnce || hasMeaningfulWriting || hasCompletedOnboardingCore,
+      writingStarted: persisted.writingStarted || hasMeaningfulWriting,
+      completed: persisted.completed || hasCompletedOnboardingCore,
+      lastUpdated: getNowIso(),
+    };
+
+    savePersistedOnboardingState(nextState);
+  }, [hasCompletedOnboardingCore, hasMeaningfulWriting]);
 
   const ensureScopeMessagesLoaded = useCallback(
     async (scope: ChatScope, chapterId?: string): Promise<ChatMessage[]> => {
@@ -952,8 +1780,47 @@ function App() {
     [activeLanguage, config.audioRate, config.audioVoiceName, config.audioVolume],
   );
 
+  const checkStrictSagaValidationBlockForBook = useCallback(async () => {
+    if (!book?.metadata.sagaPath) {
+      return null;
+    }
+
+    let linkedSaga: SagaProject | null = null;
+    if (activeSaga && activeSaga.path === book.metadata.sagaPath) {
+      linkedSaga = activeSaga;
+    } else {
+      try {
+        linkedSaga = await loadSagaProject(book.metadata.sagaPath);
+      } catch {
+        return null;
+      }
+    }
+
+    if (!linkedSaga.metadata.strictValidationMode) {
+      return null;
+    }
+
+    const report = buildSagaConsistencyReport(linkedSaga);
+    if (report.errorCount <= 0) {
+      return null;
+    }
+
+    return {
+      sagaTitle: linkedSaga.metadata.title || 'Saga',
+      errorCount: report.errorCount,
+    };
+  }, [activeSaga, book]);
+
   const handleExportActiveChapterAudio = useCallback(async () => {
     if (!book || !activeChapter) {
+      return;
+    }
+
+    const strictBlock = await checkStrictSagaValidationBlockForBook();
+    if (strictBlock) {
+      setStatus(
+        `Exportacion bloqueada por modo estricto en saga "${strictBlock.sagaTitle}": ${strictBlock.errorCount} error(es) de coherencia.`,
+      );
       return;
     }
 
@@ -962,7 +1829,7 @@ function App() {
       buildChapterAudioExportPath(book.path, book.metadata, activeChapter),
       'Audio de capitulo exportado',
     );
-  }, [book, activeChapter, exportAudioToWav]);
+  }, [book, activeChapter, checkStrictSagaValidationBlockForBook, exportAudioToWav]);
 
   const interiorFormat = useMemo(
     () => book?.metadata.interiorFormat ?? FALLBACK_INTERIOR_FORMAT,
@@ -1089,6 +1956,53 @@ function App() {
     setSnapshotRedoNonce((value) => value + 1);
   }, []);
 
+  const registerAiRollbackSession = useCallback(
+    (input: {
+      label: string;
+      scope: ChatScope;
+      bookPath: string;
+      chapterOrder: string[];
+      chaptersBefore: Record<string, ChapterDocument>;
+    }) => {
+      if (input.chapterOrder.length === 0) {
+        return;
+      }
+
+      setLastAiRollbackSession({
+        id: randomId('rollback'),
+        label: input.label,
+        scope: input.scope,
+        bookPath: input.bookPath,
+        createdAt: getNowIso(),
+        chapterOrder: [...input.chapterOrder],
+        chaptersBefore: { ...input.chaptersBefore },
+      });
+    },
+    [],
+  );
+
+  const recordTrustIncident = useCallback(
+    async (bookPath: string, incident: Parameters<typeof recordAiTrustIncident>[1]) => {
+      try {
+        await recordAiTrustIncident(bookPath, incident);
+      } catch {
+        // No bloquea flujo principal si falla metrica local.
+      }
+    },
+    [],
+  );
+
+  const writeSessionAudit = useCallback(
+    async (bookPath: string, input: Parameters<typeof writeAiSessionAudit>[1]) => {
+      try {
+        await writeAiSessionAudit(bookPath, input);
+      } catch {
+        // No bloquea flujo principal si falla auditoria local.
+      }
+    },
+    [],
+  );
+
   const canRedoSnapshots = useMemo(() => {
     const refreshToken = snapshotRedoNonce;
     void refreshToken;
@@ -1118,6 +2032,8 @@ function App() {
           text: cleanedCandidate,
           summaryText: parsedCandidate.summaryText,
           corrected: false,
+          highRisk: false,
+          riskReason: '',
         };
       }
 
@@ -1127,6 +2043,8 @@ function App() {
           text: cleanedCandidate,
           summaryText: parsedCandidate.summaryText,
           corrected: false,
+          highRisk: false,
+          riskReason: '',
         };
       }
 
@@ -1136,8 +2054,14 @@ function App() {
           text: cleanedCandidate,
           summaryText: parsedCandidate.summaryText,
           corrected: false,
+          highRisk: false,
+          riskReason: '',
         };
       }
+
+      const severeShortfallThreshold = Math.max(80, Math.round(minimumWords * 0.7));
+      const severeShortfall = candidateWords < severeShortfallThreshold;
+      const shortfallReason = `Expansion guard: salida corta (${candidateWords}/${minimumWords} palabras).`;
 
       const recoveryPrompt = buildExpansionRecoveryPrompt({
         instruction: input.instruction,
@@ -1162,6 +2086,8 @@ function App() {
           text: recoveredText,
           summaryText: recoveredParsed.summaryText || parsedCandidate.summaryText,
           corrected: true,
+          highRisk: severeShortfall,
+          riskReason: severeShortfall ? shortfallReason : '',
         };
       }
 
@@ -1170,6 +2096,8 @@ function App() {
           text: input.originalText,
           summaryText: recoveredParsed.summaryText || parsedCandidate.summaryText,
           corrected: true,
+          highRisk: true,
+          riskReason: `${shortfallReason} Se restauro texto original por recuperacion incompleta.`,
         };
       }
 
@@ -1177,6 +2105,8 @@ function App() {
         text: cleanedCandidate,
         summaryText: recoveredParsed.summaryText || parsedCandidate.summaryText,
         corrected: false,
+        highRisk: true,
+        riskReason: `${shortfallReason} Recuperacion no alcanzo el minimo requerido.`,
       };
     },
     [config, activeLanguage],
@@ -1198,11 +2128,20 @@ function App() {
           text: cleanedCandidate,
           summaryText: '',
           corrected: false,
+          highRisk: false,
+          riskReason: '',
         };
       }
 
       const storyBibleForGuard = selectStoryBibleForPrompt(
-        book.metadata.storyBible,
+        storyBibleChronicleIndex ?? canonicalStoryBible ?? book.metadata.storyBible,
+        `${input.userInstruction}\n${input.chapterTitle}\n${input.originalText}\n${cleanedCandidate}`,
+        {
+          recentText: input.recentText ?? '',
+          recencyWeight: 1.3,
+        },
+      );
+      const sagaContext = buildSagaPromptContext(
         `${input.userInstruction}\n${input.chapterTitle}\n${input.originalText}\n${cleanedCandidate}`,
         {
           recentText: input.recentText ?? '',
@@ -1215,6 +2154,8 @@ function App() {
         language: activeLanguage,
         foundation: book.metadata.foundation,
         storyBible: storyBibleForGuard,
+        sagaTitle: sagaContext.sagaTitle,
+        sagaWorld: sagaContext.sagaWorld,
         chapterTitle: input.chapterTitle,
         originalText: input.originalText,
         candidateText: cleanedCandidate,
@@ -1231,19 +2172,28 @@ function App() {
       const guardedText = (parsedText.cleanText || parsed.text).trim();
       const finalText = guardedText || cleanedCandidate;
       const corrected = parsed.status === 'FAIL' || finalText !== cleanedCandidate;
+      const highRisk = parsed.status === 'FAIL';
+      const evidenceText = parsed.evidence?.trim();
+      const riskReason = highRisk
+        ? parsed.reason?.trim()
+          ? `Continuity guard: ${parsed.reason.trim()}${evidenceText ? ` | Evidencia: ${evidenceText}` : ''}`
+          : 'Continuity guard: se detectaron contradicciones relevantes.'
+        : '';
 
       return {
         text: finalText,
         summaryText:
           parsed.status === 'FAIL'
             ? parsed.reason
-              ? `Continuidad corregida: ${parsed.reason}`
+              ? `Continuidad corregida: ${parsed.reason}${evidenceText ? ` | Evidencia: ${evidenceText}` : ''}`
               : 'Continuidad corregida automaticamente.'
             : '',
         corrected,
+        highRisk,
+        riskReason,
       };
     },
-    [book, config, activeLanguage],
+    [book, config, activeLanguage, buildSagaPromptContext, canonicalStoryBible, storyBibleChronicleIndex],
   );
 
   const refreshCovers = useCallback((project: CoverProject | null) => {
@@ -1387,8 +2337,12 @@ function App() {
   }, []);
 
   const refreshLibrary = useCallback(async () => {
-    const index = await loadLibraryIndex();
-    setLibraryIndex(index);
+    try {
+      const index = await loadLibraryIndex();
+      setLibraryIndex(index);
+    } finally {
+      setLibraryLoaded(true);
+    }
   }, []);
 
   const handleRetryCoverLoad = useCallback(() => {
@@ -1406,9 +2360,28 @@ function App() {
     setStatus('Reintentando carga de portada/contraportada...');
   }, [book, refreshCovers]);
 
+  const syncSagaToLibrary = useCallback(async (project: SagaProject, options?: { markOpened?: boolean }) => {
+    const nextIndex = await upsertSagaInLibrary(project, options);
+    setLibraryIndex(nextIndex);
+  }, []);
+
+  const syncMultipleBooksToLibrary = useCallback(async (projects: BookProject[]): Promise<LibraryIndex> => {
+    let nextIndex = await loadLibraryIndex();
+    for (const project of projects) {
+      nextIndex = await upsertBookInLibrary(project);
+    }
+    setLibraryIndex(nextIndex);
+    return nextIndex;
+  }, []);
+
   const syncBookToLibrary = useCallback(
     async (project: BookProject, options?: { markOpened?: boolean }) => {
-      const nextIndex = await upsertBookInLibrary(project, options);
+      let nextIndex = await upsertBookInLibrary(project, options);
+      const syncedSaga = await syncBookReferenceInLinkedSaga(project);
+      if (syncedSaga) {
+        nextIndex = await upsertSagaInLibrary(syncedSaga);
+        setActiveSaga((previous) => (previous && previous.path === syncedSaga.path ? syncedSaga : previous));
+      }
       setLibraryIndex(nextIndex);
     },
     [],
@@ -1441,10 +2414,16 @@ function App() {
 
       backupInFlightRef.current = true;
       try {
-        const targetPath = await syncBookToBackupDirectory(book.path, backupDirectory);
+        const backupResult = await syncBookToBackupDirectory(book.path, backupDirectory, {
+          linkedSagaPath: book.metadata.sagaPath,
+        });
         lastBackupAtRef.current = Date.now();
         if (mode === 'manual') {
-          setStatus(`Backup completado en: ${targetPath}`);
+          setStatus(
+            backupResult.copiedSaga
+              ? `Resguardo versionado creado en: ${backupResult.targetPath} (incluye saga vinculada).`
+              : `Resguardo versionado creado en: ${backupResult.targetPath}.`,
+          );
         }
         return true;
       } catch (error) {
@@ -1510,13 +2489,16 @@ function App() {
   );
 
   const dismissOnboardingForever = useCallback(() => {
-    try {
-      window.localStorage.setItem(ONBOARDING_DISMISSED_KEY, '1');
-    } catch {
-      // Ignora errores de almacenamiento local.
-    }
+    const persisted = loadPersistedOnboardingState();
+    savePersistedOnboardingState({
+      ...persisted,
+      autoOpenedOnce: true,
+      dismissedForever: true,
+      lastUpdated: getNowIso(),
+    });
     setOnboardingOpen(false);
-    setStatus('Onboarding desactivado para este equipo.');
+    onboardingAutoHandledRef.current = true;
+    setStatus('La guia inicial ya no se abrira automaticamente en este equipo.');
   }, []);
 
   const requestAiSafeReview = useCallback(
@@ -1593,6 +2575,33 @@ function App() {
       setActiveChapterId(book.metadata.chapterOrder[0] ?? null);
     }
   }, [book, activeChapterId]);
+
+  useEffect(() => {
+    if (!book) {
+      return;
+    }
+
+    savePersistedSessionState({
+      bookPath: book.path,
+      activeChapterId,
+      mainView,
+      savedAt: getNowIso(),
+    });
+  }, [book, activeChapterId, mainView]);
+
+  useEffect(() => {
+    setLastAiRollbackSession((previous) => {
+      if (!previous) {
+        return previous;
+      }
+
+      if (!book || previous.bookPath !== book.path) {
+        return null;
+      }
+
+      return previous;
+    });
+  }, [book]);
 
   useEffect(() => {
     if (!book) {
@@ -1750,6 +2759,15 @@ function App() {
         book: [...project.metadata.chats.book],
         chapters: { ...project.metadata.chats.chapters },
       };
+      const persistedSession = loadPersistedSessionState();
+      const shouldRestoreSession = persistedSession?.bookPath === project.path;
+      const restoredChapterId =
+        shouldRestoreSession &&
+        persistedSession?.activeChapterId &&
+        project.chapters[persistedSession.activeChapterId]
+          ? persistedSession.activeChapterId
+          : project.metadata.chapterOrder[0] ?? null;
+      const restoredMainView = shouldRestoreSession ? persistedSession?.mainView ?? 'outline' : 'outline';
 
       setBook(project);
       setChatMessages(initialChats);
@@ -1772,8 +2790,8 @@ function App() {
         window.clearTimeout(languageSaveResetTimerRef.current);
         languageSaveResetTimerRef.current = null;
       }
-      setActiveChapterId(project.metadata.chapterOrder[0] ?? null);
-      setMainView('outline');
+      setActiveChapterId(restoredChapterId);
+      setMainView(restoredMainView);
       setChatScope('chapter');
       refreshCovers(project);
       dirtyRef.current = false;
@@ -1788,7 +2806,9 @@ function App() {
 
   const loadProject = useCallback(
     async (projectPath: string) => {
-      const loaded = await loadBookProject(projectPath);
+      const resolvedProjectPath = await resolveBookDirectory(projectPath);
+      const recovery = await recoverPendingAiTransactions(resolvedProjectPath);
+      const loaded = await loadBookProject(resolvedProjectPath);
       let loadedConfig: AppConfig = DEFAULT_APP_CONFIG;
 
       try {
@@ -1803,6 +2823,17 @@ function App() {
       }
 
       applyOpenedProjectState(loaded, loadedConfig);
+      if (loaded.metadata.sagaPath) {
+        try {
+          const linkedSaga = await loadSagaProject(loaded.metadata.sagaPath);
+          setActiveSaga(linkedSaga);
+          await syncSagaToLibrary(linkedSaga, { markOpened: true });
+        } catch (error) {
+          setStatus(
+            `Libro abierto: no se pudo cargar la saga vinculada (${formatUnknownError(error)}).`,
+          );
+        }
+      }
 
       try {
         await syncBookToLibrary(loaded, { markOpened: true });
@@ -1813,15 +2844,22 @@ function App() {
         return;
       }
 
+      if (recovery.recoveredTransactions > 0) {
+        setStatus(
+          `Libro abierto: ${loaded.metadata.title} | Recuperacion automatica aplicada (${recovery.recoveredTransactions} transaccion/es, ${recovery.restoredChapters} capitulo/s restaurados).`,
+        );
+        return;
+      }
+
       setStatus(`Libro abierto: ${loaded.metadata.title}`);
     },
-    [applyOpenedProjectState, syncBookToLibrary],
+    [applyOpenedProjectState, syncBookToLibrary, syncSagaToLibrary],
   );
 
-  const handleCreateBook = useCallback(async () => {
+  const handleCreateBook = useCallback(async (template: BookCreationTemplateId = 'blank') => {
     function openTitleStep(defaultValue = 'Mi libro'): void {
       setPromptModal({
-        title: 'Crear nuevo libro',
+        title: template === 'saga' ? 'Crear libro desde plantilla de saga' : 'Crear nuevo libro',
         label: 'Titulo del libro',
         defaultValue,
         confirmLabel: 'Siguiente',
@@ -1833,7 +2871,7 @@ function App() {
 
     function openAuthorStep(resolvedTitle: string): void {
       setPromptModal({
-        title: 'Crear nuevo libro',
+        title: template === 'saga' ? 'Crear libro desde plantilla de saga' : 'Crear nuevo libro',
         label: 'Autor',
         defaultValue: 'Autor',
         confirmLabel: 'Crear libro',
@@ -1860,29 +2898,48 @@ function App() {
             const author = authorInput.trim() || 'Autor';
             setStatus('Crear libro: creando estructura del libro...');
             const created = await createBookProject(selectedDirectory, resolvedTitle, author);
+            const templated = applyBookCreationTemplate(created, template);
+            let initialized = created;
+            if (template !== 'blank') {
+              const savedMetadata = await saveBookMetadata(templated.path, templated.metadata);
+              const primaryChapterId = savedMetadata.chapterOrder[0] ?? null;
+              const chapters = { ...templated.chapters };
+              if (primaryChapterId && chapters[primaryChapterId]) {
+                chapters[primaryChapterId] = await saveChapter(templated.path, chapters[primaryChapterId]);
+              }
+              initialized = {
+                ...templated,
+                metadata: savedMetadata,
+                chapters,
+              };
+            }
 
             let loadedConfig: AppConfig = DEFAULT_APP_CONFIG;
             try {
-              loadedConfig = await loadAppConfig(created.path);
+              loadedConfig = await loadAppConfig(initialized.path);
             } catch {
               try {
-                await saveAppConfig(created.path, DEFAULT_APP_CONFIG);
+                await saveAppConfig(initialized.path, DEFAULT_APP_CONFIG);
               } catch {
                 // Continua con defaults aunque falle la escritura.
               }
             }
 
-            applyOpenedProjectState(created, loadedConfig);
+            applyOpenedProjectState(initialized, loadedConfig);
             try {
-              await syncBookToLibrary(created, { markOpened: true });
+              await syncBookToLibrary(initialized, { markOpened: true });
             } catch (error) {
               setStatus(
-                `Crear libro: ${created.metadata.title} (sin actualizar biblioteca: ${formatUnknownError(error)})`,
+                `Crear libro: ${initialized.metadata.title} (sin actualizar biblioteca: ${formatUnknownError(error)})`,
               );
               return;
             }
 
-            setStatus(`Libro creado y abierto: ${created.metadata.title}`);
+            setStatus(
+              template === 'saga'
+                ? `Libro de saga creado y abierto: ${initialized.metadata.title}`
+                : `Libro creado y abierto: ${initialized.metadata.title}`,
+            );
           } catch (error) {
             setStatus(`Crear libro: ${formatUnknownError(error)}`);
           }
@@ -1892,6 +2949,373 @@ function App() {
 
     openTitleStep();
   }, [applyOpenedProjectState, syncBookToLibrary]);
+
+  const handleCreateSaga = useCallback(() => {
+    setPromptModal({
+      title: 'Crear nueva saga',
+      label: 'Titulo de la saga',
+      defaultValue: 'Mi saga',
+      confirmLabel: 'Crear saga',
+      onConfirm: async (titleInput) => {
+        setPromptModal(null);
+        try {
+          const selectedDirectoryResult = await open({
+            directory: true,
+            multiple: false,
+            recursive: true,
+            title: 'Selecciona carpeta padre de la saga',
+          });
+          const selectedDirectory = extractDialogPath(selectedDirectoryResult);
+
+          if (!selectedDirectory) {
+            setStatus('Crear saga: operacion cancelada.');
+            return;
+          }
+
+          const created = await createSagaProject(selectedDirectory, titleInput.trim() || 'Mi saga');
+          setActiveSaga(created);
+          setMainView('saga');
+          await syncSagaToLibrary(created, { markOpened: true });
+          setStatus(`Saga creada: ${created.metadata.title}`);
+        } catch (error) {
+          setStatus(`Crear saga: ${formatUnknownError(error)}`);
+        }
+      },
+    });
+  }, [syncSagaToLibrary]);
+
+  const handleSagaChange = useCallback((metadata: SagaProject['metadata']) => {
+    setActiveSaga((previous) => {
+      if (!previous) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        metadata,
+      };
+    });
+  }, []);
+
+  const handleSaveActiveSaga = useCallback(async () => {
+    if (!activeSaga) {
+      return;
+    }
+    const consistencyReport = activeSaga.metadata.strictValidationMode ? buildSagaConsistencyReport(activeSaga) : null;
+
+    try {
+      const savedMetadata = await saveSagaMetadata(activeSaga.path, activeSaga.metadata);
+      const savedProject: SagaProject = {
+        ...activeSaga,
+        metadata: savedMetadata,
+      };
+      setActiveSaga(savedProject);
+      await syncSagaToLibrary(savedProject, { markOpened: true });
+      if (consistencyReport && (consistencyReport.errorCount > 0 || consistencyReport.warningCount > 0)) {
+        setStatus(
+          `Saga guardada con alertas: ${consistencyReport.errorCount} incoherencia/s grave/s y ${consistencyReport.warningCount} aviso/s. Revisa esto antes de exportar.`,
+        );
+        return;
+      }
+      setStatus(`Saga guardada: ${savedMetadata.title}`);
+    } catch (error) {
+      setStatus(`No se pudo guardar la saga: ${formatUnknownError(error)}`);
+    }
+  }, [activeSaga, syncSagaToLibrary]);
+
+  const handleUpsertTimelineEvent = useCallback(
+    async (event: import('./types/book').SagaTimelineEvent) => {
+      if (!activeSaga) return;
+      const existing = activeSaga.metadata.worldBible.timeline;
+      const idx = existing.findIndex((e) => e.id === event.id);
+      const nextTimeline = idx >= 0
+        ? existing.map((e) => (e.id === event.id ? event : e))
+        : [...existing, event];
+      const nextSaga: SagaProject = {
+        ...activeSaga,
+        metadata: {
+          ...activeSaga.metadata,
+          worldBible: { ...activeSaga.metadata.worldBible, timeline: nextTimeline },
+        },
+      };
+      setActiveSaga(nextSaga);
+      try {
+        const saved = await saveSagaMetadata(nextSaga.path, nextSaga.metadata);
+        setActiveSaga({ ...nextSaga, metadata: saved });
+        setStatus(`Evento guardado: ${event.title || 'sin titulo'}`);
+      } catch (error) {
+        setStatus(`No se pudo guardar evento de timeline: ${formatUnknownError(error)}`);
+      }
+    },
+    [activeSaga],
+  );
+
+  const handleDeleteTimelineEvent = useCallback(
+    async (eventId: string) => {
+      if (!activeSaga) return;
+      const nextTimeline = activeSaga.metadata.worldBible.timeline.filter((e) => e.id !== eventId);
+      const nextSaga: SagaProject = {
+        ...activeSaga,
+        metadata: {
+          ...activeSaga.metadata,
+          worldBible: { ...activeSaga.metadata.worldBible, timeline: nextTimeline },
+        },
+      };
+      setActiveSaga(nextSaga);
+      try {
+        const saved = await saveSagaMetadata(nextSaga.path, nextSaga.metadata);
+        setActiveSaga({ ...nextSaga, metadata: saved });
+        setStatus('Evento eliminado.');
+      } catch (error) {
+        setStatus(`No se pudo eliminar evento: ${formatUnknownError(error)}`);
+      }
+    },
+    [activeSaga],
+  );
+
+  const handleReorderTimeline = useCallback(
+    async (reorderedTimeline: import('./types/book').SagaTimelineEvent[]) => {
+      if (!activeSaga) return;
+      const nextSaga: SagaProject = {
+        ...activeSaga,
+        metadata: {
+          ...activeSaga.metadata,
+          worldBible: { ...activeSaga.metadata.worldBible, timeline: reorderedTimeline },
+        },
+      };
+      setActiveSaga(nextSaga);
+      try {
+        const saved = await saveSagaMetadata(nextSaga.path, nextSaga.metadata);
+        setActiveSaga({ ...nextSaga, metadata: saved });
+        setStatus('Cronologia reordenada.');
+      } catch (error) {
+        setStatus(`No se pudo reordenar la cronologia: ${formatUnknownError(error)}`);
+      }
+    },
+    [activeSaga],
+  );
+
+  const handleUpsertRelationship = useCallback(
+    async (relationship: import('./types/book').SagaWorldRelationship) => {
+      if (!activeSaga) return;
+      const existing = activeSaga.metadata.worldBible.relationships;
+      const idx = existing.findIndex((r) => r.id === relationship.id);
+      const nextRelationships = idx >= 0
+        ? existing.map((r) => (r.id === relationship.id ? relationship : r))
+        : [...existing, relationship];
+      const nextSaga: SagaProject = {
+        ...activeSaga,
+        metadata: {
+          ...activeSaga.metadata,
+          worldBible: { ...activeSaga.metadata.worldBible, relationships: nextRelationships },
+        },
+      };
+      setActiveSaga(nextSaga);
+      try {
+        const saved = await saveSagaMetadata(nextSaga.path, nextSaga.metadata);
+        setActiveSaga({ ...nextSaga, metadata: saved });
+        setStatus('Relacion guardada.');
+      } catch (error) {
+        setStatus(`No se pudo guardar relacion: ${formatUnknownError(error)}`);
+      }
+    },
+    [activeSaga],
+  );
+
+  const handleDeleteRelationship = useCallback(
+    async (relationshipId: string) => {
+      if (!activeSaga) return;
+      const nextRelationships = activeSaga.metadata.worldBible.relationships.filter((r) => r.id !== relationshipId);
+      const nextSaga: SagaProject = {
+        ...activeSaga,
+        metadata: {
+          ...activeSaga.metadata,
+          worldBible: { ...activeSaga.metadata.worldBible, relationships: nextRelationships },
+        },
+      };
+      setActiveSaga(nextSaga);
+      try {
+        const saved = await saveSagaMetadata(nextSaga.path, nextSaga.metadata);
+        setActiveSaga({ ...nextSaga, metadata: saved });
+        setStatus('Relacion eliminada.');
+      } catch (error) {
+        setStatus(`No se pudo eliminar relacion: ${formatUnknownError(error)}`);
+      }
+    },
+    [activeSaga],
+  );
+
+  const handleOpenLibrarySaga = useCallback(
+    async (sagaPath: string) => {
+      const entry = libraryIndex.sagas.find((item) => item.path === sagaPath);
+      setStatus(`Abriendo saga: ${entry?.title ?? sagaPath}`);
+      try {
+        const loaded = await loadSagaProject(sagaPath);
+        setActiveSaga(loaded);
+        setMainView('saga');
+        await syncSagaToLibrary(loaded, { markOpened: true });
+        setStatus(`Saga abierta: ${loaded.metadata.title}`);
+      } catch (error) {
+        setStatus(`Biblioteca saga: ${formatUnknownError(error)}`);
+      }
+    },
+    [libraryIndex.sagas, syncSagaToLibrary],
+  );
+
+  const handleAttachActiveBookToSaga = useCallback(
+    async (sagaPath: string) => {
+      if (!book) {
+        setStatus('No hay libro activo para vincular.');
+        return;
+      }
+
+      try {
+        const result = await attachBookToSaga(book, sagaPath);
+        setBook(result.book);
+        setActiveSaga(result.saga);
+        let nextIndex = await upsertSagaInLibrary(result.saga, { markOpened: true });
+        setLibraryIndex(nextIndex);
+        if (result.updatedBooks.length > 0) {
+          nextIndex = await syncMultipleBooksToLibrary(result.updatedBooks);
+        } else {
+          nextIndex = await upsertBookInLibrary(result.book, { markOpened: true });
+        }
+        setLibraryIndex(nextIndex);
+        setMainView('saga');
+        setStatus(`Libro vinculado a saga: ${result.saga.metadata.title}`);
+      } catch (error) {
+        setStatus(`No se pudo vincular el libro a la saga: ${formatUnknownError(error)}`);
+      }
+    },
+    [book, syncMultipleBooksToLibrary],
+  );
+
+  const handleDetachActiveBookFromSaga = useCallback(async () => {
+    if (!book || !book.metadata.sagaPath) {
+      setStatus('El libro activo no pertenece a una saga.');
+      return;
+    }
+
+    try {
+      const result = await detachBookFromSaga(book);
+      const detachedSaga = result.saga;
+      setBook(result.book);
+      let nextIndex = await upsertBookInLibrary(result.book, { markOpened: true });
+      if (detachedSaga) {
+        nextIndex = await upsertSagaInLibrary(detachedSaga);
+        setActiveSaga((previous) => (previous && previous.path === detachedSaga.path ? detachedSaga : previous));
+      } else {
+        setActiveSaga((previous) => (previous && previous.path === book.metadata.sagaPath ? null : previous));
+      }
+      setLibraryIndex(nextIndex);
+      setStatus('Libro desvinculado de la saga.');
+    } catch (error) {
+      setStatus(`No se pudo desvincular el libro de la saga: ${formatUnknownError(error)}`);
+    }
+  }, [book]);
+
+  const handleUpdateActiveSagaBookVolume = useCallback(
+    async (bookPath: string, volumeNumber: number) => {
+      if (!activeSaga) {
+        setStatus('No hay saga activa para reorganizar.');
+        return;
+      }
+
+      try {
+        const result = await updateSagaBookVolume(activeSaga.path, bookPath, volumeNumber);
+        setActiveSaga(result.saga);
+        let nextIndex = await upsertSagaInLibrary(result.saga, { markOpened: true });
+        setLibraryIndex(nextIndex);
+        if (result.updatedBooks.length > 0) {
+          nextIndex = await syncMultipleBooksToLibrary(result.updatedBooks);
+        }
+        setLibraryIndex(nextIndex);
+        const currentBook = result.updatedBooks.find((entry) => book && entry.path === book.path);
+        if (currentBook) {
+          setBook(currentBook);
+        }
+        setStatus('Volumen actualizado y saga reordenada.');
+      } catch (error) {
+        setStatus(`No se pudo actualizar el volumen del libro: ${formatUnknownError(error)}`);
+      }
+    },
+    [activeSaga, book, syncMultipleBooksToLibrary],
+  );
+
+  const handleMoveActiveSagaBook = useCallback(
+    async (bookPath: string, direction: 'up' | 'down') => {
+      if (!activeSaga) {
+        setStatus('No hay saga activa para reorganizar.');
+        return;
+      }
+
+      try {
+        const result = await moveSagaBook(activeSaga.path, bookPath, direction);
+        setActiveSaga(result.saga);
+        let nextIndex = await upsertSagaInLibrary(result.saga, { markOpened: true });
+        setLibraryIndex(nextIndex);
+        if (result.updatedBooks.length > 0) {
+          nextIndex = await syncMultipleBooksToLibrary(result.updatedBooks);
+        }
+        setLibraryIndex(nextIndex);
+        const currentBook = result.updatedBooks.find((entry) => book && entry.path === book.path);
+        if (currentBook) {
+          setBook(currentBook);
+        }
+        setStatus(direction === 'up' ? 'Libro movido hacia arriba en la saga.' : 'Libro movido hacia abajo en la saga.');
+      } catch (error) {
+        setStatus(`No se pudo reordenar el libro en la saga: ${formatUnknownError(error)}`);
+      }
+    },
+    [activeSaga, book, syncMultipleBooksToLibrary],
+  );
+
+  const handleDeleteLibrarySaga = useCallback(
+    async (sagaPath: string) => {
+      const libraryEntry = libraryIndex.sagas.find((entry) => entry.path === sagaPath);
+      const title = libraryEntry?.title ?? 'esta saga';
+      const accepted = await confirm(
+        `Vas a eliminar "${title}" de la biblioteca y tambien su carpeta en disco.\nLos libros quedaran intactos, pero se desvincularan de la saga.`,
+        {
+          title: 'Eliminar saga',
+          kind: 'warning',
+          okLabel: 'Eliminar',
+          cancelLabel: 'Cancelar',
+        },
+      );
+
+      if (!accepted) {
+        return;
+      }
+
+      try {
+        const result = await removeSagaFromLibrary(sagaPath, { deleteFiles: true });
+        let nextIndex = result.index;
+        setLibraryIndex(nextIndex);
+        if (result.detachedBooks.length > 0) {
+          nextIndex = await syncMultipleBooksToLibrary(result.detachedBooks);
+        }
+
+        setLibraryIndex(nextIndex);
+        if (activeSaga && activeSaga.path === sagaPath) {
+          setActiveSaga(null);
+          setMainView((previous) =>
+            previous === 'saga' || previous === 'timeline' || previous === 'plot' || previous === 'atlas'
+              ? (book ? 'outline' : 'editor')
+              : previous,
+          );
+        }
+        const currentBook = result.detachedBooks.find((entry) => book && entry.path === book.path);
+        if (currentBook) {
+          setBook(currentBook);
+        }
+        setStatus(`Saga eliminada: ${title}`);
+      } catch (error) {
+        setStatus(`No se pudo eliminar la saga: ${formatUnknownError(error)}`);
+      }
+    },
+    [activeSaga, book, libraryIndex.sagas, syncMultipleBooksToLibrary],
+  );
 
   const handleOpenBook = useCallback(async () => {
     try {
@@ -1935,7 +3359,11 @@ function App() {
       chapters: {},
     };
     setActiveChapterId(null);
-    setMainView('editor');
+    setMainView((previous) =>
+      ((previous === 'saga' || previous === 'timeline' || previous === 'plot' || previous === 'atlas') && activeSaga
+        ? previous
+        : 'editor'),
+    );
     setLeftPanelCollapsed(false);
     setRightPanelCollapsed(false);
     setChatScope('chapter');
@@ -1955,7 +3383,7 @@ function App() {
     snapshotRedoStackRef.current = {};
     setSnapshotRedoNonce((value) => value + 1);
     setStatus('Libro cerrado.');
-  }, [flushChapterSave, refreshCovers, stopReadAloud]);
+  }, [activeSaga, flushChapterSave, refreshCovers, stopReadAloud]);
 
   const handleRenameBookTitle = useCallback(() => {
     if (!book) {
@@ -2102,6 +3530,214 @@ function App() {
     [book, activeChapterId, resetSnapshotNavigation, updateEditorHistoryState],
   );
 
+  const handleOpenSemanticReference = useCallback(
+    (reference: { id: string; kind: 'character' | 'location'; label: string; targetView: 'bible' | 'saga' }) => {
+      setMainView(reference.targetView);
+      setStatus(`Referencia abierta: ${reference.label} (${reference.kind === 'character' ? 'personaje' : 'lugar'}).`);
+    },
+    [],
+  );
+
+  const handleInsertSemanticReference = useCallback(
+    (kind: SemanticReferenceKind) => {
+      if (!book || !activeChapterId) {
+        setStatus('Abre un libro y un capitulo antes de insertar referencias del canon.');
+        return;
+      }
+
+      const candidates = semanticReferencesCatalog.filter((entry) => entry.kind === kind);
+      if (candidates.length === 0) {
+        setStatus(
+          kind === 'character'
+            ? 'No hay personajes canonicos disponibles para vincular.'
+            : 'No hay lugares canonicos disponibles para vincular.',
+        );
+        return;
+      }
+
+      setPromptModal({
+        title: kind === 'character' ? 'Insertar referencia a personaje' : 'Insertar referencia a lugar',
+        label: kind === 'character' ? 'Personaje (nombre o alias)' : 'Lugar (nombre o alias)',
+        placeholder: `Ej: ${candidates
+          .slice(0, 6)
+          .map((entry) => entry.label)
+          .join(', ')}`,
+        confirmLabel: 'Insertar referencia',
+        onConfirm: (value) => {
+          const match = findSemanticReferenceMatch(semanticReferencesCatalog, kind, value);
+          if (!match) {
+            setStatus(
+              kind === 'character'
+                ? `No se encontro personaje canonico para "${value}".`
+                : `No se encontro lugar canonico para "${value}".`,
+            );
+            return;
+          }
+
+          if (!editorRef.current) {
+            setStatus('Activa primero el editor para insertar referencias del canon.');
+            return;
+          }
+
+          editorRef.current.insertSemanticReference({
+            id: match.id,
+            kind: match.kind,
+            label: match.label,
+            tooltip: match.tooltip,
+            targetView: match.targetView,
+            warning: match.warning,
+          });
+          setPromptModal(null);
+          setStatus(`Referencia insertada: ${match.label}.`);
+        },
+      });
+    },
+    [activeChapterId, book, semanticReferencesCatalog],
+  );
+
+  const handleAddManuscriptNote = useCallback(() => {
+    if (!book || !activeChapterId) {
+      setStatus('Abre un capitulo antes de crear notas de manuscrito.');
+      return;
+    }
+
+    const excerpt = editorRef.current?.getSelectionText().trim() ?? '';
+    setPromptModal({
+      title: 'Nueva nota al margen',
+      label: excerpt ? `Nota privada sobre: "${excerpt.slice(0, 90)}"` : 'Nota privada',
+      placeholder: 'Ej: reforzar presagio, revisar voz, mover esta revelacion, cortar repeticion...',
+      multiline: true,
+      confirmLabel: 'Guardar nota',
+      onConfirm: async (value) => {
+        const chapter = book.chapters[activeChapterId];
+        if (!chapter) {
+          return;
+        }
+
+        const nextNote: ChapterManuscriptNote = {
+          id: randomId('note'),
+          excerpt,
+          note: value.trim(),
+          status: 'open',
+          createdAt: getNowIso(),
+          updatedAt: getNowIso(),
+        };
+        const chapterDraft: ChapterDocument = {
+          ...chapter,
+          manuscriptNotes: [...(chapter.manuscriptNotes ?? []), nextNote],
+          updatedAt: getNowIso(),
+        };
+
+        setPromptModal(null);
+        setBook((previous) => {
+          if (!previous || previous.path !== book.path) {
+            return previous;
+          }
+
+          return {
+            ...previous,
+            chapters: {
+              ...previous.chapters,
+              [activeChapterId]: chapterDraft,
+            },
+          };
+        });
+
+        try {
+          const persisted = await saveChapter(book.path, chapterDraft);
+          setBook((previous) => {
+            if (!previous || previous.path !== book.path) {
+              return previous;
+            }
+
+            return {
+              ...previous,
+              chapters: {
+                ...previous.chapters,
+                [activeChapterId]: persisted,
+              },
+            };
+          });
+          setStatus('Nota privada guardada en el manuscrito.');
+        } catch (error) {
+          setStatus(`No se pudo guardar la nota de manuscrito: ${formatUnknownError(error)}`);
+        }
+      },
+    });
+  }, [activeChapterId, book]);
+
+  const handlePatchActiveChapterManuscriptNote = useCallback(
+    async (noteId: string, mode: 'toggle' | 'delete') => {
+      if (!book || !activeChapterId) {
+        return;
+      }
+
+      const chapter = book.chapters[activeChapterId];
+      if (!chapter) {
+        return;
+      }
+
+      const currentNotes = chapter.manuscriptNotes ?? [];
+      const nextNotes: ChapterManuscriptNote[] =
+        mode === 'delete'
+          ? currentNotes.filter((entry) => entry.id !== noteId)
+          : currentNotes.map((entry) =>
+              entry.id === noteId
+                ? {
+                    ...entry,
+                    status: entry.status === 'resolved' ? 'open' : 'resolved',
+                    updatedAt: getNowIso(),
+                  }
+                : entry,
+            );
+      const chapterDraft: ChapterDocument = {
+        ...chapter,
+        manuscriptNotes: nextNotes,
+        updatedAt: getNowIso(),
+      };
+
+      setBook((previous) => {
+        if (!previous || previous.path !== book.path) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          chapters: {
+            ...previous.chapters,
+            [activeChapterId]: chapterDraft,
+          },
+        };
+      });
+
+      try {
+        const persisted = await saveChapter(book.path, chapterDraft);
+        setBook((previous) => {
+          if (!previous || previous.path !== book.path) {
+            return previous;
+          }
+
+          return {
+            ...previous,
+            chapters: {
+              ...previous.chapters,
+              [activeChapterId]: persisted,
+            },
+          };
+        });
+        setStatus(mode === 'delete' ? 'Nota privada eliminada.' : 'Estado de nota privada actualizado.');
+      } catch (error) {
+        setStatus(`No se pudo actualizar la nota de manuscrito: ${formatUnknownError(error)}`);
+      }
+    },
+    [activeChapterId, book],
+  );
+
+  const handleRefreshContinuityBriefing = useCallback(() => {
+    setContinuityBriefingRefreshNonce((previous) => previous + 1);
+    setStatus('Briefing de continuidad actualizado.');
+  }, []);
+
   const handleChapterLengthPresetChange = useCallback(
     async (preset: ChapterLengthPreset) => {
       if (!book || !activeChapterId) {
@@ -2217,7 +3853,7 @@ function App() {
           setLanguageSaveState('idle');
           languageSaveResetTimerRef.current = null;
         }, 2200);
-        setStatus('Settings guardados y idioma Amazon sincronizado en book.json.');
+        setStatus('Preferencias guardadas y idioma Amazon sincronizado en book.json.');
         return;
       }
 
@@ -2234,7 +3870,7 @@ function App() {
         setLanguageSaveState('idle');
         languageSaveResetTimerRef.current = null;
       }, 2200);
-      setStatus('Settings guardados en config.json del libro.');
+      setStatus('Preferencias guardadas en config.json del libro.');
     } catch (error) {
       setLanguageSaveState('idle');
       setStatus(`Error guardando settings: ${formatUnknownError(error)}`);
@@ -2778,6 +4414,248 @@ function App() {
     [book, syncBookToLibrary],
   );
 
+  const handleUpdateChapterPov = useCallback(
+    async (chapterId: string, pointOfView: string) => {
+      if (!book) {
+        return;
+      }
+
+      const chapter = book.chapters[chapterId];
+      if (!chapter) {
+        return;
+      }
+
+      const nextPointOfView = pointOfView.trim();
+      if ((chapter.pointOfView ?? '').trim() === nextPointOfView) {
+        return;
+      }
+
+      const chapterDraft = {
+        ...chapter,
+        pointOfView: nextPointOfView,
+        updatedAt: getNowIso(),
+      };
+
+      setBook((previous) => {
+        if (!previous || previous.path !== book.path) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          chapters: {
+            ...previous.chapters,
+            [chapterId]: chapterDraft,
+          },
+        };
+      });
+
+      try {
+        const persisted = await saveChapter(book.path, chapterDraft);
+        const nextProject: BookProject = {
+          ...book,
+          chapters: {
+            ...book.chapters,
+            [chapterId]: persisted,
+          },
+        };
+        setBook((previous) => {
+          if (!previous || previous.path !== book.path) {
+            return previous;
+          }
+
+          return nextProject;
+        });
+        await syncBookToLibrary(nextProject, { markOpened: true });
+        setStatus(`POV actualizado en ${persisted.title}.`);
+      } catch (error) {
+        setStatus(`No se pudo actualizar POV: ${formatUnknownError(error)}`);
+      }
+    },
+    [book, syncBookToLibrary],
+  );
+
+  const handleUpdateChapterMeta = useCallback(
+    async (chapterId: string, patch: { synopsis?: string; status?: import('./types/book').ChapterStatus; wordTarget?: number | null }) => {
+      if (!book) return;
+      const chapter = book.chapters[chapterId];
+      if (!chapter) return;
+
+      const chapterDraft = { ...chapter, ...patch, updatedAt: getNowIso() };
+      setBook((previous) => {
+        if (!previous || previous.path !== book.path) return previous;
+        return { ...previous, chapters: { ...previous.chapters, [chapterId]: chapterDraft } };
+      });
+
+      try {
+        const persisted = await saveChapter(book.path, chapterDraft);
+        setBook((previous) => {
+          if (!previous || previous.path !== book.path) return previous;
+          return { ...previous, chapters: { ...previous.chapters, [chapterId]: persisted } };
+        });
+      } catch (error) {
+        setStatus(`No se pudo guardar metadatos del capitulo: ${formatUnknownError(error)}`);
+      }
+    },
+    [book],
+  );
+
+  const handleSaveScratchpad = useCallback(
+    async (text: string) => {
+      if (!book) return;
+      const nextMetadata = { ...book.metadata, scratchpad: text, updatedAt: getNowIso() };
+      setBook((previous) => (previous && previous.path === book.path ? { ...previous, metadata: nextMetadata } : previous));
+      try {
+        await saveBookMetadata(book.path, nextMetadata);
+      } catch (error) {
+        setStatus(`No se pudo guardar el borrador libre: ${formatUnknownError(error)}`);
+      }
+    },
+    [book],
+  );
+
+  const handleAddLooseThread = useCallback(
+    async (thread: Omit<import('./types/book').LooseThread, 'id' | 'createdAt' | 'updatedAt'>) => {
+      if (!book) return;
+      const now = getNowIso();
+      const newThread: import('./types/book').LooseThread = { ...thread, id: randomId(), createdAt: now, updatedAt: now };
+      const nextThreads = [...(book.metadata.looseThreads ?? []), newThread];
+      const nextMetadata = { ...book.metadata, looseThreads: nextThreads, updatedAt: now };
+      setBook((previous) => (previous && previous.path === book.path ? { ...previous, metadata: nextMetadata } : previous));
+      try {
+        await saveBookMetadata(book.path, nextMetadata);
+      } catch (error) {
+        setStatus(`No se pudo guardar el hilo: ${formatUnknownError(error)}`);
+      }
+    },
+    [book],
+  );
+
+  const handleUpdateLooseThread = useCallback(
+    async (id: string, patch: Partial<Pick<import('./types/book').LooseThread, 'title' | 'description' | 'status' | 'chapterRef'>>) => {
+      if (!book) return;
+      const now = getNowIso();
+      const nextThreads = (book.metadata.looseThreads ?? []).map((t) => (t.id === id ? { ...t, ...patch, updatedAt: now } : t));
+      const nextMetadata = { ...book.metadata, looseThreads: nextThreads, updatedAt: now };
+      setBook((previous) => (previous && previous.path === book.path ? { ...previous, metadata: nextMetadata } : previous));
+      try {
+        await saveBookMetadata(book.path, nextMetadata);
+      } catch (error) {
+        setStatus(`No se pudo actualizar el hilo: ${formatUnknownError(error)}`);
+      }
+    },
+    [book],
+  );
+
+  const handleDeleteLooseThread = useCallback(
+    async (id: string) => {
+      if (!book) return;
+      const now = getNowIso();
+      const nextThreads = (book.metadata.looseThreads ?? []).filter((t) => t.id !== id);
+      const nextMetadata = { ...book.metadata, looseThreads: nextThreads, updatedAt: now };
+      setBook((previous) => (previous && previous.path === book.path ? { ...previous, metadata: nextMetadata } : previous));
+      try {
+        await saveBookMetadata(book.path, nextMetadata);
+      } catch (error) {
+        setStatus(`No se pudo eliminar el hilo: ${formatUnknownError(error)}`);
+      }
+    },
+    [book],
+  );
+
+  const handleAddEditorialChecklistItem = useCallback(
+    async (input: { title: string; description: string; level: 'error' | 'warning' }) => {
+      if (!book) {
+        return;
+      }
+
+      const title = input.title.trim();
+      if (!title) {
+        setStatus('La checklist editorial necesita un titulo antes de guardar el item.');
+        return;
+      }
+
+      const now = getNowIso();
+      const nextItem: EditorialChecklistCustomItem = {
+        id: randomId('editorial'),
+        title,
+        description: input.description.trim(),
+        level: input.level,
+        checked: false,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const nextMetadata = {
+        ...book.metadata,
+        editorialChecklistCustom: [...(book.metadata.editorialChecklistCustom ?? []), nextItem],
+        updatedAt: now,
+      };
+
+      setBook((previous) => (previous && previous.path === book.path ? { ...previous, metadata: nextMetadata } : previous));
+      try {
+        await saveBookMetadata(book.path, nextMetadata);
+        setStatus('Item personalizado agregado a la checklist editorial.');
+      } catch (error) {
+        setStatus(`No se pudo guardar el item editorial: ${formatUnknownError(error)}`);
+      }
+    },
+    [book],
+  );
+
+  const handleToggleEditorialChecklistItem = useCallback(
+    async (id: string) => {
+      if (!book) {
+        return;
+      }
+
+      const now = getNowIso();
+      const nextMetadata = {
+        ...book.metadata,
+        editorialChecklistCustom: (book.metadata.editorialChecklistCustom ?? []).map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                checked: !item.checked,
+                updatedAt: now,
+              }
+            : item,
+        ),
+        updatedAt: now,
+      };
+
+      setBook((previous) => (previous && previous.path === book.path ? { ...previous, metadata: nextMetadata } : previous));
+      try {
+        await saveBookMetadata(book.path, nextMetadata);
+      } catch (error) {
+        setStatus(`No se pudo actualizar el item editorial: ${formatUnknownError(error)}`);
+      }
+    },
+    [book],
+  );
+
+  const handleDeleteEditorialChecklistItem = useCallback(
+    async (id: string) => {
+      if (!book) {
+        return;
+      }
+
+      const now = getNowIso();
+      const nextMetadata = {
+        ...book.metadata,
+        editorialChecklistCustom: (book.metadata.editorialChecklistCustom ?? []).filter((item) => item.id !== id),
+        updatedAt: now,
+      };
+
+      setBook((previous) => (previous && previous.path === book.path ? { ...previous, metadata: nextMetadata } : previous));
+      try {
+        await saveBookMetadata(book.path, nextMetadata);
+      } catch (error) {
+        setStatus(`No se pudo eliminar el item editorial: ${formatUnknownError(error)}`);
+      }
+    },
+    [book],
+  );
+
   const handleRunBookSearch = useCallback(async () => {
     if (!book) {
       return;
@@ -2833,6 +4711,37 @@ function App() {
       setSearchBusy(false);
     }
   }, [book, searchQuery, replaceQuery, orderedChapters, currentSearchOptions]);
+
+  const handleRunSagaSearch = useCallback(async () => {
+    if (!activeSaga) return;
+    const query = searchQuery.trim();
+    if (!query) {
+      setSagaSearchResults([]);
+      setSagaSearchTotalMatches(0);
+      setStatus('Busqueda en saga: escribe texto primero.');
+      return;
+    }
+
+    setSearchBusy(true);
+    try {
+      const linkedBooks: import('./types/book').BookProject[] = [];
+      for (const link of activeSaga.metadata.books) {
+        try {
+          const loaded = await loadBookProject(link.bookPath);
+          linkedBooks.push(loaded);
+        } catch {
+          // Book may not be accessible — skip
+        }
+      }
+
+      const report = await buildSagaSearchMatchesAsync(linkedBooks, query, currentSearchOptions);
+      setSagaSearchResults(report.books);
+      setSagaSearchTotalMatches(report.totalMatches);
+      setStatus(`Busqueda en saga completada: ${report.totalMatches} coincidencia/s en ${report.books.length} libro/s.`);
+    } finally {
+      setSearchBusy(false);
+    }
+  }, [activeSaga, searchQuery, currentSearchOptions]);
 
   const handleReplaceInActiveChapter = useCallback(async () => {
     if (!book || !activeChapterId) {
@@ -3129,7 +5038,8 @@ function App() {
       const report = buildCharacterTrackingReport({
         requestedName: normalizedName,
         chapters: rangeChapters,
-        storyBible: book.metadata.storyBible,
+        storyBible: canonicalStoryBible ?? book.metadata.storyBible,
+        sagaWorld: linkedSagaForBook?.metadata.worldBible ?? null,
       });
       const timelineMessage = formatCharacterTrackingReport(report);
 
@@ -3160,7 +5070,7 @@ function App() {
         `Seguimiento generado para "${normalizedName}" (caps ${normalizedRange.label}): ${report.mentions.length} menciones en ${report.mentionsByChapter.length} capitulo/s.`,
       );
     },
-    [book, activeChapterId, ensureScopeMessagesLoaded, orderedChapters, persistScopeMessages],
+    [book, activeChapterId, ensureScopeMessagesLoaded, orderedChapters, persistScopeMessages, linkedSagaForBook, canonicalStoryBible],
   );
 
   const handleSummarizeStory = useCallback(
@@ -3189,7 +5099,7 @@ function App() {
 
       const digest = buildStoryProgressDigest({
         chapters: rangeChapters,
-        storyBible: book.metadata.storyBible,
+        storyBible: storyBibleChronicleIndex ?? canonicalStoryBible ?? book.metadata.storyBible,
       });
       const userMessage: ChatMessage = {
         id: randomId('msg'),
@@ -3203,10 +5113,20 @@ function App() {
       setStatus(`Generando resumen de historia (caps ${normalizedRange.label})...`);
 
       try {
+        const sagaContext = buildSagaPromptContext(
+          `${book.metadata.title}\n${normalizedRange.label}\n${digest.chapters.map((chapter) => chapter.highlights.join('\n')).join('\n')}`,
+          {
+            recencyWeight: 1.1,
+            maxEntitiesPerSection: 3,
+            maxTimelineEvents: 4,
+          },
+        );
         const prompt = buildStoryProgressPrompt({
           bookTitle: book.metadata.title,
           language: activeLanguage,
-          storyBible: book.metadata.storyBible,
+          storyBible: storyBibleChronicleIndex ?? canonicalStoryBible ?? book.metadata.storyBible,
+          sagaTitle: sagaContext.sagaTitle,
+          sagaWorld: sagaContext.sagaWorld,
           range: normalizedRange,
           digest,
         });
@@ -3248,11 +5168,225 @@ function App() {
         setAiBusy(false);
       }
     },
-    [book, activeChapterId, ensureScopeMessagesLoaded, orderedChapters, activeLanguage, config, persistScopeMessages],
+    [
+      book,
+      activeChapterId,
+      ensureScopeMessagesLoaded,
+      orderedChapters,
+      activeLanguage,
+      config,
+      persistScopeMessages,
+      buildSagaPromptContext,
+      canonicalStoryBible,
+      storyBibleChronicleIndex,
+    ],
+  );
+
+  const buildConsultorJumpMarkers = useCallback(
+    (answer: string, scopedStoryBibleRules: string): ContextJumpMarker[] => {
+      const markers: ContextJumpMarker[] = [];
+      const answerTokens = extractContextTokens(answer, 220);
+      if (answerTokens.size === 0) {
+        return markers;
+      }
+
+      const chapterScores = orderedChapters
+        .map((chapter) => {
+          const chapterTokens = extractContextTokens(
+            `${chapter.title}\n${stripHtml(chapter.content).slice(0, 2600)}`,
+          );
+          return {
+            chapter,
+            score: scoreContextOverlap(answerTokens, chapterTokens),
+          };
+        })
+        .filter((entry) => entry.score > 0)
+        .sort((left, right) => right.score - left.score)
+        .slice(0, 2);
+
+      if (chapterScores.length > 0) {
+        for (const entry of chapterScores) {
+          markers.push({
+            kind: 'chapter',
+            id: entry.chapter.id,
+            label: `Abrir capitulo ${entry.chapter.id} - ${entry.chapter.title}`,
+          });
+        }
+      } else if (activeChapter) {
+        markers.push({
+          kind: 'chapter',
+          id: activeChapter.id,
+          label: `Abrir capitulo activo - ${activeChapter.title}`,
+        });
+      }
+
+      if (activeSaga) {
+        const timelineScore = activeSaga.metadata.worldBible.timeline
+          .map((event) => {
+            const eventTokens = extractContextTokens(
+              `${event.displayLabel} ${event.title} ${event.summary} ${event.notes}`,
+              90,
+            );
+            return {
+              event,
+              score: scoreContextOverlap(answerTokens, eventTokens),
+            };
+          })
+          .filter((entry) => entry.score > 0)
+          .sort((left, right) => right.score - left.score)[0];
+
+        if (timelineScore) {
+          markers.push({
+            kind: 'timeline',
+            id: timelineScore.event.id,
+            label: `Abrir timeline ${timelineScore.event.displayLabel || `T${timelineScore.event.startOrder}`} - ${timelineScore.event.title || 'evento'}`,
+          });
+        }
+      }
+
+      const ruleLines = scopedStoryBibleRules
+        .split(/\n+/g)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, 80);
+      const bestRuleMatch = ruleLines
+        .map((line, index) => ({
+          line,
+          index,
+          score: scoreContextOverlap(answerTokens, extractContextTokens(line, 40)),
+        }))
+        .filter((entry) => entry.score > 0)
+        .sort((left, right) => right.score - left.score)[0];
+
+      if (bestRuleMatch) {
+        markers.push({
+          kind: 'saga-rule',
+          id: `rule-${bestRuleMatch.index + 1}`,
+          label: `Abrir regla canonica #${bestRuleMatch.index + 1}`,
+        });
+      }
+
+      return markers.slice(0, 4);
+    },
+    [activeChapter, activeSaga, orderedChapters],
+  );
+
+  const buildConsultorEvidenceMarkers = useCallback(
+    (answer: string, scopedStoryBibleRules: string): ContextEvidenceMarker[] => {
+      const markers: ContextEvidenceMarker[] = [];
+      const answerTokens = extractContextTokens(answer, 240);
+      if (answerTokens.size === 0) {
+        return markers;
+      }
+
+      const chapterScores = orderedChapters
+        .map((chapter) => {
+          const chapterText = stripHtml(chapter.content).slice(0, 3600);
+          const chapterTokens = extractContextTokens(`${chapter.title}\n${chapterText}`, 160);
+          return {
+            chapter,
+            chapterText,
+            score: scoreContextOverlap(answerTokens, chapterTokens),
+          };
+        })
+        .filter((entry) => entry.score > 0)
+        .sort((left, right) => right.score - left.score)
+        .slice(0, 2);
+      for (const entry of chapterScores) {
+        markers.push({
+          kind: 'chapter',
+          id: entry.chapter.id,
+          label: `Capitulo ${entry.chapter.id} - ${entry.chapter.title}`,
+          snippet: extractContextEvidenceSnippet(entry.chapterText, answerTokens),
+        });
+      }
+
+      if (activeSaga) {
+        const timelineScores = activeSaga.metadata.worldBible.timeline
+          .map((event) => {
+            const source = `${event.displayLabel || `T${event.startOrder}`} ${event.title} ${event.summary} ${event.notes}`.trim();
+            return {
+              event,
+              source,
+              score: scoreContextOverlap(answerTokens, extractContextTokens(source, 96)),
+            };
+          })
+          .filter((entry) => entry.score > 0)
+          .sort((left, right) => right.score - left.score)
+          .slice(0, 2);
+        for (const entry of timelineScores) {
+          markers.push({
+            kind: 'timeline',
+            id: entry.event.id,
+            label: `Timeline ${entry.event.displayLabel || `T${entry.event.startOrder}`} - ${entry.event.title || 'evento'}`,
+            snippet: extractContextEvidenceSnippet(entry.source, answerTokens),
+          });
+        }
+      }
+
+      const ruleLines = scopedStoryBibleRules
+        .split(/\n+/g)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, 120);
+      const ruleMatches = ruleLines
+        .map((line, index) => ({
+          index,
+          line,
+          score: scoreContextOverlap(answerTokens, extractContextTokens(line, 44)),
+        }))
+        .filter((entry) => entry.score > 0)
+        .sort((left, right) => right.score - left.score)
+        .slice(0, 2);
+      for (const entry of ruleMatches) {
+        markers.push({
+          kind: 'saga-rule',
+          id: `rule-${entry.index + 1}`,
+          label: `Regla canonica #${entry.index + 1}`,
+          snippet: entry.line,
+        });
+      }
+
+      return markers.slice(0, 6);
+    },
+    [activeSaga, orderedChapters],
+  );
+
+  const handleContextJump = useCallback(
+    (jump: { kind: 'chapter' | 'timeline' | 'saga-rule'; id: string; label: string }) => {
+      if (jump.kind === 'chapter') {
+        if (!book || !book.chapters[jump.id]) {
+          setStatus(`No se encontro el capitulo referenciado para salto: ${jump.label}.`);
+          return;
+        }
+        setActiveChapterId(jump.id);
+        setMainView('editor');
+        setStatus(`Salto contextual al manuscrito: ${jump.label}.`);
+        return;
+      }
+
+      if (jump.kind === 'timeline') {
+        if (!activeSaga) {
+          setStatus('No hay saga activa para abrir el salto contextual de timeline.');
+          return;
+        }
+        setMainView('timeline');
+        setStatus(`Salto contextual al timeline: ${jump.label}.`);
+        return;
+      }
+
+      if (!activeSaga) {
+        setStatus('No hay saga activa para abrir reglas canonicas.');
+        return;
+      }
+      setMainView('saga');
+      setStatus(`Salto contextual a reglas de saga: ${jump.label}.`);
+    },
+    [activeSaga, book],
   );
 
   const handleSendChat = useCallback(
-    async (message: string, scope: ChatScope) => {
+    async (message: string, scope: ChatScope, mode: AiAssistantMode) => {
       if (!book) {
         return;
       }
@@ -3279,17 +5413,28 @@ function App() {
 
       setAiBusy(true);
       setStatus('Consultando Ollama...');
+      let activeBookTransactionId: string | null = null;
 
       try {
         await persistScopeMessages(scope, withUser, scopeChapterId);
 
         const chapterText = activeChapter ? stripHtml(activeChapter.content) : '';
+        const bookAutoApplyAllowedByPolicy = config.bookAutoApplyEnabled && RELEASE_BOOK_AUTO_APPLY_ENABLED;
+        const autoApplyEnabledForScope =
+          mode === 'rewrite' && config.autoApplyChatChanges && (scope === 'chapter' || bookAutoApplyAllowedByPolicy);
         const compactHistory = history
           .slice(-8)
           .map((item) => `${item.role === 'user' ? 'Usuario' : 'Asistente'}: ${item.content}`)
           .join('\n');
         const storyBibleForChat = selectStoryBibleForPrompt(
-          book.metadata.storyBible,
+          storyBibleChronicleIndex ?? canonicalStoryBible ?? book.metadata.storyBible,
+          `${message}\n${activeChapter?.title ?? ''}\n${chapterText}\n${compactHistory}`,
+          {
+            recentText: compactHistory,
+            recencyWeight: 1.2,
+          },
+        );
+        const sagaContextForChat = buildSagaPromptContext(
           `${message}\n${activeChapter?.title ?? ''}\n${chapterText}\n${compactHistory}`,
           {
             recentText: compactHistory,
@@ -3297,14 +5442,17 @@ function App() {
           },
         );
 
-        if (!config.autoApplyChatChanges) {
+        if (!autoApplyEnabledForScope) {
           const prompt = buildChatPrompt({
             scope,
+            mode,
             message,
             bookTitle: book.metadata.title,
             language: activeLanguage,
             foundation: book.metadata.foundation,
             storyBible: storyBibleForChat,
+            sagaTitle: sagaContextForChat.sagaTitle,
+            sagaWorld: sagaContextForChat.sagaWorld,
             bookLengthInstruction: scope === 'book' ? bookLengthInfo : undefined,
             chapterTitle: activeChapter?.title,
             chapterLengthPreset: activeChapter?.lengthPreset,
@@ -3319,21 +5467,91 @@ function App() {
               prompt,
             }),
           );
+          const consultorMarkers =
+            mode === 'consultor'
+              ? buildConsultorJumpMarkers(
+                  answer,
+                  storyBibleForChat.continuityRules,
+                )
+              : [];
+          const consultorEvidenceMarkers =
+            mode === 'consultor'
+              ? buildConsultorEvidenceMarkers(
+                  answer,
+                  storyBibleForChat.continuityRules,
+                )
+              : [];
+          const assistantContent =
+            mode === 'consultor'
+              ? appendContextJumpMarkers(answer, consultorMarkers, consultorEvidenceMarkers)
+              : answer;
 
           const assistantMessage: ChatMessage = {
             id: randomId('msg'),
             role: 'assistant',
             scope,
-            content: answer,
+            content: assistantContent,
             createdAt: getNowIso(),
           };
 
           await persistScopeMessages(scope, [...withUser, assistantMessage], scopeChapterId);
-          setStatus('Respuesta IA recibida.');
+          if (scope === 'book' && mode === 'rewrite' && config.autoApplyChatChanges && !bookAutoApplyAllowedByPolicy) {
+            void recordTrustIncident(book.path, 'book_auto_apply_blocked');
+            void writeSessionAudit(book.path, {
+              sessionId: userMessage.id,
+              scope: 'book',
+              operation: 'chat-auto-apply-blocked-by-trust-mode',
+              status: 'blocked',
+              reason: RELEASE_BOOK_AUTO_APPLY_ENABLED
+                ? 'Trust Mode bloquea auto-aplicado en scope libro sin habilitacion explicita.'
+                : 'Politica de release bloquea auto-aplicado en scope libro.',
+              chapterChanges: [],
+              metadata: {
+                requestedIterations: config.chatApplyIterations,
+              },
+            });
+          }
+          setStatus(
+            scope === 'book' && mode === 'rewrite' && config.autoApplyChatChanges && !bookAutoApplyAllowedByPolicy
+              ? RELEASE_BOOK_AUTO_APPLY_ENABLED
+                ? 'Respuesta IA recibida (Trust Mode: auto-aplicado de libro desactivado).'
+                : 'Respuesta IA recibida (Politica de release: auto-aplicado de libro bloqueado).'
+              : 'Respuesta IA recibida.',
+          );
           return;
         }
 
         const iterations = Math.max(1, Math.min(10, config.chatApplyIterations));
+        if (scope === 'book') {
+          const totalChapterPasses = book.metadata.chapterOrder.length * iterations;
+          const chapterListPreview = book.metadata.chapterOrder
+            .slice(0, 10)
+            .map((id, i) => `  ${i + 1}. ${book.chapters[id]?.title ?? id}`)
+            .join('\n');
+          const moreChapters = book.metadata.chapterOrder.length > 10 ? `\n  ...y ${book.metadata.chapterOrder.length - 10} mas` : '';
+          const accepted = await confirm(
+            `Vas a reescribir ${book.metadata.chapterOrder.length} capitulos (${totalChapterPasses} pases de IA).\n\nCapitulos afectados:\n${chapterListPreview}${moreChapters}\n\nEsta accion no se puede deshacer automaticamente. Se recomienda revisar diffs antes de aplicar cambios masivos.`,
+            {
+              title: 'Aplicar IA en todo el libro',
+              kind: 'warning',
+              okLabel: 'Aplicar en todo el libro',
+              cancelLabel: 'Cancelar',
+            },
+          );
+
+          if (!accepted) {
+            const assistantMessage: ChatMessage = {
+              id: randomId('msg'),
+              role: 'assistant',
+              scope,
+              content: 'Proceso cancelado. No se aplicaron cambios automaticos al libro.',
+              createdAt: getNowIso(),
+            };
+            await persistScopeMessages(scope, [...withUser, assistantMessage], scopeChapterId);
+            setStatus('Auto-aplicado de libro cancelado por el usuario.');
+            return;
+          }
+        }
 
         if (scope === 'chapter') {
           if (!activeChapterId) {
@@ -3347,9 +5565,13 @@ function App() {
             throw new Error('No se encontro el capitulo activo.');
           }
 
+          const rollbackChapterBefore = cloneChapterForRollback(chapter);
+
           let lastSummaryMessage = '';
           let appliedIterations = 0;
           let cancelledBySafeMode = false;
+          let cancelledByRiskReview = false;
+          let continuityCorrections = 0;
 
           if (config.continuousAgentEnabled) {
             const maxRounds = Math.max(1, Math.min(12, config.continuousAgentMaxRounds));
@@ -3362,7 +5584,14 @@ function App() {
 
               const currentChapterText = stripHtml(chapter.content);
               const storyBibleForChapter = selectStoryBibleForPrompt(
-                book.metadata.storyBible,
+                storyBibleChronicleIndex ?? canonicalStoryBible ?? book.metadata.storyBible,
+                `${message}\n${chapter.title}\n${currentChapterText}`,
+                {
+                  recentText: compactHistory,
+                  recencyWeight: 1.2,
+                },
+              );
+              const sagaContextForChapter = buildSagaPromptContext(
                 `${message}\n${chapter.title}\n${currentChapterText}`,
                 {
                   recentText: compactHistory,
@@ -3375,6 +5604,8 @@ function App() {
                 language: activeLanguage,
                 foundation: book.metadata.foundation,
                 storyBible: storyBibleForChapter,
+                sagaTitle: sagaContextForChapter.sagaTitle,
+                sagaWorld: sagaContextForChapter.sagaWorld,
                 chapterTitle: chapter.title,
                 chapterLengthPreset: chapter.lengthPreset,
                 chapterText: currentChapterText,
@@ -3413,20 +5644,35 @@ function App() {
                 guardedResult.summaryText ||
                 parsed.summary ||
                 lastSummaryMessage;
+              if (continuityResult.corrected) {
+                continuityCorrections += 1;
+              }
 
-              if (
+              const requiresHighRiskReview = guardedResult.highRisk || continuityResult.highRisk;
+              const requiresSafeModeReview =
                 config.aiSafeMode &&
-                shouldRequireAiSafeReview(currentChapterText, nextChapterText)
-              ) {
+                shouldRequireAiSafeReview(currentChapterText, nextChapterText);
+              const riskReason = [guardedResult.riskReason, continuityResult.riskReason]
+                .map((entry) => entry.trim())
+                .filter(Boolean)
+                .join(' | ');
+              if (requiresHighRiskReview || requiresSafeModeReview) {
                 const approved = await requestAiSafeReview({
-                  title: `Modo seguro IA - ${chapter.title}`,
-                  subtitle: `Agente continuo ronda ${round}/${maxRounds}. Revisa el diff antes de aplicar.`,
+                  title: requiresHighRiskReview ? `Riesgo alto IA - ${chapter.title}` : `Modo seguro IA - ${chapter.title}`,
+                  subtitle: requiresHighRiskReview
+                    ? `Riesgo alto detectado en ronda ${round}/${maxRounds}. ${riskReason || 'Requiere aprobacion manual antes de aplicar.'}`
+                    : `Agente continuo ronda ${round}/${maxRounds}. Revisa el diff antes de aplicar.`,
                   beforeText: currentChapterText,
                   afterText: nextChapterText,
                 });
                 if (!approved) {
                   cancelledBySafeMode = true;
-                  setStatus('Modo seguro IA: cambio cancelado por el usuario.');
+                  cancelledByRiskReview = requiresHighRiskReview;
+                  setStatus(
+                    requiresHighRiskReview
+                      ? 'Riesgo alto IA: cambio cancelado por el usuario.'
+                      : 'Modo seguro IA: cambio cancelado por el usuario.',
+                  );
                   break;
                 }
               }
@@ -3458,7 +5704,14 @@ function App() {
 
               const currentChapterText = stripHtml(chapter.content);
               const storyBibleForChapter = selectStoryBibleForPrompt(
-                book.metadata.storyBible,
+                storyBibleChronicleIndex ?? canonicalStoryBible ?? book.metadata.storyBible,
+                `${message}\n${chapter.title}\n${currentChapterText}`,
+                {
+                  recentText: compactHistory,
+                  recencyWeight: 1.2,
+                },
+              );
+              const sagaContextForChapter = buildSagaPromptContext(
                 `${message}\n${chapter.title}\n${currentChapterText}`,
                 {
                   recentText: compactHistory,
@@ -3471,6 +5724,8 @@ function App() {
                 language: activeLanguage,
                 foundation: book.metadata.foundation,
                 storyBible: storyBibleForChapter,
+                sagaTitle: sagaContextForChapter.sagaTitle,
+                sagaWorld: sagaContextForChapter.sagaWorld,
                 chapterTitle: chapter.title,
                 chapterLengthPreset: chapter.lengthPreset,
                 chapterText: currentChapterText,
@@ -3504,20 +5759,35 @@ function App() {
               });
               const nextChapterText = continuityResult.text;
               lastSummaryMessage = continuityResult.summaryText || guardedResult.summaryText || lastSummaryMessage;
+              if (continuityResult.corrected) {
+                continuityCorrections += 1;
+              }
 
-              if (
+              const requiresHighRiskReview = guardedResult.highRisk || continuityResult.highRisk;
+              const requiresSafeModeReview =
                 config.aiSafeMode &&
-                shouldRequireAiSafeReview(currentChapterText, nextChapterText)
-              ) {
+                shouldRequireAiSafeReview(currentChapterText, nextChapterText);
+              const riskReason = [guardedResult.riskReason, continuityResult.riskReason]
+                .map((entry) => entry.trim())
+                .filter(Boolean)
+                .join(' | ');
+              if (requiresHighRiskReview || requiresSafeModeReview) {
                 const approved = await requestAiSafeReview({
-                  title: `Modo seguro IA - ${chapter.title}`,
-                  subtitle: `Chat auto-aplicar iteracion ${iteration}/${iterations}. Revisa el diff antes de aplicar.`,
+                  title: requiresHighRiskReview ? `Riesgo alto IA - ${chapter.title}` : `Modo seguro IA - ${chapter.title}`,
+                  subtitle: requiresHighRiskReview
+                    ? `Riesgo alto detectado en iteracion ${iteration}/${iterations}. ${riskReason || 'Requiere aprobacion manual antes de aplicar.'}`
+                    : `Chat auto-aplicar iteracion ${iteration}/${iterations}. Revisa el diff antes de aplicar.`,
                   beforeText: currentChapterText,
                   afterText: nextChapterText,
                 });
                 if (!approved) {
                   cancelledBySafeMode = true;
-                  setStatus('Modo seguro IA: cambio cancelado por el usuario.');
+                  cancelledByRiskReview = requiresHighRiskReview;
+                  setStatus(
+                    requiresHighRiskReview
+                      ? 'Riesgo alto IA: cambio cancelado por el usuario.'
+                      : 'Modo seguro IA: cambio cancelado por el usuario.',
+                  );
                   break;
                 }
               }
@@ -3540,11 +5810,30 @@ function App() {
           }
 
           if (appliedIterations === 0 && cancelledBySafeMode) {
+            void recordTrustIncident(
+              book.path,
+              cancelledByRiskReview ? 'session_cancelled_risk' : 'session_cancelled_safe_mode',
+            );
+            void writeSessionAudit(book.path, {
+              sessionId: userMessage.id,
+              scope: 'chapter',
+              operation: config.continuousAgentEnabled ? 'chat-auto-apply-continuous' : 'chat-auto-apply-chapter',
+              status: 'cancelled',
+              reason: cancelledByRiskReview ? 'Revision manual de riesgo alto rechazada.' : 'Revision manual (safe mode) rechazada.',
+              chapterChanges: [],
+              metadata: {
+                requestedIterations: iterations,
+                appliedIterations,
+                continuityCorrections,
+              },
+            });
             const assistantMessage: ChatMessage = {
               id: randomId('msg'),
               role: 'assistant',
               scope,
-              content: 'Modo seguro IA: no se aplicaron cambios porque el diff fue rechazado.',
+              content: cancelledByRiskReview
+                ? 'Riesgo alto IA: no se aplicaron cambios porque la revision manual fue rechazada.'
+                : 'Modo seguro IA: no se aplicaron cambios porque el diff fue rechazado.',
               createdAt: getNowIso(),
             };
             await persistScopeMessages(scope, [...withUser, assistantMessage], scopeChapterId);
@@ -3567,16 +5856,82 @@ function App() {
           });
 
           dirtyRef.current = false;
+          if (appliedIterations > 0) {
+            registerAiRollbackSession({
+              label: config.continuousAgentEnabled
+                ? `Chat auto-aplicar (agente continuo) - ${chapter.title}`
+                : `Chat auto-aplicar - ${chapter.title}`,
+              scope,
+              bookPath: book.path,
+              chapterOrder: [chapter.id],
+              chaptersBefore: {
+                [chapter.id]: rollbackChapterBefore,
+              },
+            });
+          }
+          if (appliedIterations > 0) {
+            void recordTrustIncident(book.path, 'session_applied');
+          }
+          if (cancelledBySafeMode) {
+            void recordTrustIncident(
+              book.path,
+              cancelledByRiskReview ? 'session_cancelled_risk' : 'session_cancelled_safe_mode',
+            );
+          }
+
+          const chapterChangeCard = buildAiChangeCard({
+            operation: config.continuousAgentEnabled
+              ? `Chat auto-aplicar agente continuo (${appliedIterations} ronda/s aplicada/s)`
+              : `Chat auto-aplicar (${appliedIterations} iteracion/es aplicada/s)`,
+            scopeLabel: 'Capitulo',
+            entries: [
+              {
+                chapterId: chapter.id,
+                label: chapter.title,
+                beforeText: stripHtml(rollbackChapterBefore.content),
+                afterText: stripHtml(chapter.content),
+              },
+            ],
+            continuityCorrections,
+          });
 
           const assistantMessage: ChatMessage = {
             id: randomId('msg'),
             role: 'assistant',
             scope,
-            content:
-              buildSummaryMessage(lastSummaryMessage) ||
-              `Cambios aplicados automaticamente en "${chapter.title}".`,
+            content: [
+              buildSummaryMessage(lastSummaryMessage),
+              chapterChangeCard,
+            ]
+              .filter((entry) => entry.trim().length > 0)
+              .join('\n\n'),
             createdAt: getNowIso(),
           };
+
+          void writeSessionAudit(book.path, {
+            sessionId: userMessage.id,
+            scope: 'chapter',
+            operation: config.continuousAgentEnabled ? 'chat-auto-apply-continuous' : 'chat-auto-apply-chapter',
+            status: cancelledBySafeMode ? 'cancelled' : 'applied',
+            reason: cancelledBySafeMode
+              ? cancelledByRiskReview
+                ? 'Interrumpido por revision manual de riesgo alto.'
+                : 'Interrumpido por revision manual de safe mode.'
+              : '',
+            chapterChanges: [
+              {
+                chapterId: chapter.id,
+                chapterTitle: chapter.title,
+                beforeText: stripHtml(rollbackChapterBefore.content),
+                afterText: stripHtml(chapter.content),
+              },
+            ],
+            metadata: {
+              requestedIterations: iterations,
+              appliedIterations,
+              continuityCorrections,
+            },
+          });
 
           await persistScopeMessages(scope, [...withUser, assistantMessage], scopeChapterId);
           setStatus(
@@ -3587,96 +5942,111 @@ function App() {
           return;
         }
 
-        let workingChapters: BookProject['chapters'] = { ...book.chapters };
-        let extractedSummaries = 0;
-        let continuityCorrections = 0;
+        const rollbackBookBefore = Object.fromEntries(
+          book.metadata.chapterOrder
+            .map((chapterId) => {
+              const chapter = book.chapters[chapterId];
+              if (!chapter) {
+                return null;
+              }
+              return [chapterId, cloneChapterForRollback(chapter)] as const;
+            })
+            .filter((entry): entry is readonly [string, ChapterDocument] => Boolean(entry)),
+        );
+        const transactionStart = await startAiTransaction(book.path, {
+          operation: 'chat-auto-apply-book',
+          scope: 'book',
+          chapterOrder: book.metadata.chapterOrder,
+          chaptersBefore: rollbackBookBefore,
+          notes: `Mensaje: ${message.slice(0, 180)}`,
+        });
+        activeBookTransactionId = transactionStart.transactionId;
+        void recordTrustIncident(book.path, 'book_auto_apply_run');
 
-        for (let iteration = 1; iteration <= iterations; iteration += 1) {
-          for (let index = 0; index < book.metadata.chapterOrder.length; index += 1) {
-            const chapterId = book.metadata.chapterOrder[index];
-            const chapter = workingChapters[chapterId];
-            if (!chapter) {
-              continue;
-            }
-
-            if (config.autoVersioning) {
-              await saveChapterSnapshot(
-                book.path,
-                chapter,
-                `Chat auto-aplicar libro cap ${index + 1} iter ${iteration}/${iterations}`,
-              );
-            }
-
-            const currentChapterText = stripHtml(chapter.content);
-            const storyBibleForChapter = selectStoryBibleForPrompt(
-              book.metadata.storyBible,
-              `${message}\n${chapter.title}\n${currentChapterText}`,
-              {
-                recentText: compactHistory,
-                recencyWeight: 1.2,
-              },
-            );
-            const prompt = buildAutoRewritePrompt({
-              userInstruction: message,
-              bookTitle: book.metadata.title,
-              language: activeLanguage,
-              foundation: book.metadata.foundation,
-              storyBible: storyBibleForChapter,
-              chapterTitle: chapter.title,
-              chapterLengthPreset: chapter.lengthPreset,
-              chapterText: currentChapterText,
-              fullBookText: buildBookContext(book, workingChapters),
-              chapterIndex: index + 1,
-              chapterTotal: book.metadata.chapterOrder.length,
-              iteration,
-              totalIterations: iterations,
-            });
-
-            const response = normalizeAiOutput(
+        const {
+          workingChapters,
+          extractedSummaries,
+          continuityCorrections,
+          appliedChapterUpdates,
+          appliedChapterIds,
+          cancelledBySafeMode,
+          cancelledByRiskReview,
+        } = await applyBookAutoRewrite({
+          book: storyBibleChronicleIndex
+            ? {
+                ...book,
+                metadata: {
+                  ...book.metadata,
+                  storyBible: storyBibleChronicleIndex,
+                },
+              }
+            : canonicalStoryBible
+              ? {
+                  ...book,
+                  metadata: {
+                    ...book.metadata,
+                    storyBible: canonicalStoryBible,
+                  },
+                }
+              : book,
+          config,
+          message,
+          iterations,
+          activeLanguage,
+          compactHistory,
+          buildBookContext,
+          buildSagaPromptContext,
+          generateText: async (prompt: string) =>
+            normalizeAiOutput(
               await generateWithOllama({
                 config,
                 prompt,
               }),
-            );
-            const guardedResult = await enforceExpansionResult({
-              actionId: null,
-              instruction: message,
-              originalText: currentChapterText,
-              candidateText: response,
-              bookTitle: book.metadata.title,
-              chapterTitle: chapter.title,
-            });
-            const continuityResult = await enforceContinuityResult({
-              userInstruction: message,
-              originalText: currentChapterText,
-              candidateText: guardedResult.text,
-              chapterTitle: chapter.title,
-              recentText: compactHistory,
-            });
-            const nextChapterText = continuityResult.text;
-            if (guardedResult.summaryText) {
-              extractedSummaries += 1;
-            }
-            if (continuityResult.corrected) {
-              continuityCorrections += 1;
-            }
+            ),
+          enforceExpansionResult,
+          enforceContinuityResult,
+          shouldRequireAiSafeReview,
+          requestAiSafeReview,
+          onStatus: setStatus,
+        });
 
-            const chapterDraft = {
-              ...chapter,
-              content: plainTextToHtml(nextChapterText),
-              contentJson: null,
-              updatedAt: getNowIso(),
-            };
-            const persisted = await saveChapter(book.path, chapterDraft);
-            workingChapters = {
-              ...workingChapters,
-              [chapterId]: persisted,
-            };
-
-            setStatus(
-              `Aplicando cambios al libro: cap ${index + 1}/${book.metadata.chapterOrder.length}, iter ${iteration}/${iterations}...`,
+        if (cancelledBySafeMode && appliedChapterUpdates === 0) {
+          if (activeBookTransactionId) {
+            await commitAiTransaction(
+              book.path,
+              activeBookTransactionId,
+              cancelledByRiskReview ? 'cancelled-risk-no-changes' : 'cancelled-safe-mode-no-changes',
             );
+            activeBookTransactionId = null;
           }
+          void recordTrustIncident(
+            book.path,
+            cancelledByRiskReview ? 'session_cancelled_risk' : 'session_cancelled_safe_mode',
+          );
+          void writeSessionAudit(book.path, {
+            sessionId: userMessage.id,
+            scope: 'book',
+            operation: 'chat-auto-apply-book',
+            status: 'cancelled',
+            reason: cancelledByRiskReview ? 'Revision manual de riesgo alto rechazada.' : 'Revision manual (safe mode) rechazada.',
+            chapterChanges: [],
+            metadata: {
+              iterations,
+              extractedSummaries,
+              continuityCorrections,
+            },
+          });
+          const assistantMessage: ChatMessage = {
+            id: randomId('msg'),
+            role: 'assistant',
+            scope,
+            content: cancelledByRiskReview
+              ? 'Riesgo alto IA: no se aplicaron cambios porque la revision manual fue rechazada.'
+              : 'Modo seguro IA: no se aplicaron cambios porque el diff fue rechazado.',
+            createdAt: getNowIso(),
+          };
+          await persistScopeMessages(scope, [...withUser, assistantMessage], scopeChapterId);
+          return;
         }
 
         setBook((previous) => {
@@ -3695,18 +6065,123 @@ function App() {
         });
 
         dirtyRef.current = false;
+        if (appliedChapterUpdates > 0) {
+          registerAiRollbackSession({
+            label: 'Chat auto-aplicar - Libro completo',
+            scope,
+            bookPath: book.path,
+            chapterOrder: appliedChapterIds,
+            chaptersBefore: rollbackBookBefore,
+          });
+        }
+        if (activeBookTransactionId) {
+          await commitAiTransaction(
+            book.path,
+            activeBookTransactionId,
+            cancelledBySafeMode ? 'partial-apply-interrupted' : 'applied',
+          );
+          activeBookTransactionId = null;
+        }
+        if (appliedChapterUpdates > 0) {
+          void recordTrustIncident(book.path, 'session_applied');
+        }
+        if (cancelledBySafeMode) {
+          void recordTrustIncident(
+            book.path,
+            cancelledByRiskReview ? 'session_cancelled_risk' : 'session_cancelled_safe_mode',
+          );
+        }
+
+        const bookChangeEntries = appliedChapterIds.reduce<
+          Array<{ chapterId: string; label: string; beforeText: string; afterText: string }>
+        >((entries, chapterId) => {
+          const beforeChapter = rollbackBookBefore[chapterId];
+          const afterChapter = workingChapters[chapterId];
+          if (!beforeChapter || !afterChapter) {
+            return entries;
+          }
+
+          const chapterIndex = book.metadata.chapterOrder.indexOf(chapterId);
+          const labelPrefix = chapterIndex >= 0 ? `${chapterIndex + 1}. ` : '';
+          entries.push({
+            chapterId,
+            label: `${labelPrefix}${afterChapter.title}`,
+            beforeText: stripHtml(beforeChapter.content),
+            afterText: stripHtml(afterChapter.content),
+          });
+          return entries;
+        }, []);
+        const bookChangeCard = buildAiChangeCard({
+          operation: `Chat auto-aplicar libro (${iterations} iteracion/es)`,
+          scopeLabel: 'Libro',
+          entries: bookChangeEntries,
+          extractedSummaries,
+          continuityCorrections,
+          interrupted: cancelledBySafeMode,
+        });
 
         const assistantMessage: ChatMessage = {
           id: randomId('msg'),
           role: 'assistant',
           scope,
-          content: `Cambios aplicados automaticamente en todo el libro (${book.metadata.chapterOrder.length} capitulos, ${iterations} iteracion/es).${extractedSummaries > 0 ? ` Resumenes detectados: ${extractedSummaries}.` : ''}${continuityCorrections > 0 ? ` Correcciones de continuidad: ${continuityCorrections}.` : ''}`,
+          content: bookChangeCard,
           createdAt: getNowIso(),
         };
 
+        void writeSessionAudit(book.path, {
+          sessionId: userMessage.id,
+          scope: 'book',
+          operation: 'chat-auto-apply-book',
+          status: cancelledBySafeMode ? 'cancelled' : 'applied',
+          reason: cancelledBySafeMode
+            ? cancelledByRiskReview
+              ? 'Interrumpido por revision manual de riesgo alto.'
+              : 'Interrumpido por revision manual de safe mode.'
+            : '',
+          chapterChanges: bookChangeEntries.map((entry, index) => ({
+              chapterId: entry.chapterId ?? appliedChapterIds[index] ?? `chapter-${index + 1}`,
+              chapterTitle: entry.label,
+              beforeText: entry.beforeText,
+              afterText: entry.afterText,
+          })),
+          metadata: {
+            iterations,
+            extractedSummaries,
+            continuityCorrections,
+            appliedChapterUpdates,
+            interrupted: cancelledBySafeMode,
+          },
+        });
+
         await persistScopeMessages(scope, [...withUser, assistantMessage], scopeChapterId);
-        setStatus('Chat aplicado automaticamente al libro completo.');
+        setStatus(
+          cancelledBySafeMode
+            ? 'Chat auto-aplicado parcialmente al libro (interrumpido por Modo seguro IA).'
+            : 'Chat aplicado automaticamente al libro completo.',
+        );
       } catch (error) {
+        if (scope === 'book' && book && activeBookTransactionId) {
+          try {
+            const rollbackResult = await rollbackAiTransaction(
+              book.path,
+              activeBookTransactionId,
+              `rollback por error: ${formatUnknownError(error)}`,
+            );
+            if (rollbackResult.rolledBack) {
+              void recordTrustIncident(book.path, 'transaction_recovered');
+              try {
+                const reloadedAfterRollback = await loadBookProject(book.path);
+                setBook((previous) =>
+                  previous && previous.path === reloadedAfterRollback.path ? reloadedAfterRollback : previous,
+                );
+              } catch {
+                // Si falla la recarga, se conserva estado actual y se informa el error original.
+              }
+            }
+          } catch {
+            // Se informa el error original de IA debajo.
+          }
+        }
         setStatus(`Error de IA: ${formatUnknownError(error)}`);
       } finally {
         setAiBusy(false);
@@ -3723,9 +6198,58 @@ function App() {
       enforceExpansionResult,
       enforceContinuityResult,
       requestAiSafeReview,
+      registerAiRollbackSession,
+      recordTrustIncident,
+      writeSessionAudit,
       activeLanguage,
       bookLengthInfo,
+      buildConsultorEvidenceMarkers,
+      buildConsultorJumpMarkers,
+      buildSagaPromptContext,
+      canonicalStoryBible,
+      storyBibleChronicleIndex,
     ],
+  );
+
+  const executeBookAction = useCallback(
+    async (actionId: (typeof AI_ACTIONS)[number]['id']) => {
+      if (!book) return;
+      const action = AI_ACTIONS.find((item) => item.id === actionId);
+      setAiBusy(true);
+      setStatus('Analizando libro completo...');
+      try {
+        const prompt = buildActionPrompt({
+          actionId,
+          selectedText: '',
+          ideaText: '',
+          chapterTitle: '',
+          bookTitle: book.metadata.title,
+          language: activeLanguage,
+          foundation: book.metadata.foundation,
+          storyBible: canonicalStoryBible ?? book.metadata.storyBible,
+          sagaTitle: activeSaga?.metadata.title ?? null,
+          sagaWorld: activeSaga?.metadata.worldBible ?? null,
+          fullBookContext: buildBookContext(book),
+        });
+        const response = normalizeAiOutput(await generateWithOllama({ config, prompt }));
+        const history = await ensureScopeMessagesLoaded('book');
+        const feedbackMessage: ChatMessage = {
+          id: randomId('msg'),
+          role: 'assistant',
+          scope: 'book',
+          content: `Analisis (${action?.label ?? actionId}):\n${response}`,
+          createdAt: getNowIso(),
+        };
+        await persistScopeMessages('book', [...history, feedbackMessage]);
+        setChatScope('book');
+        setStatus(`Analisis completado: ${action?.label ?? actionId}`);
+      } catch (error) {
+        setStatus(`Error IA: ${formatUnknownError(error)}`);
+      } finally {
+        setAiBusy(false);
+      }
+    },
+    [book, activeLanguage, config, canonicalStoryBible, activeSaga, ensureScopeMessagesLoaded, persistScopeMessages],
   );
 
   const executeAction = useCallback(
@@ -3740,7 +6264,21 @@ function App() {
         return;
       }
 
-      const allowEmptyTargetActions = new Set(['feedback-book', 'feedback-chapter', 'draft-from-idea']);
+      const allowEmptyTargetActions = new Set([
+        'feedback-book',
+        'feedback-chapter',
+        'draft-from-idea',
+        'verify-pov-voice',
+        'suggest-next-chapter',
+        'detect-broken-promises',
+        'compare-arc-rhythm',
+        'loose-ends-check',
+        'consult-world',
+        'consult-economy',
+        'consult-politics',
+        'consult-tone-drift',
+        'consult-rule-audit',
+      ]);
       const hasSelection = editor.hasSelection();
       const chapterText = editor.getDocumentText();
       const selectedText = hasSelection ? editor.getSelectionText() : chapterText;
@@ -3762,7 +6300,14 @@ function App() {
         .map((item) => `${item.role === 'user' ? 'Usuario' : 'Asistente'}: ${item.content}`)
         .join('\n');
       const storyBibleForAction = selectStoryBibleForPrompt(
-        book.metadata.storyBible,
+        storyBibleChronicleIndex ?? canonicalStoryBible ?? book.metadata.storyBible,
+        `${normalizedIdea}\n${promptTargetText}\n${activeChapter.title}\n${stripHtml(activeChapter.content)}`,
+        {
+          recentText: recentActionHistory,
+          recencyWeight: 1.15,
+        },
+      );
+      const sagaContextForAction = buildSagaPromptContext(
         `${normalizedIdea}\n${promptTargetText}\n${activeChapter.title}\n${stripHtml(activeChapter.content)}`,
         {
           recentText: recentActionHistory,
@@ -3779,6 +6324,8 @@ function App() {
         language: activeLanguage,
         foundation: book.metadata.foundation,
         storyBible: storyBibleForAction,
+        sagaTitle: sagaContextForAction.sagaTitle,
+        sagaWorld: sagaContextForAction.sagaWorld,
         chapterLengthPreset: activeChapter.lengthPreset,
         chapterContext: stripHtml(activeChapter.content),
         fullBookContext: buildBookContext(book),
@@ -3793,6 +6340,7 @@ function App() {
           actionId === 'draft-from-idea'
             ? `Escribir desde idea. ${normalizedIdea}`
             : `${action?.label ?? actionId}. ${action?.description ?? ''}`.trim();
+        const rollbackBeforeChapter = action?.modifiesText ? cloneChapterForRollback(activeChapter) : null;
         if (action?.modifiesText && config.autoVersioning) {
           await saveChapterSnapshot(book.path, activeChapter, action.label);
         }
@@ -3806,6 +6354,8 @@ function App() {
         const parsedOutput = splitAiOutputAndSummary(response);
         let outputText = parsedOutput.cleanText || response;
         let summaryText = parsedOutput.summaryText;
+        let expansionHighRisk = false;
+        let expansionRiskReason = '';
 
         if (action?.modifiesText) {
           const expansionSourceText = actionId === 'draft-from-idea' ? chapterText : selectedText;
@@ -3819,6 +6369,8 @@ function App() {
           });
           outputText = expansionResult.text;
           summaryText = expansionResult.summaryText || summaryText;
+          expansionHighRisk = expansionResult.highRisk;
+          expansionRiskReason = expansionResult.riskReason;
         }
 
         if (action?.modifiesText) {
@@ -3835,18 +6387,48 @@ function App() {
           });
           summaryText = continuityResult.summaryText || summaryText;
 
-          if (
+          const requiresHighRiskReview = expansionHighRisk || continuityResult.highRisk;
+          const requiresSafeModeReview =
             config.aiSafeMode &&
-            shouldRequireAiSafeReview(chapterText, continuityResult.text)
-          ) {
+            shouldRequireAiSafeReview(chapterText, continuityResult.text);
+          const riskReason = [expansionRiskReason, continuityResult.riskReason]
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+            .join(' | ');
+          if (requiresHighRiskReview || requiresSafeModeReview) {
             const approved = await requestAiSafeReview({
-              title: `Modo seguro IA - ${action?.label ?? actionId}`,
-              subtitle: 'Se detecto un cambio grande. Revisa el diff antes de aplicar.',
+              title: requiresHighRiskReview
+                ? `Riesgo alto IA - ${action?.label ?? actionId}`
+                : `Modo seguro IA - ${action?.label ?? actionId}`,
+              subtitle: requiresHighRiskReview
+                ? `${riskReason || 'Se detecto riesgo alto en guardrails.'} Revisa el diff antes de aplicar.`
+                : 'Se detecto un cambio grande. Revisa el diff antes de aplicar.',
               beforeText: chapterText,
               afterText: continuityResult.text,
             });
             if (!approved) {
-              setStatus('Modo seguro IA: cambio rechazado antes de aplicar.');
+              void recordTrustIncident(
+                book.path,
+                requiresHighRiskReview ? 'session_cancelled_risk' : 'session_cancelled_safe_mode',
+              );
+              void writeSessionAudit(book.path, {
+                sessionId: randomId('audit'),
+                scope: 'chapter',
+                operation: `action-${action?.label ?? actionId}`,
+                status: 'cancelled',
+                reason: requiresHighRiskReview
+                  ? riskReason || 'Revision manual de riesgo alto rechazada.'
+                  : 'Revision manual (safe mode) rechazada.',
+                chapterChanges: [],
+                metadata: {
+                  actionId,
+                },
+              });
+              setStatus(
+                requiresHighRiskReview
+                  ? 'Riesgo alto IA: cambio rechazado antes de aplicar.'
+                  : 'Modo seguro IA: cambio rechazado antes de aplicar.',
+              );
               return;
             }
           }
@@ -3890,24 +6472,71 @@ function App() {
               [activeChapter.id]: persistedChapter,
             },
           });
-
-          if (summaryText) {
-            const currentChapterMessages = await ensureScopeMessagesLoaded('chapter', activeChapter.id);
-            const summaryMessage: ChatMessage = {
-              id: randomId('msg'),
-              role: 'assistant',
+          if (rollbackBeforeChapter) {
+            registerAiRollbackSession({
+              label: `Accion IA - ${action?.label ?? actionId}`,
               scope: 'chapter',
-              content: buildSummaryMessage(summaryText, `Resumen de cambios (${action?.label ?? actionId}):`),
-              createdAt: getNowIso(),
-            };
-            await persistScopeMessages('chapter', [...currentChapterMessages, summaryMessage], activeChapter.id);
+              bookPath: book.path,
+              chapterOrder: [activeChapter.id],
+              chaptersBefore: {
+                [activeChapter.id]: rollbackBeforeChapter,
+              },
+            });
           }
+          void recordTrustIncident(book.path, 'session_applied');
+          void writeSessionAudit(book.path, {
+            sessionId: randomId('audit'),
+            scope: 'chapter',
+            operation: `action-${action?.label ?? actionId}`,
+            status: 'applied',
+            chapterChanges: [
+              {
+                chapterId: activeChapter.id,
+                chapterTitle: persistedChapter.title,
+                beforeText: stripHtml(rollbackBeforeChapter?.content ?? activeChapter.content),
+                afterText: stripHtml(persistedChapter.content),
+              },
+            ],
+            metadata: {
+              actionId,
+              continuityCorrected: continuityResult.corrected,
+              highRiskReview: requiresHighRiskReview,
+            },
+          });
+
+          const currentChapterMessages = await ensureScopeMessagesLoaded('chapter', activeChapter.id);
+          const actionChangeCard = buildAiChangeCard({
+            operation: `Accion IA: ${action?.label ?? actionId}`,
+            scopeLabel: 'Capitulo',
+            entries: [
+              {
+                chapterId: persistedChapter.id,
+                label: persistedChapter.title,
+                beforeText: stripHtml(rollbackBeforeChapter?.content ?? activeChapter.content),
+                afterText: stripHtml(persistedChapter.content),
+              },
+            ],
+            continuityCorrections: continuityResult.corrected ? 1 : 0,
+          });
+          const summaryMessage: ChatMessage = {
+            id: randomId('msg'),
+            role: 'assistant',
+            scope: 'chapter',
+            content: [
+              buildSummaryMessage(summaryText, `Resumen de cambios (${action?.label ?? actionId}):`),
+              actionChangeCard,
+            ]
+              .filter((entry) => entry.trim().length > 0)
+              .join('\n\n'),
+            createdAt: getNowIso(),
+          };
+          await persistScopeMessages('chapter', [...currentChapterMessages, summaryMessage], activeChapter.id);
 
           setStatus(
             actionId === 'draft-from-idea' ? 'Capitulo generado desde la idea ingresada.' : `Accion aplicada: ${action?.label ?? actionId}`,
           );
         } else {
-          const feedbackScope: ChatScope = actionId === 'feedback-book' ? 'book' : 'chapter';
+          const feedbackScope: ChatScope = (actionId === 'feedback-book' || actionId === 'loose-ends-check') ? 'book' : 'chapter';
           if (feedbackScope === 'chapter' && !activeChapterId) {
             throw new Error('No hay capitulo activo para guardar la devolucion.');
           }
@@ -3950,8 +6579,14 @@ function App() {
       enforceExpansionResult,
       enforceContinuityResult,
       requestAiSafeReview,
+      registerAiRollbackSession,
+      recordTrustIncident,
+      writeSessionAudit,
       activeLanguage,
       currentMessages,
+      buildSagaPromptContext,
+      canonicalStoryBible,
+      storyBibleChronicleIndex,
     ],
   );
 
@@ -3978,9 +6613,25 @@ function App() {
         return;
       }
 
+      if (actionId === 'loose-ends-check') {
+        void executeBookAction(actionId);
+        return;
+      }
+
+      if (
+        actionId === 'consult-world' ||
+        actionId === 'consult-economy' ||
+        actionId === 'consult-politics' ||
+        actionId === 'consult-tone-drift' ||
+        actionId === 'consult-rule-audit'
+      ) {
+        void executeBookAction(actionId);
+        return;
+      }
+
       void executeAction(actionId);
     },
-    [activeChapter, executeAction],
+    [activeChapter, executeAction, executeBookAction],
   );
 
   const persistEditorChapter = useCallback(
@@ -4065,7 +6716,7 @@ function App() {
     try {
       const snapshots = await listChapterSnapshots(book.path, activeChapter.id);
       if (snapshots.length === 0) {
-        setStatus('No hay snapshots para restaurar.');
+        setStatus('No hay puntos de restauracion para recuperar.');
         return;
       }
 
@@ -4078,7 +6729,7 @@ function App() {
       const targetIndex = currentPointer ?? snapshots.length - 1;
 
       if (targetIndex < 0) {
-        setStatus('No hay snapshots anteriores para deshacer.');
+        setStatus('No hay versiones anteriores para recuperar.');
         return;
       }
 
@@ -4116,9 +6767,9 @@ function App() {
 
       snapshotUndoCursorRef.current[activeChapter.id] = targetIndex - 1;
       dirtyRef.current = false;
-      setStatus(`Snapshot restaurado (v${targetSnapshot.version}).`);
+      setStatus(`Version restaurada (v${targetSnapshot.version}).`);
     } catch (error) {
-      setStatus(`No se pudo restaurar snapshot: ${formatUnknownError(error)}`);
+      setStatus(`No se pudo restaurar la version: ${formatUnknownError(error)}`);
     }
   }, [book, activeChapter, syncBookToLibrary]);
 
@@ -4130,7 +6781,7 @@ function App() {
     try {
       const stack = snapshotRedoStackRef.current[activeChapter.id] ?? [];
       if (stack.length === 0) {
-        setStatus('No hay snapshot para rehacer.');
+        setStatus('No hay version para rehacer.');
         return;
       }
 
@@ -4169,11 +6820,124 @@ function App() {
       const currentPointer = snapshotUndoCursorRef.current[activeChapter.id] ?? -1;
       snapshotUndoCursorRef.current[activeChapter.id] = Math.min(currentPointer + 1, snapshots.length - 1);
       dirtyRef.current = false;
-      setStatus('Snapshot rehecho.');
+      setStatus('Version rehecha.');
     } catch (error) {
-      setStatus(`No se pudo rehacer snapshot: ${formatUnknownError(error)}`);
+      setStatus(`No se pudo rehacer la version: ${formatUnknownError(error)}`);
     }
   }, [book, activeChapter, syncBookToLibrary]);
+
+  const handleRollbackAiSession = useCallback(async () => {
+    if (!book || !lastAiRollbackSession) {
+      setStatus('No hay sesion IA reciente para revertir.');
+      return;
+    }
+
+    if (lastAiRollbackSession.bookPath !== book.path) {
+      setLastAiRollbackSession(null);
+      setStatus('La ultima sesion IA pertenece a otro libro.');
+      return;
+    }
+
+    const chapterCount = lastAiRollbackSession.chapterOrder.length;
+    const accepted = await confirm(
+      `Vas a revertir la sesion "${lastAiRollbackSession.label}" en ${chapterCount} capitulo/s.\nEsta accion restaurara el estado anterior de forma atomica.`,
+      {
+        title: 'Revertir sesion IA',
+        kind: 'warning',
+        okLabel: 'Revertir sesion',
+        cancelLabel: 'Cancelar',
+      },
+    );
+    if (!accepted) {
+      return;
+    }
+
+    try {
+      const session = lastAiRollbackSession;
+      let restoredCount = 0;
+      let nextChapters: BookProject['chapters'] = { ...book.chapters };
+      for (const chapterId of session.chapterOrder) {
+        const baseline = session.chaptersBefore[chapterId];
+        if (!baseline) {
+          continue;
+        }
+
+        const restored = await saveChapter(book.path, {
+          ...cloneChapterForRollback(baseline),
+          updatedAt: getNowIso(),
+        });
+        nextChapters = {
+          ...nextChapters,
+          [chapterId]: restored,
+        };
+        resetSnapshotNavigation(chapterId);
+        restoredCount += 1;
+      }
+
+      if (restoredCount === 0) {
+        setStatus('No se encontraron capitulos para revertir en la sesion seleccionada.');
+        return;
+      }
+
+      setBook((previous) => {
+        if (!previous || previous.path !== book.path) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          chapters: nextChapters,
+        };
+      });
+      await syncBookToLibrary({
+        ...book,
+        chapters: nextChapters,
+      });
+      dirtyRef.current = false;
+      setLastAiRollbackSession(null);
+      void recordTrustIncident(book.path, 'session_rollback_manual');
+      void writeSessionAudit(book.path, {
+        sessionId: session.id,
+        scope: session.scope,
+        operation: `manual-rollback:${session.label}`,
+        status: 'rolled_back',
+        chapterChanges: session.chapterOrder
+          .map((chapterId) => {
+            const before = session.chaptersBefore[chapterId];
+            const after = nextChapters[chapterId];
+            if (!before || !after) {
+              return null;
+            }
+
+            return {
+              chapterId,
+              chapterTitle: after.title,
+              beforeText: stripHtml(before.content),
+              afterText: stripHtml(after.content),
+            };
+          })
+          .filter((entry): entry is {
+            chapterId: string;
+            chapterTitle: string;
+            beforeText: string;
+            afterText: string;
+          } => Boolean(entry)),
+        metadata: {
+          restoredCount,
+        },
+      });
+      setStatus(`Sesion IA revertida (${restoredCount} capitulo/s restaurados).`);
+    } catch (error) {
+      setStatus(`No se pudo revertir sesion IA: ${formatUnknownError(error)}`);
+    }
+  }, [
+    book,
+    lastAiRollbackSession,
+    resetSnapshotNavigation,
+    syncBookToLibrary,
+    recordTrustIncident,
+    writeSessionAudit,
+  ]);
 
   const handleSaveMilestone = useCallback(() => {
     if (!book || !activeChapter) {
@@ -4210,7 +6974,7 @@ function App() {
               syncNote = ` Auto-sincronizacion de biblia pendiente (${formatUnknownError(syncError)}).`;
             }
 
-            setStatus(`Hito guardado: "${milestoneLabel}" (v${snapshot.version}).${syncNote}`);
+            setStatus(`Hito guardado: "${milestoneLabel}" (version ${snapshot.version}).${syncNote}`);
           } catch (error) {
             setStatus(`No se pudo guardar el hito: ${formatUnknownError(error)}`);
           }
@@ -4414,8 +7178,16 @@ function App() {
   }, [book, syncBookToLibrary]);
 
   const queueEditorialGuardedAction = useCallback(
-    (intentLabel: string, action: () => Promise<void>) => {
+    async (intentLabel: string, action: () => Promise<void>) => {
       if (!book) {
+        return;
+      }
+
+      const strictBlock = await checkStrictSagaValidationBlockForBook();
+      if (strictBlock) {
+        setStatus(
+          `Exportacion bloqueada por modo estricto en saga "${strictBlock.sagaTitle}": ${strictBlock.errorCount} error(es) de coherencia.`,
+        );
         return;
       }
 
@@ -4436,11 +7208,19 @@ function App() {
         setStatus('Checklist editorial: hay errores bloqueantes antes de exportar/publicar.');
       }
     },
-    [book, config],
+    [book, checkStrictSagaValidationBlockForBook, config],
   );
 
   const handleExportCollaborationPatch = useCallback(async () => {
     if (!book) {
+      return;
+    }
+
+    const strictBlock = await checkStrictSagaValidationBlockForBook();
+    if (strictBlock) {
+      setStatus(
+        `Exportacion bloqueada por modo estricto en saga "${strictBlock.sagaTitle}": ${strictBlock.errorCount} error(es) de coherencia.`,
+      );
       return;
     }
 
@@ -4461,11 +7241,11 @@ function App() {
         })),
       };
       const outputPath = await writeCollaborationPatchExport(book.path, patch);
-      setStatus(`Patch colaborativo exportado: ${outputPath}`);
+      setStatus(`Paquete de edicion exportado: ${outputPath}`);
     } catch (error) {
-      setStatus(`No se pudo exportar patch colaborativo: ${formatUnknownError(error)}`);
+      setStatus(`No se pudo exportar el paquete de edicion: ${formatUnknownError(error)}`);
     }
-  }, [book, orderedChapters]);
+  }, [book, checkStrictSagaValidationBlockForBook, orderedChapters]);
 
   const handleImportCollaborationPatch = useCallback(async () => {
     if (!book) {
@@ -4491,7 +7271,7 @@ function App() {
       const accepted = await confirm(
         formatCollaborationPatchPreviewMessage(patch, preview, { maxItems: 10 }),
         {
-          title: 'Importar patch colaborativo',
+          title: 'Importar paquete de edicion',
           kind: 'warning',
           okLabel: 'Aplicar patch',
           cancelLabel: 'Cancelar',
@@ -4560,12 +7340,20 @@ function App() {
       await syncBookToLibrary(nextProject);
       setStatus(`Patch aplicado: ${updatedCount} capitulo/s actualizados, ${createdCount} creados.`);
     } catch (error) {
-      setStatus(`No se pudo importar patch colaborativo: ${formatUnknownError(error)}`);
+      setStatus(`No se pudo importar el paquete de edicion: ${formatUnknownError(error)}`);
     }
   }, [book, config.autoVersioning, syncBookToLibrary]);
 
   const handleExportChapter = useCallback(async () => {
     if (!book || !activeChapter) {
+      return;
+    }
+
+    const strictBlock = await checkStrictSagaValidationBlockForBook();
+    if (strictBlock) {
+      setStatus(
+        `Exportacion bloqueada por modo estricto en saga "${strictBlock.sagaTitle}": ${strictBlock.errorCount} error(es) de coherencia.`,
+      );
       return;
     }
 
@@ -4576,14 +7364,14 @@ function App() {
     } catch (error) {
       setStatus(`No se pudo exportar capitulo: ${formatUnknownError(error)}`);
     }
-  }, [book, activeChapter]);
+  }, [book, activeChapter, checkStrictSagaValidationBlockForBook]);
 
   const handleExportBookSingle = useCallback(async () => {
     if (!book) {
       return;
     }
 
-    queueEditorialGuardedAction('Exportar libro (archivo unico)', async () => {
+    void queueEditorialGuardedAction('Exportar libro (archivo unico)', async () => {
       try {
         const { exportBookMarkdownSingleFile } = await loadExportModule();
         const path = await exportBookMarkdownSingleFile(book.path, book.metadata, orderedChapters);
@@ -4599,7 +7387,7 @@ function App() {
       return;
     }
 
-    queueEditorialGuardedAction('Exportar libro por capitulos', async () => {
+    void queueEditorialGuardedAction('Exportar libro por capitulos', async () => {
       try {
         const { exportBookMarkdownByChapter } = await loadExportModule();
         const files = await exportBookMarkdownByChapter(book.path, orderedChapters);
@@ -4615,7 +7403,7 @@ function App() {
       return;
     }
 
-    queueEditorialGuardedAction('Exportar pack Amazon', async () => {
+    void queueEditorialGuardedAction('Exportar pack Amazon', async () => {
       try {
         const { exportBookAmazonBundle } = await loadExportModule();
         const files = await exportBookAmazonBundle(book.path, book.metadata, orderedChapters);
@@ -4631,7 +7419,7 @@ function App() {
       return;
     }
 
-    queueEditorialGuardedAction('Exportar DOCX editorial', async () => {
+    void queueEditorialGuardedAction('Exportar DOCX editorial', async () => {
       try {
         const { exportBookDocx } = await loadExportModule();
         const path = await exportBookDocx(book.path, book.metadata, orderedChapters);
@@ -4647,7 +7435,7 @@ function App() {
       return;
     }
 
-    queueEditorialGuardedAction('Exportar EPUB editorial', async () => {
+    void queueEditorialGuardedAction('Exportar EPUB editorial', async () => {
       try {
         const { exportBookEpub } = await loadExportModule();
         const path = await exportBookEpub(book.path, book.metadata, orderedChapters);
@@ -4663,7 +7451,7 @@ function App() {
       return;
     }
 
-    queueEditorialGuardedAction('Exportar audiolibro WAV', async () => {
+    void queueEditorialGuardedAction('Exportar audiolibro WAV', async () => {
       await exportAudioToWav(
         buildBookAudioText(book.metadata, orderedChapters),
         buildBookAudioExportPath(book.path, book.metadata),
@@ -4672,8 +7460,109 @@ function App() {
     });
   }, [book, orderedChapters, queueEditorialGuardedAction, exportAudioToWav]);
 
+  const handleExportCartographerPack = useCallback(async () => {
+    if (!activeSaga) {
+      setStatus('Abre una saga para exportar el pack cartografico.');
+      return;
+    }
+
+    try {
+      const { exportSagaCartographerPack } = await loadExportModule();
+      const path = await exportSagaCartographerPack(activeSaga.path, activeSaga);
+      setStatus(`Pack cartografo exportado: ${path}`);
+    } catch (error) {
+      setStatus(`No se pudo exportar el pack cartografo: ${formatUnknownError(error)}`);
+    }
+  }, [activeSaga]);
+
+  const handleExportHistorianPack = useCallback(async () => {
+    if (!activeSaga) {
+      setStatus('Abre una saga para exportar el pack cronologico.');
+      return;
+    }
+
+    try {
+      const { exportSagaHistorianPack } = await loadExportModule();
+      const path = await exportSagaHistorianPack(activeSaga.path, activeSaga);
+      setStatus(`Pack cronologia exportado: ${path}`);
+    } catch (error) {
+      setStatus(`No se pudo exportar el pack cronologia: ${formatUnknownError(error)}`);
+    }
+  }, [activeSaga]);
+
+  const handleExportSagaBible = useCallback(async () => {
+    if (!activeSaga) {
+      setStatus('Abre una saga para exportar la biblia compilada.');
+      return;
+    }
+
+    try {
+      const { exportSagaBibleDossier } = await loadExportModule();
+      const path = await exportSagaBibleDossier(activeSaga.path, activeSaga);
+      setStatus(`Biblia de saga exportada: ${path}`);
+    } catch (error) {
+      setStatus(`No se pudo exportar la biblia de saga: ${formatUnknownError(error)}`);
+    }
+  }, [activeSaga]);
+
+  const handleExportEditorPack = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    void queueEditorialGuardedAction('Exportar pack editor', async () => {
+      try {
+        const { exportBookEditorPack } = await loadExportModule();
+        const path = await exportBookEditorPack(book.path, book.metadata, orderedChapters, activeSaga);
+        setStatus(`Pack editor exportado: ${path}`);
+      } catch (error) {
+        setStatus(`No se pudo exportar el pack editor: ${formatUnknownError(error)}`);
+      }
+    });
+  }, [activeSaga, book, orderedChapters, queueEditorialGuardedAction]);
+
+  const handleExportLayoutPack = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    void queueEditorialGuardedAction('Exportar pack maquetacion', async () => {
+      try {
+        const { exportBookLayoutPack } = await loadExportModule();
+        const path = await exportBookLayoutPack(book.path, book.metadata, orderedChapters);
+        setStatus(`Pack maquetacion exportado: ${path}`);
+      } catch (error) {
+        setStatus(`No se pudo exportar el pack maquetacion: ${formatUnknownError(error)}`);
+      }
+    });
+  }, [book, orderedChapters, queueEditorialGuardedAction]);
+
+  const handleExportConsultantPack = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    void queueEditorialGuardedAction('Exportar pack consultoria', async () => {
+      try {
+        const { exportBookConsultantPack } = await loadExportModule();
+        const path = await exportBookConsultantPack(book.path, book.metadata, orderedChapters, activeSaga);
+        setStatus(`Pack consultoria exportado: ${path}`);
+      } catch (error) {
+        setStatus(`No se pudo exportar el pack consultoria: ${formatUnknownError(error)}`);
+      }
+    });
+  }, [activeSaga, book, orderedChapters, queueEditorialGuardedAction]);
+
   const handleExportStyleReport = useCallback(async () => {
     if (!book) {
+      return;
+    }
+
+    const strictBlock = await checkStrictSagaValidationBlockForBook();
+    if (strictBlock) {
+      setStatus(
+        `Exportacion bloqueada por modo estricto en saga "${strictBlock.sagaTitle}": ${strictBlock.errorCount} error(es) de coherencia.`,
+      );
       return;
     }
 
@@ -4684,7 +7573,7 @@ function App() {
     } catch (error) {
       setStatus(`No se pudo exportar reporte de estilo: ${formatUnknownError(error)}`);
     }
-  }, [book, orderedChapters]);
+  }, [book, checkStrictSagaValidationBlockForBook, orderedChapters]);
 
   const handleOpenLibraryBook = useCallback(
     async (bookPath: string) => {
@@ -4749,6 +7638,7 @@ function App() {
       }
 
       try {
+        const linkedSagaPath = libraryEntry?.sagaPath ?? null;
         if (book && book.path === bookPath) {
           try {
             await flushChapterSave();
@@ -4757,7 +7647,11 @@ function App() {
           }
           setBook(null);
           setActiveChapterId(null);
-          setMainView('editor');
+          setMainView((previous) =>
+            ((previous === 'saga' || previous === 'timeline' || previous === 'plot' || previous === 'atlas') && activeSaga
+              ? previous
+              : 'editor'),
+          );
           setChatScope('chapter');
           refreshCovers(null);
           dirtyRef.current = false;
@@ -4768,14 +7662,23 @@ function App() {
           setCanRedoEdit(false);
         }
 
-        const nextIndex = await removeBookFromLibrary(bookPath, { deleteFiles: true });
+        let nextIndex = await removeBookFromLibrary(bookPath, { deleteFiles: true });
+        if (linkedSagaPath) {
+          try {
+            const refreshedSaga = await loadSagaProject(linkedSagaPath);
+            nextIndex = await upsertSagaInLibrary(refreshedSaga);
+            setActiveSaga((previous) => (previous && previous.path === refreshedSaga.path ? refreshedSaga : previous));
+          } catch {
+            // Si la saga no se puede refrescar, dejamos al menos el libro fuera de biblioteca.
+          }
+        }
         setLibraryIndex(nextIndex);
         setStatus(`Libro eliminado: ${title}`);
       } catch (error) {
         setStatus(`No se pudo eliminar el libro: ${formatUnknownError(error)}`);
       }
     },
-    [book, flushChapterSave, libraryIndex.books, refreshCovers],
+    [activeSaga, book, flushChapterSave, libraryIndex.books, refreshCovers],
   );
 
   const handleSetBookPublished = useCallback(
@@ -4828,10 +7731,85 @@ function App() {
   );
 
   const centerView = useMemo(() => {
+    if (mainView === 'saga') {
+      return (
+        <LazySagaPanel
+          saga={activeSaga}
+          chapterOptionsByBook={sagaChapterOptionsByBook}
+          onChange={handleSagaChange}
+          onSave={() => {
+            void handleSaveActiveSaga();
+          }}
+          onOpenBook={(bookPath) => {
+            void handleOpenLibraryBook(bookPath);
+          }}
+          onUpdateBookVolume={(bookPath, volumeNumber) => {
+            void handleUpdateActiveSagaBookVolume(bookPath, volumeNumber);
+          }}
+          onMoveBook={(bookPath, direction) => {
+            void handleMoveActiveSagaBook(bookPath, direction);
+          }}
+        />
+      );
+    }
+
+    if (mainView === 'timeline') {
+      return (
+        <LazyTimelineView
+          saga={activeSagaChronicleView}
+          activeSaga={activeSaga}
+          onOpenBook={(bookPath) => {
+            void handleOpenLibraryBook(bookPath);
+          }}
+          onUpsertEvent={(event) => { void handleUpsertTimelineEvent(event); }}
+          onDeleteEvent={(eventId) => { void handleDeleteTimelineEvent(eventId); }}
+          onReorderTimeline={(reordered) => { void handleReorderTimeline(reordered); }}
+        />
+      );
+    }
+
+    if (mainView === 'plot') {
+      return (
+        <LazyPlotBoardView
+          saga={activeSagaChronicleView}
+          activeSaga={activeSaga}
+          onOpenBook={(bookPath) => {
+            void handleOpenLibraryBook(bookPath);
+          }}
+          onUpsertEvent={(event) => { void handleUpsertTimelineEvent(event); }}
+          onDeleteEvent={(eventId) => { void handleDeleteTimelineEvent(eventId); }}
+        />
+      );
+    }
+
+    if (mainView === 'relations') {
+      return (
+        <LazyRelationshipGraphView
+          saga={activeSagaChronicleView}
+          activeSaga={activeSaga}
+          onUpsertRelationship={(rel) => { void handleUpsertRelationship(rel); }}
+          onDeleteRelationship={(relId) => { void handleDeleteRelationship(relId); }}
+        />
+      );
+    }
+
+    if (mainView === 'atlas') {
+      return (
+        <LazyWorldMapView
+          saga={activeSaga}
+          onChange={handleSagaChange}
+          onSave={() => {
+            void handleSaveActiveSaga();
+          }}
+        />
+      );
+    }
+
     if (mainView === 'outline') {
       return (
         <LazyOutlineView
           chapters={orderedChapters}
+          storyBibleCharacters={book?.metadata.storyBible?.characters ?? []}
           onMoveChapter={(chapterId, direction) => {
             void handleMoveChapter(chapterId, direction);
           }}
@@ -4841,6 +7819,12 @@ function App() {
           onSelectChapter={(chapterId) => {
             setActiveChapterId(chapterId);
             setMainView('editor');
+          }}
+          onUpdateChapterPov={(chapterId, pointOfView) => {
+            void handleUpdateChapterPov(chapterId, pointOfView);
+          }}
+          onUpdateChapterMeta={(chapterId, patch) => {
+            void handleUpdateChapterMeta(chapterId, patch);
           }}
         />
       );
@@ -4982,6 +7966,12 @@ function App() {
             setMainView('editor');
           }}
           previewReport={searchPreviewReport}
+          hasSaga={Boolean(activeSaga)}
+          sagaTitle={activeSaga?.metadata.title ?? ''}
+          sagaSearchResults={sagaSearchResults}
+          sagaSearchTotalMatches={sagaSearchTotalMatches}
+          onRunSagaSearch={activeSaga ? handleRunSagaSearch : undefined}
+          onOpenSagaBook={(bookPath) => { void handleOpenLibraryBook(bookPath); }}
         />
       );
     }
@@ -4992,8 +7982,13 @@ function App() {
           key={book?.path ?? 'no-book'}
           config={config}
           bookPath={book?.path ?? null}
+          bookAutoApplyReleaseEnabled={RELEASE_BOOK_AUTO_APPLY_ENABLED}
+          ollamaStatus={ollamaStatus}
           onChange={setConfig}
           onSave={handleSaveSettings}
+          onRefreshOllamaStatus={() => {
+            void refreshOllamaStatus();
+          }}
           onPickBackupDirectory={handlePickBackupDirectory}
           onRunBackupNow={handleBackupNow}
         />
@@ -5013,6 +8008,61 @@ function App() {
           onSave={handleSaveSettings}
           isDirty={languageDirty}
           saveState={languageSaveState}
+        />
+      );
+    }
+
+    if (mainView === 'scratchpad') {
+      if (!book) {
+        return (
+          <section className="editor-pane empty-state">
+            <h2>Banco de ideas</h2>
+            <p>Abri un libro para usar tus recortes e ideas sueltas.</p>
+          </section>
+        );
+      }
+      return (
+        <LazyScratchpadView
+          scratchpad={book.metadata.scratchpad ?? ''}
+          bookTitle={book.metadata.title}
+          onSave={handleSaveScratchpad}
+        />
+      );
+    }
+
+    if (mainView === 'loose-threads') {
+      if (!book) {
+        return (
+          <section className="editor-pane empty-state">
+            <h2>Hilos abiertos</h2>
+            <p>Abri un libro para gestionar los hilos narrativos.</p>
+          </section>
+        );
+      }
+      return (
+        <LazyLooseThreadsView
+          threads={book.metadata.looseThreads ?? []}
+          chapters={orderedChapters}
+          onAddThread={handleAddLooseThread}
+          onUpdateThread={handleUpdateLooseThread}
+          onDeleteThread={handleDeleteLooseThread}
+        />
+      );
+    }
+
+    if (mainView === 'char-matrix') {
+      if (!book) {
+        return (
+          <section className="editor-pane empty-state">
+            <h2>Matriz Personaje × Capitulo</h2>
+            <p>Abri un libro para ver la matriz.</p>
+          </section>
+        );
+      }
+      return (
+        <LazyCharacterMatrixView
+          chapters={orderedChapters}
+          characters={book.metadata.storyBible?.characters ?? []}
         />
       );
     }
@@ -5040,7 +8090,15 @@ function App() {
         chapterPageEnd={activeChapterPageRange?.end ?? 0}
         bookWordCount={bookWordCount}
         bookEstimatedPages={bookEstimatedPages}
+        continuityHighlightEnabled={continuityHighlightEnabled}
+        continuityHighlights={continuityHighlights}
+        continuityReport={activeChapterContinuityReport}
+        continuityBriefing={activeChapterContinuityBriefing}
+        semanticReferenceCharacterCount={semanticReferenceCharacterCount}
+        semanticReferenceLocationCount={semanticReferenceLocationCount}
+        semanticReferencesCatalog={semanticReferencesCatalog}
         audioPlaybackState={audioPlaybackState}
+        manuscriptNotes={activeChapter.manuscriptNotes ?? []}
         onUndoEdit={() => {
           void handleUndoEdit();
         }}
@@ -5054,17 +8112,36 @@ function App() {
           void handleExportActiveChapterAudio();
         }}
         onLengthPresetChange={handleChapterLengthPresetChange}
+        onContinuityHighlightToggle={setContinuityHighlightEnabled}
+        onRefreshContinuityBriefing={handleRefreshContinuityBriefing}
         onContentChange={handleEditorChange}
+        onInsertCharacterReference={() => {
+          handleInsertSemanticReference('character');
+        }}
+        onInsertLocationReference={() => {
+          handleInsertSemanticReference('location');
+        }}
+        onOpenSemanticReference={handleOpenSemanticReference}
+        onAddManuscriptNote={handleAddManuscriptNote}
+        onToggleManuscriptNote={(noteId) => {
+          void handlePatchActiveChapterManuscriptNote(noteId, 'toggle');
+        }}
+        onDeleteManuscriptNote={(noteId) => {
+          void handlePatchActiveChapterManuscriptNote(noteId, 'delete');
+        }}
         onBlur={() => {
           void flushChapterSave();
         }}
       />
     );
   }, [
+    activeSaga,
+    activeSagaChronicleView,
     activeChapterId,
     activeChapter,
     book,
     config,
+    sagaChapterOptionsByBook,
     coverSrc,
     backCoverSrc,
     coverLoadDiagnostics,
@@ -5085,14 +8162,20 @@ function App() {
     handleReplaceInActiveChapter,
     handlePreviewReplaceInBook,
     handleRunBookSearch,
+    handleOpenLibraryBook,
     handlePickBackCover,
     handleFoundationChange,
+    handleSagaChange,
+    handleMoveActiveSagaBook,
+    handleSaveActiveSaga,
     handleSaveFoundation,
     handleStoryBibleChange,
+    handleUpdateActiveSagaBookVolume,
     handleSaveStoryBible,
     handleSyncStoryBibleFromActiveChapter,
     handleMoveChapter,
     handleMoveChapterToPosition,
+    handleUpdateChapterPov,
     handlePickCover,
     handleSaveCoverData,
     handleRetryCoverLoad,
@@ -5103,6 +8186,11 @@ function App() {
     handleReadActiveChapterAloud,
     handleTogglePauseReadAloud,
     handleExportActiveChapterAudio,
+    handleInsertSemanticReference,
+    handleOpenSemanticReference,
+    handleAddManuscriptNote,
+    handlePatchActiveChapterManuscriptNote,
+    handleRefreshContinuityBriefing,
     stopReadAloud,
     handleUndoEdit,
     handleRedoEdit,
@@ -5114,6 +8202,13 @@ function App() {
     activeChapterPageRange,
     bookWordCount,
     bookEstimatedPages,
+    continuityHighlightEnabled,
+    continuityHighlights,
+    activeChapterContinuityReport,
+    activeChapterContinuityBriefing,
+    semanticReferenceCharacterCount,
+    semanticReferenceLocationCount,
+    semanticReferencesCatalog,
     audioPlaybackState,
     canUndoEdit,
     canRedoEdit,
@@ -5123,8 +8218,23 @@ function App() {
     searchMatches,
     searchQuery,
     searchTotalMatches,
+    sagaSearchResults,
+    sagaSearchTotalMatches,
     searchWholeWord,
     searchPreviewReport,
+    handleRunSagaSearch,
+    handleUpsertTimelineEvent,
+    handleDeleteTimelineEvent,
+    handleReorderTimeline,
+    handleUpsertRelationship,
+    handleDeleteRelationship,
+    handleSaveScratchpad,
+    handleAddLooseThread,
+    handleUpdateLooseThread,
+    handleDeleteLooseThread,
+    handleUpdateChapterMeta,
+    ollamaStatus,
+    refreshOllamaStatus,
   ]);
 
   return (
@@ -5138,16 +8248,23 @@ function App() {
         sidebar={
           <Sidebar
             hasBook={Boolean(book)}
+            hasSaga={Boolean(activeSaga)}
             activeBookPath={book?.path ?? null}
+            activeSagaPath={activeSaga?.path ?? null}
             bookTitle={book?.metadata.title ?? 'Sin libro'}
             chapters={orderedChapters}
             libraryBooks={libraryIndex.books}
+            librarySagas={libraryIndex.sagas}
             libraryExpanded={libraryExpanded}
             activeChapterId={activeChapterId}
             onToggleLibrary={() => setLibraryExpanded((previous) => !previous)}
+            onCreateSaga={handleCreateSaga}
             onOpenLibraryBook={handleOpenLibraryBook}
             onOpenLibraryBookChat={handleOpenLibraryBookChat}
             onOpenLibraryBookAmazon={handleOpenLibraryBookAmazon}
+            onOpenLibrarySaga={handleOpenLibrarySaga}
+            onAttachActiveBookToSaga={handleAttachActiveBookToSaga}
+            onDeleteLibrarySaga={handleDeleteLibrarySaga}
             onDeleteLibraryBook={handleDeleteLibraryBook}
             onSetBookPublished={handleSetBookPublished}
             onCreateChapter={handleCreateChapter}
@@ -5166,6 +8283,12 @@ function App() {
             onExportBookDocx={handleExportBookDocx}
             onExportBookEpub={handleExportBookEpub}
             onExportAudiobook={handleExportBookAudiobook}
+            onExportCartographerPack={handleExportCartographerPack}
+            onExportEditorPack={handleExportEditorPack}
+            onExportLayoutPack={handleExportLayoutPack}
+            onExportConsultantPack={handleExportConsultantPack}
+            onExportHistorianPack={handleExportHistorianPack}
+            onExportSagaBible={handleExportSagaBible}
             onExportCollaborationPatch={handleExportCollaborationPatch}
             onImportCollaborationPatch={handleImportCollaborationPatch}
             onOpenEditorialChecklist={() => openEditorialChecklist('Continuar de todos modos')}
@@ -5179,8 +8302,51 @@ function App() {
                   <div>
                     <h2>{book.metadata.title}</h2>
                     <p>{book.path}</p>
+                    {book.metadata.sagaPath ? (
+                      <p>
+                        {activeBookSagaTitle}
+                        {book.metadata.sagaVolume ? ` | Vol. ${book.metadata.sagaVolume}` : ''}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="active-book-banner-actions">
+                    {activeSaga && (!book.metadata.sagaPath || activeSaga.path !== book.metadata.sagaPath) ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handleAttachActiveBookToSaga(activeSaga.path);
+                        }}
+                        title="Vincula el libro activo a la saga abierta."
+                      >
+                        Vincular a saga abierta
+                      </button>
+                    ) : null}
+                    {book.metadata.sagaPath ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const sagaPath = book.metadata.sagaPath;
+                          if (!sagaPath) {
+                            return;
+                          }
+                          void handleOpenLibrarySaga(sagaPath);
+                        }}
+                        title="Abre la saga vinculada en el planificador."
+                      >
+                        Abrir saga
+                      </button>
+                    ) : null}
+                    {book.metadata.sagaPath ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handleDetachActiveBookFromSaga();
+                        }}
+                        title="Quita este libro de la saga actual."
+                      >
+                        Quitar de saga
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={handleRenameBookTitle}
@@ -5209,9 +8375,13 @@ function App() {
                         setHelpOpen(false);
                         setOnboardingOpen(true);
                       }}
-                      title="Abre la guia inicial con checklist y recorrido paso a paso."
+                      title={
+                        config.expertWriterMode
+                          ? 'Abre la puesta a punto profesional del proyecto.'
+                          : 'Abre la guia inicial con checklist y recorrido paso a paso.'
+                      }
                     >
-                      Guia inicial
+                      {config.expertWriterMode ? 'Inicio rapido' : 'Guia inicial'}
                     </button>
                     <button
                       type="button"
@@ -5237,9 +8407,13 @@ function App() {
                         setHelpOpen(false);
                         setOnboardingOpen(true);
                       }}
-                      title="Abre la guia inicial con checklist y recorrido paso a paso."
+                      title={
+                        config.expertWriterMode
+                          ? 'Abre la puesta a punto profesional del proyecto.'
+                          : 'Abre la guia inicial con checklist y recorrido paso a paso.'
+                      }
                     >
-                      Guia inicial
+                      {config.expertWriterMode ? 'Inicio rapido' : 'Guia inicial'}
                     </button>
                     <button
                       type="button"
@@ -5254,6 +8428,7 @@ function App() {
             )}
             <TopToolbar
               hasBook={Boolean(book)}
+              hasSaga={Boolean(activeSaga)}
               currentView={mainView}
               focusMode={focusMode}
               onCreateBook={handleCreateBook}
@@ -5268,10 +8443,18 @@ function App() {
               onShowCover={() => setMainView('cover')}
               onShowFoundation={() => setMainView('foundation')}
               onShowBible={() => setMainView('bible')}
+              onShowSaga={() => setMainView('saga')}
+              onShowTimeline={() => setMainView('timeline')}
+              onShowPlot={() => setMainView('plot')}
+              onShowRelations={() => setMainView('relations')}
+              onShowAtlas={() => setMainView('atlas')}
               onShowAmazon={() => setMainView('amazon')}
               onShowSearch={() => setMainView('search')}
               onShowSettings={() => setMainView('settings')}
               onShowLanguage={() => setMainView('language')}
+              onShowScratchpad={() => setMainView('scratchpad')}
+              onShowLooseThreads={() => setMainView('loose-threads')}
+              onShowCharMatrix={() => setMainView('char-matrix')}
             />
             <Suspense
               fallback={
@@ -5301,16 +8484,26 @@ function App() {
                 aiBusy={aiBusy}
                 canUndoSnapshots={Boolean(book && activeChapter)}
                 canRedoSnapshots={canRedoSnapshots}
+                canRollbackAiSession={Boolean(lastAiRollbackSession && book && lastAiRollbackSession.bookPath === book.path)}
                 scope={chatScope}
                 chapterLengthInfo={chapterLengthInfo}
                 bookLengthInfo={bookLengthInfo}
                 messages={currentMessages}
                 autoApplyChatChanges={config.autoApplyChatChanges}
+                bookAutoApplyEnabled={config.bookAutoApplyEnabled}
+                bookAutoApplyReleaseEnabled={RELEASE_BOOK_AUTO_APPLY_ENABLED}
                 chatApplyIterations={config.chatApplyIterations}
                 continuousAgentEnabled={config.continuousAgentEnabled}
                 continuousAgentMaxRounds={config.continuousAgentMaxRounds}
                 promptTemplates={promptTemplates}
+                ollamaStatus={ollamaStatus}
+                contextSummary={aiContextSummary}
+                assistantMode={aiAssistantMode}
                 onScopeChange={setChatScope}
+                onAssistantModeChange={setAiAssistantMode}
+                onRefreshOllamaStatus={() => {
+                  void refreshOllamaStatus();
+                }}
                 onRunAction={handleRunAction}
                 onSendChat={handleSendChat}
                 onTrackCharacter={handleTrackCharacter}
@@ -5318,16 +8511,18 @@ function App() {
                 chapterCount={orderedChapters.length}
                 onUndoSnapshot={handleUndoSnapshot}
                 onRedoSnapshot={handleRedoSnapshot}
+                onRollbackAiSession={handleRollbackAiSession}
                 onSaveMilestone={handleSaveMilestone}
                 onCreatePromptTemplate={handleCreatePromptTemplate}
                 onDeletePromptTemplate={handleDeletePromptTemplate}
+                onContextJump={handleContextJump}
               />
             </Suspense>
           ) : (
             <section className="ai-panel">
               <header>
                 <h2>Asistente IA</h2>
-                <p>Abri un libro para activar chat, acciones y snapshots IA.</p>
+                <p>Abri un libro para activar chat, acciones y versiones IA.</p>
               </header>
             </section>
           )
@@ -5336,17 +8531,21 @@ function App() {
       />
       <OnboardingPanel
         isOpen={onboardingOpen}
+        expertMode={config.expertWriterMode}
         hasBook={Boolean(book)}
         hasChapters={orderedChapters.length > 0}
+        hasWritingStarted={hasMeaningfulWriting}
         hasFoundation={hasFoundationData}
         hasStoryBible={hasStoryBibleData}
-        hasCover={Boolean(book?.metadata.coverImage || book?.metadata.backCoverImage)}
-        hasAmazonCore={hasAmazonCoreData}
         onClose={() => setOnboardingOpen(false)}
         onDismissForever={dismissOnboardingForever}
         onCreateBook={() => {
           setOnboardingOpen(false);
-          void handleCreateBook();
+          void handleCreateBook('blank');
+        }}
+        onCreateSagaTemplateBook={() => {
+          setOnboardingOpen(false);
+          void handleCreateBook('saga');
         }}
         onOpenBook={() => {
           setOnboardingOpen(false);
@@ -5359,6 +8558,8 @@ function App() {
       <Suspense fallback={null}>
         <LazyHelpPanel
           isOpen={helpOpen}
+          hasBook={Boolean(book)}
+          hasSaga={Boolean(activeSaga)}
           focusMode={focusMode}
           onClose={() => setHelpOpen(false)}
           onCreateBook={() => {
@@ -5366,6 +8567,14 @@ function App() {
           }}
           onOpenBook={() => {
             void handleOpenBook();
+          }}
+          onOpenStarterGuide={() => {
+            setHelpOpen(false);
+            setOnboardingOpen(true);
+          }}
+          onGoToView={(view) => {
+            setHelpOpen(false);
+            setMainView(view);
           }}
           onToggleFocusMode={toggleFocusMode}
         />
@@ -5393,14 +8602,24 @@ function App() {
       ) : null}
       <EditorialChecklistModal
         isOpen={editorialIntent.isOpen}
-        report={editorialIntent.report}
+        report={editorialIntent.isOpen ? editorialChecklistReport : null}
+        customItems={book?.metadata.editorialChecklistCustom ?? []}
         intentLabel={editorialIntent.intentLabel}
-        allowProceed={editorialIntent.allowProceed}
+        allowProceed={Boolean(editorialChecklistReport?.isReady)}
         onClose={closeEditorialChecklist}
         onProceed={() => {
           const proceed = editorialIntent.onProceed;
           closeEditorialChecklist();
           proceed?.();
+        }}
+        onAddCustomItem={(input) => {
+          void handleAddEditorialChecklistItem(input);
+        }}
+        onToggleCustomItem={(id) => {
+          void handleToggleEditorialChecklistItem(id);
+        }}
+        onDeleteCustomItem={(id) => {
+          void handleDeleteEditorialChecklistItem(id);
         }}
       />
       {promptModal && (

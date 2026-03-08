@@ -1,6 +1,14 @@
 import type { AppConfig } from '../types/book';
 
-const OLLAMA_URL = 'http://localhost:11434/api/generate';
+const OLLAMA_BASE_URL = 'http://localhost:11434';
+const OLLAMA_URL = `${OLLAMA_BASE_URL}/api/generate`;
+const OLLAMA_TAGS_URL = `${OLLAMA_BASE_URL}/api/tags`;
+const OLLAMA_STATUS_TIMEOUT_MS = 4000;
+const OLLAMA_TIMEOUT_MS_BY_MODE: Record<AppConfig['aiResponseMode'], number> = {
+  rapido: 45_000,
+  equilibrado: 90_000,
+  calidad: 120_000,
+};
 
 interface OllamaGenerateResult {
   response: string;
@@ -13,6 +21,22 @@ interface GenerateInput {
   prompt: string;
 }
 
+interface OllamaTagEntry {
+  name?: unknown;
+  model?: unknown;
+}
+
+interface OllamaTagsPayload {
+  models?: OllamaTagEntry[];
+}
+
+export interface OllamaServiceStatus {
+  state: 'idle' | 'checking' | 'ready' | 'missing-model' | 'offline' | 'error';
+  configuredModel: string;
+  availableModels: string[];
+  message: string;
+}
+
 function compressPrompt(prompt: string, mode: AppConfig['aiResponseMode']): string {
   const normalized = prompt.trim();
   const maxChars = mode === 'rapido' ? 12000 : mode === 'calidad' ? 32000 : 22000;
@@ -20,11 +44,15 @@ function compressPrompt(prompt: string, mode: AppConfig['aiResponseMode']): stri
     return normalized;
   }
 
-  const headSize = Math.min(5000, Math.floor(maxChars * 0.45));
-  const tailSize = Math.max(2000, maxChars - headSize - 180);
+  // Distribuir en 3 partes: cabeza (35%), centro (30%), cola (35%)
+  const headSize = Math.floor(maxChars * 0.35);
+  const middleSize = Math.floor(maxChars * 0.30);
+  const tailSize = Math.max(2000, maxChars - headSize - middleSize - 200);
+  const middleStart = Math.floor((normalized.length - middleSize) / 2);
   const head = normalized.slice(0, headSize);
+  const middle = normalized.slice(middleStart, middleStart + middleSize);
   const tail = normalized.slice(-tailSize);
-  return `${head}\n\n[... contexto intermedio resumido para reducir latencia ...]\n\n${tail}`;
+  return `${head}\n\n[... fragmento inicial omitido ...]\n\n${middle}\n\n[... fragmento final omitido ...]\n\n${tail}`;
 }
 
 function resolveProfileOptions(mode: AppConfig['aiResponseMode']): Record<string, number> {
@@ -51,15 +79,139 @@ function resolveProfileOptions(mode: AppConfig['aiResponseMode']): Record<string
   };
 }
 
-export async function generateWithOllama(input: GenerateInput): Promise<string> {
+function resolveRequestTimeoutMs(mode: AppConfig['aiResponseMode']): number {
+  return OLLAMA_TIMEOUT_MS_BY_MODE[mode] ?? OLLAMA_TIMEOUT_MS_BY_MODE.equilibrado;
+}
+
+export function extractOllamaModelNames(payload: unknown): string[] {
+  if (!payload || typeof payload !== 'object') {
+    return [];
+  }
+
+  const source = Array.isArray((payload as OllamaTagsPayload).models)
+    ? (payload as OllamaTagsPayload).models ?? []
+    : [];
+  const names = source
+    .map((entry) => {
+      const rawName = typeof entry?.name === 'string' ? entry.name : entry?.model;
+      return typeof rawName === 'string' ? rawName.trim() : '';
+    })
+    .filter(Boolean);
+
+  return Array.from(new Set(names)).sort((left, right) => left.localeCompare(right));
+}
+
+export function buildOllamaServiceStatus(configuredModel: string, availableModels: string[]): OllamaServiceStatus {
+  const normalizedModel = configuredModel.trim();
+  const normalizedAvailableModels = Array.from(
+    new Set(availableModels.map((entry) => entry.trim()).filter(Boolean)),
+  ).sort((left, right) => left.localeCompare(right));
+
+  if (normalizedAvailableModels.length === 0) {
+    return {
+      state: 'missing-model',
+      configuredModel: normalizedModel,
+      availableModels: normalizedAvailableModels,
+      message: 'Ollama responde, pero no hay modelos descargados todavia.',
+    };
+  }
+
+  if (!normalizedModel) {
+    return {
+      state: 'missing-model',
+      configuredModel: normalizedModel,
+      availableModels: normalizedAvailableModels,
+      message: 'Ollama responde, pero falta definir un modelo en Settings.',
+    };
+  }
+
+  if (!normalizedAvailableModels.includes(normalizedModel)) {
+    return {
+      state: 'missing-model',
+      configuredModel: normalizedModel,
+      availableModels: normalizedAvailableModels,
+      message: `Ollama esta activo, pero el modelo "${normalizedModel}" no esta descargado.`,
+    };
+  }
+
+  return {
+    state: 'ready',
+    configuredModel: normalizedModel,
+    availableModels: normalizedAvailableModels,
+    message: `Ollama listo. Modelo detectado: ${normalizedModel}.`,
+  };
+}
+
+export async function inspectOllamaService(configuredModel: string): Promise<OllamaServiceStatus> {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => {
+    controller.abort();
+  }, OLLAMA_STATUS_TIMEOUT_MS);
+
   try {
-    const mode = input.config.aiResponseMode ?? 'equilibrado';
+    const response = await fetch(OLLAMA_TAGS_URL, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      return {
+        state: 'error',
+        configuredModel: configuredModel.trim(),
+        availableModels: [],
+        message: details || `Ollama respondio con HTTP ${response.status}.`,
+      };
+    }
+
+    const payload = (await response.json()) as OllamaTagsPayload;
+    return buildOllamaServiceStatus(configuredModel, extractOllamaModelNames(payload));
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      return {
+        state: 'offline',
+        configuredModel: configuredModel.trim(),
+        availableModels: [],
+        message: 'Ollama no respondio a tiempo en localhost:11434.',
+      };
+    }
+
+    if (error instanceof TypeError) {
+      return {
+        state: 'offline',
+        configuredModel: configuredModel.trim(),
+        availableModels: [],
+        message: 'No se pudo conectar con Ollama en localhost:11434.',
+      };
+    }
+
+    return {
+      state: 'error',
+      configuredModel: configuredModel.trim(),
+      availableModels: [],
+      message: error instanceof Error ? error.message : 'Error desconocido consultando Ollama.',
+    };
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
+export async function generateWithOllama(input: GenerateInput): Promise<string> {
+  const mode = input.config.aiResponseMode ?? 'equilibrado';
+  const timeoutMs = resolveRequestTimeoutMs(mode);
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
     const prompt = compressPrompt(input.prompt, mode);
     const response = await fetch(OLLAMA_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
+      signal: controller.signal,
       body: JSON.stringify({
         model: input.config.model,
         system: input.config.systemPrompt,
@@ -81,10 +233,16 @@ export async function generateWithOllama(input: GenerateInput): Promise<string> 
     const payload = (await response.json()) as OllamaGenerateResult;
     return payload.response ?? '';
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Ollama no respondio en ${Math.round(timeoutMs / 1000)}s. Reintenta o reduce el alcance del pedido.`);
+    }
+
     if (error instanceof TypeError) {
       throw new Error('No se pudo conectar con Ollama en localhost:11434. Inicia Ollama.');
     }
 
     throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
   }
 }

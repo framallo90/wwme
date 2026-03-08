@@ -95,10 +95,45 @@
   "isPublished": false,
   "publishedAt": null,
   "createdAt": "2026-02-23T07:05:17.9844572Z",
-  "updatedAt": "2026-02-26T22:08:50.488Z",
+  "updatedAt": "2026-03-03T02:20:26.307Z",
   "storyBible": {
     "characters": [],
-    "locations": [],
+    "locations": [
+      {
+        "id": "loc-auto-mm9zdcg3-1",
+        "name": "Lena",
+        "aliases": "",
+        "description": "",
+        "atmosphere": "",
+        "notes": "Detectado automaticamente en Capitulo 1 - El humo en el puerto. Revisar detalles del lugar.",
+        "canonStatus": "canonical"
+      },
+      {
+        "id": "loc-auto-mm9zdcg3-2",
+        "name": "Con",
+        "aliases": "",
+        "description": "",
+        "atmosphere": "",
+        "notes": "Detectado automaticamente en Capitulo 1 - El humo en el puerto. Revisar detalles del lugar.",
+        "canonStatus": "canonical"
+      },
+      {
+        "id": "loc-auto-mm9zdcg3-3",
+        "name": "Había",
+        "aliases": "",
+        "description": "",
+        "atmosphere": "",
+        "notes": "Detectado automaticamente en Capitulo 1 - El humo en el puerto. Revisar detalles del lugar.",
+        "canonStatus": "canonical"
+      }
+    ],
     "continuityRules": ""
+  },
+  "sagaId": null,
+  "sagaPath": null,
+  "sagaVolume": null,
+  "chats": {
+    "book": [],
+    "chapters": {}
   }
 }

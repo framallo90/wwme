@@ -1,0 +1,28 @@
+:root {
+  --font-body: 'Trebuchet MS', 'Segoe UI', sans-serif;
+  --font-display: Cambria, Georgia, serif;
+  --font-mono: Consolas, 'Courier New', monospace;
+}
+
+body,
+button,
+input,
+textarea,
+select {
+  font-family: var(--font-body);
+}
+
+h1,
+h2,
+h3,
+.section-heading strong,
+.active-book-banner-copy strong,
+.modal-content h3 {
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+}

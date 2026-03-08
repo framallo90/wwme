@@ -4,15 +4,16 @@ import './OnboardingPanel.css';
 
 interface OnboardingPanelProps {
   isOpen: boolean;
+  expertMode: boolean;
   hasBook: boolean;
   hasChapters: boolean;
+  hasWritingStarted: boolean;
   hasFoundation: boolean;
   hasStoryBible: boolean;
-  hasCover: boolean;
-  hasAmazonCore: boolean;
   onClose: () => void;
   onDismissForever: () => void;
   onCreateBook: () => void;
+  onCreateSagaTemplateBook: () => void;
   onOpenBook: () => void;
   onGoToView: (view: MainView) => void;
 }
@@ -56,23 +57,24 @@ const TOUR_STEPS: TourStep[] = [
       'Chat por capitulo o libro completo.',
       'Deshacer/Rehacer IA mediante snapshots.',
     ],
-    actionLabel: 'Abrir Biblia',
-    actionView: 'bible',
+    actionLabel: 'Ir al Editor',
+    actionView: 'editor',
   },
 ];
 
 function OnboardingPanel(props: OnboardingPanelProps) {
   const {
     isOpen,
+    expertMode,
     hasBook,
     hasChapters,
+    hasWritingStarted,
     hasFoundation,
     hasStoryBible,
-    hasCover,
-    hasAmazonCore,
     onClose,
     onDismissForever,
     onCreateBook,
+    onCreateSagaTemplateBook,
     onOpenBook,
     onGoToView,
   } = props;
@@ -118,27 +120,22 @@ function OnboardingPanel(props: OnboardingPanelProps) {
         done: hasChapters,
       },
       {
+        id: 'writing',
+        label: 'Primeras palabras en el manuscrito',
+        done: hasWritingStarted,
+      },
+      {
         id: 'foundation',
-        label: 'Base narrativa completada',
+        label: 'Base narrativa minima definida',
         done: hasFoundation,
       },
       {
         id: 'bible',
-        label: 'Biblia de historia cargada',
+        label: 'Canon minimo cargado en Biblia o Saga',
         done: hasStoryBible,
       },
-      {
-        id: 'cover',
-        label: 'Portada o contraportada cargada',
-        done: hasCover,
-      },
-      {
-        id: 'amazon',
-        label: 'Amazon minimo listo (titulo, autor, descripcion, categoria, keyword)',
-        done: hasAmazonCore,
-      },
     ],
-    [hasAmazonCore, hasBook, hasChapters, hasCover, hasFoundation, hasStoryBible],
+    [hasBook, hasChapters, hasFoundation, hasStoryBible, hasWritingStarted],
   );
 
   const completedSteps = checklist.filter((item) => item.done).length;
@@ -198,11 +195,19 @@ function OnboardingPanel(props: OnboardingPanelProps) {
         onClick={(event) => event.stopPropagation()}
       >
         <header className="onboarding-header">
-          <h2 id={titleId}>Recorrido inicial WriteWMe</h2>
+          <h2 id={titleId}>{expertMode ? 'Inicio rapido profesional' : 'Recorrido inicial WriteWMe'}</h2>
           <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="Cerrar onboarding">
             X
           </button>
         </header>
+
+        <p>
+          {expertMode
+            ? 'Modo escritor experto activo: este panel funciona como puesta a punto rapida y no se abre automaticamente.'
+            : 'Esta guia se abre una sola vez en un arranque nuevo. Despues queda disponible desde '}
+          {expertMode ? null : <strong>Guia inicial</strong>}
+          {expertMode ? null : ' cuando la necesites.'}
+        </p>
 
         <section className="onboarding-progress" aria-live="polite">
           <p>
@@ -215,7 +220,7 @@ function OnboardingPanel(props: OnboardingPanelProps) {
 
         <div className="onboarding-grid">
           <article className="onboarding-card">
-            <h3>Checklist "Tu primer libro"</h3>
+            <h3>{expertMode ? 'Arranque profesional' : 'Checklist "Primer arranque"'}</h3>
             <ul className="onboarding-checklist">
               {checklist.map((item) => (
                 <li key={item.id}>
@@ -234,7 +239,16 @@ function OnboardingPanel(props: OnboardingPanelProps) {
                   onCreateBook();
                 }}
               >
-                Nuevo libro
+                Libro limpio
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onCreateSagaTemplateBook();
+                }}
+              >
+                Plantilla de saga
               </button>
               <button
                 type="button"
@@ -248,47 +262,69 @@ function OnboardingPanel(props: OnboardingPanelProps) {
             </div>
           </article>
 
-          <article className="onboarding-card">
-            <h3>Tour de interfaz</h3>
-            <p className="onboarding-step-title">{currentStep.title}</p>
-            <p>{currentStep.description}</p>
-            <ul>
-              {currentStep.tips.map((tip) => (
-                <li key={tip}>{tip}</li>
-              ))}
-            </ul>
-            <div className="onboarding-actions">
-              <button type="button" onClick={() => setTourIndex((value) => Math.max(0, value - 1))} disabled={tourIndex === 0}>
-                Paso anterior
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (currentStep.actionView) {
-                    onGoToView(currentStep.actionView);
-                  }
-                  onClose();
-                }}
-              >
-                {currentStep.actionLabel}
-              </button>
-              <button
-                type="button"
-                onClick={() => setTourIndex((value) => Math.min(TOUR_STEPS.length - 1, value + 1))}
-                disabled={tourIndex >= TOUR_STEPS.length - 1}
-              >
-                Siguiente paso
-              </button>
-            </div>
-          </article>
+          {expertMode ? (
+            <article className="onboarding-card">
+              <h3>Puesta a punto de saga</h3>
+              <ul>
+                <li>Abre `Fundamentos` para fijar promesa, tono y reglas de la serie.</li>
+                <li>Abre `Biblia` o `Saga` para cargar canon, atlas y cronologia antes de escribir.</li>
+                <li>Salta al `Editor` cuando ya tengas estructura minima y capitulo activo.</li>
+              </ul>
+              <div className="onboarding-actions">
+                <button type="button" onClick={() => onGoToView('foundation')}>
+                  Fundamentos
+                </button>
+                <button type="button" onClick={() => onGoToView('bible')}>
+                  Biblia
+                </button>
+                <button type="button" onClick={() => onGoToView('editor')}>
+                  Editor
+                </button>
+              </div>
+            </article>
+          ) : (
+            <article className="onboarding-card">
+              <h3>Tour de interfaz</h3>
+              <p className="onboarding-step-title">{currentStep.title}</p>
+              <p>{currentStep.description}</p>
+              <ul>
+                {currentStep.tips.map((tip) => (
+                  <li key={tip}>{tip}</li>
+                ))}
+              </ul>
+              <div className="onboarding-actions">
+                <button type="button" onClick={() => setTourIndex((value) => Math.max(0, value - 1))} disabled={tourIndex === 0}>
+                  Paso anterior
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (currentStep.actionView) {
+                      onGoToView(currentStep.actionView);
+                    }
+                    onClose();
+                  }}
+                >
+                  {currentStep.actionLabel}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTourIndex((value) => Math.min(TOUR_STEPS.length - 1, value + 1))}
+                  disabled={tourIndex >= TOUR_STEPS.length - 1}
+                >
+                  Siguiente paso
+                </button>
+              </div>
+            </article>
+          )}
         </div>
 
         <footer className="onboarding-footer">
           <button type="button" onClick={onDismissForever}>
-            No mostrar otra vez
+            No volver a abrir automaticamente
           </button>
           <button type="button" onClick={onClose}>
-            Cerrar guia
+            Lo veo luego
           </button>
         </footer>
       </section>

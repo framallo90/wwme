@@ -11,7 +11,13 @@ This folder adds a professional writing workflow for WriteWMe.
 3. `writewme-kdp-production`
    - Cover and metadata preflight for Amazon KDP publication readiness.
 4. `writewme-writing-suite`
-   - Orchestrates the 3 skills above in a single end-to-end execution path.
+   - Orchestrates the core writing, QA, export, visual, and stress skills in one end-to-end path.
+5. `writewme-visual-audit`
+   - Visual QA for overflow, hierarchy, density, wrapping, and distinctiveness.
+6. `writewme-saga-stress-ui`
+   - Stress-tests dense saga surfaces and export flows.
+7. `writewme-export-qa`
+   - Validates role-specific export packs for editor, cartographer, and historian workflows.
 
 ## Install In Codex Home
 
@@ -21,7 +27,7 @@ Run this from the repo root:
 powershell -ExecutionPolicy Bypass -File .\skills\install-to-codex.ps1
 ```
 
-This copies the 3 skills into:
+This copies the skills into:
 
 `$HOME\.codex\skills\`
 
@@ -29,4 +35,5 @@ This copies the 3 skills into:
 
 - Standardizes writing sessions with repeatable checklists.
 - Reduces last-minute publishing mistakes (cover, metadata, market mismatch).
+- Adds dedicated QA passes for export integrity, dense saga stress, and visual polish.
 - Speeds up iteration from concept to publishable draft.

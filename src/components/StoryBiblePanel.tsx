@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
-import type { StoryBible, StoryCharacter, StoryLocation } from '../types/book';
+import { normalizeCanonStatus } from '../lib/canon';
+import type { BookSecret, StoryBible, StoryCharacter, StoryLocation } from '../types/book';
 
 interface StoryBiblePanelProps {
   storyBible: StoryBible;
@@ -10,8 +11,20 @@ interface StoryBiblePanelProps {
   onSave: () => void;
 }
 
-function createLocalId(prefix: 'char' | 'loc'): string {
+function createLocalId(prefix: 'char' | 'loc' | 'secret'): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createEmptySecret(): BookSecret {
+  return {
+    id: createLocalId('secret'),
+    title: '',
+    objectiveTruth: '',
+    perceivedTruth: '',
+    notes: '',
+    relatedCharacterIds: [],
+    canonStatus: 'canonical',
+  };
 }
 
 function createEmptyCharacter(): StoryCharacter {
@@ -23,6 +36,7 @@ function createEmptyCharacter(): StoryCharacter {
     traits: '',
     goal: '',
     notes: '',
+    canonStatus: 'canonical',
   };
 }
 
@@ -34,11 +48,13 @@ function createEmptyLocation(): StoryLocation {
     description: '',
     atmosphere: '',
     notes: '',
+    canonStatus: 'canonical',
   };
 }
 
 function StoryBiblePanel(props: StoryBiblePanelProps) {
   const [showAdvice, setShowAdvice] = useState(false);
+  const [showApocryphal, setShowApocryphal] = useState(false);
 
   const updateCharacter = (id: string, patch: Partial<StoryCharacter>) => {
     props.onChange({
@@ -68,12 +84,43 @@ function StoryBiblePanel(props: StoryBiblePanelProps) {
     });
   };
 
+  const updateSecret = (id: string, patch: Partial<BookSecret>) => {
+    const secrets = props.storyBible.secrets ?? [];
+    props.onChange({
+      ...props.storyBible,
+      secrets: secrets.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
+    });
+  };
+
+  const removeSecret = (id: string) => {
+    props.onChange({
+      ...props.storyBible,
+      secrets: (props.storyBible.secrets ?? []).filter((entry) => entry.id !== id),
+    });
+  };
+
+  const visibleCharacters = showApocryphal
+    ? props.storyBible.characters
+    : props.storyBible.characters.filter((entry) => normalizeCanonStatus(entry.canonStatus) === 'canonical');
+  const visibleLocations = showApocryphal
+    ? props.storyBible.locations
+    : props.storyBible.locations.filter((entry) => normalizeCanonStatus(entry.canonStatus) === 'canonical');
+  const apocryphalCharactersCount = props.storyBible.characters.filter(
+    (entry) => normalizeCanonStatus(entry.canonStatus) === 'apocryphal',
+  ).length;
+  const apocryphalLocationsCount = props.storyBible.locations.filter(
+    (entry) => normalizeCanonStatus(entry.canonStatus) === 'apocryphal',
+  ).length;
+
   return (
     <section className="settings-view story-bible-view">
       <header>
         <div className="story-bible-header-top">
           <h2>Biblia de la historia</h2>
           <div className="story-bible-header-actions">
+            <button type="button" onClick={() => setShowApocryphal((previous) => !previous)}>
+              {showApocryphal ? 'Modo canonico' : 'Ver apocrifos'}
+            </button>
             <button type="button" onClick={() => setShowAdvice((previous) => !previous)}>
               {showAdvice ? 'Ocultar consejo' : 'Consejo de coherencia'}
             </button>
@@ -85,9 +132,16 @@ function StoryBiblePanel(props: StoryBiblePanelProps) {
             >
               Sincronizar capitulo activo
             </button>
+            <button type="button" onClick={props.onSave} title="Guarda todos los cambios de la biblia.">
+              Guardar biblia
+            </button>
           </div>
         </div>
         <p>Define personajes, lugares y reglas de continuidad para dar contexto estable a la IA.</p>
+        <p className="muted">
+          Modo actual: {showApocryphal ? 'Canonico + apocrifo' : 'Solo canonico'} | Apocrifos: {apocryphalCharactersCount}
+          {' '}personaje/s y {apocryphalLocationsCount} lugar/es.
+        </p>
       </header>
       {showAdvice ? (
         <section className="story-bible-advice">
@@ -120,15 +174,22 @@ function StoryBiblePanel(props: StoryBiblePanelProps) {
             Agregar personaje
           </button>
         </div>
-        {props.storyBible.characters.length === 0 ? (
+        {visibleCharacters.length === 0 ? (
           <p className="muted">Todavia no hay personajes cargados.</p>
         ) : (
           <div className="bible-card-list">
-            {props.storyBible.characters.map((entry) => (
+            {visibleCharacters.map((entry) => (
               <article key={entry.id} className="bible-card">
                 <div className="bible-card-head">
                   <strong>{entry.name || 'Personaje sin nombre'}</strong>
-                  <button type="button" onClick={() => removeCharacter(entry.id)}>Quitar</button>
+                  <div className="top-toolbar-actions">
+                    {normalizeCanonStatus(entry.canonStatus) === 'apocryphal' ? (
+                      <button type="button" onClick={() => updateCharacter(entry.id, { canonStatus: 'canonical' })}>
+                        Canonizar
+                      </button>
+                    ) : null}
+                    <button type="button" onClick={() => removeCharacter(entry.id)}>Quitar</button>
+                  </div>
                 </div>
                 <div className="bible-two-col">
                   <label>
@@ -148,6 +209,20 @@ function StoryBiblePanel(props: StoryBiblePanelProps) {
                   <label>
                     Rol
                     <input value={entry.role} onChange={(event) => updateCharacter(entry.id, { role: event.target.value })} />
+                  </label>
+                  <label>
+                    Estado narrativo
+                    <select
+                      value={normalizeCanonStatus(entry.canonStatus)}
+                      onChange={(event) =>
+                        updateCharacter(entry.id, {
+                          canonStatus: event.target.value as StoryCharacter['canonStatus'],
+                        })
+                      }
+                    >
+                      <option value="canonical">Canonico</option>
+                      <option value="apocryphal">Apocrifo</option>
+                    </select>
                   </label>
                 </div>
                 <label>
@@ -177,6 +252,42 @@ function StoryBiblePanel(props: StoryBiblePanelProps) {
                     placeholder="Detalles de continuidad, relaciones, secretos..."
                   />
                 </label>
+                <div className="bible-two-col">
+                  <label>
+                    Edad / rango etario
+                    <input
+                      value={entry.age ?? ''}
+                      onChange={(event) => updateCharacter(entry.id, { age: event.target.value })}
+                      placeholder="Ej: 34 años / adulto joven"
+                    />
+                  </label>
+                  <label>
+                    Descripcion fisica
+                    <input
+                      value={entry.physicalDescription ?? ''}
+                      onChange={(event) => updateCharacter(entry.id, { physicalDescription: event.target.value })}
+                      placeholder="Altura, color de ojos, marcas..."
+                    />
+                  </label>
+                </div>
+                <label>
+                  Trasfondo / historia previa
+                  <textarea
+                    rows={2}
+                    value={entry.backstory ?? ''}
+                    onChange={(event) => updateCharacter(entry.id, { backstory: event.target.value })}
+                    placeholder="Eventos clave antes del inicio de la historia..."
+                  />
+                </label>
+                <label>
+                  Arco emocional
+                  <textarea
+                    rows={2}
+                    value={entry.emotionalArc ?? ''}
+                    onChange={(event) => updateCharacter(entry.id, { emotionalArc: event.target.value })}
+                    placeholder="Como cambia internamente a lo largo del libro: miedo → valentía, desconfianza → amor..."
+                  />
+                </label>
               </article>
             ))}
           </div>
@@ -198,15 +309,22 @@ function StoryBiblePanel(props: StoryBiblePanelProps) {
             Agregar lugar
           </button>
         </div>
-        {props.storyBible.locations.length === 0 ? (
+        {visibleLocations.length === 0 ? (
           <p className="muted">Todavia no hay lugares cargados.</p>
         ) : (
           <div className="bible-card-list">
-            {props.storyBible.locations.map((entry) => (
+            {visibleLocations.map((entry) => (
               <article key={entry.id} className="bible-card">
                 <div className="bible-card-head">
                   <strong>{entry.name || 'Lugar sin nombre'}</strong>
-                  <button type="button" onClick={() => removeLocation(entry.id)}>Quitar</button>
+                  <div className="top-toolbar-actions">
+                    {normalizeCanonStatus(entry.canonStatus) === 'apocryphal' ? (
+                      <button type="button" onClick={() => updateLocation(entry.id, { canonStatus: 'canonical' })}>
+                        Canonizar
+                      </button>
+                    ) : null}
+                    <button type="button" onClick={() => removeLocation(entry.id)}>Quitar</button>
+                  </div>
                 </div>
                 <label>
                   Nombre
@@ -247,6 +365,20 @@ function StoryBiblePanel(props: StoryBiblePanelProps) {
                     placeholder="Reglas del lugar, conexiones, pistas, riesgos..."
                   />
                 </label>
+                <label>
+                  Estado narrativo
+                  <select
+                    value={normalizeCanonStatus(entry.canonStatus)}
+                    onChange={(event) =>
+                      updateLocation(entry.id, {
+                        canonStatus: event.target.value as StoryLocation['canonStatus'],
+                      })
+                    }
+                  >
+                    <option value="canonical">Canonico</option>
+                    <option value="apocryphal">Apocrifo</option>
+                  </select>
+                </label>
               </article>
             ))}
           </div>
@@ -267,6 +399,73 @@ function StoryBiblePanel(props: StoryBiblePanelProps) {
           placeholder="Hechos que no se deben contradecir en ningun capitulo."
         />
       </label>
+
+      <section className="bible-section">
+        <div className="bible-section-head">
+          <h3>Secretos y misterios</h3>
+          <button
+            type="button"
+            onClick={() =>
+              props.onChange({
+                ...props.storyBible,
+                secrets: [...(props.storyBible.secrets ?? []), createEmptySecret()],
+              })
+            }
+          >
+            Agregar secreto
+          </button>
+        </div>
+        <p className="muted">Verdades ocultas que el lector o los personajes no saben todavia. Separadas de los hilos abiertos: esto es lo que ES, no lo que falta resolver.</p>
+        {(props.storyBible.secrets ?? []).length === 0 ? (
+          <p className="muted">Sin secretos definidos.</p>
+        ) : (
+          <div className="bible-card-list">
+            {(props.storyBible.secrets ?? []).map((secret) => (
+              <article key={secret.id} className="bible-card">
+                <div className="bible-card-head">
+                  <strong>{secret.title || 'Secreto sin titulo'}</strong>
+                  <button type="button" onClick={() => removeSecret(secret.id)}>Quitar</button>
+                </div>
+                <label>
+                  Titulo / nombre del secreto
+                  <input
+                    value={secret.title}
+                    onChange={(e) => updateSecret(secret.id, { title: e.target.value })}
+                    placeholder="Ej: La identidad real del Portador"
+                  />
+                </label>
+                <label>
+                  Verdad objetiva (lo que realmente es)
+                  <textarea
+                    rows={2}
+                    value={secret.objectiveTruth}
+                    onChange={(e) => updateSecret(secret.id, { objectiveTruth: e.target.value })}
+                    placeholder="Lo que en realidad ocurrio o existe, independiente de lo que los personajes creen."
+                  />
+                </label>
+                <label>
+                  Verdad percibida (lo que los personajes creen)
+                  <textarea
+                    rows={2}
+                    value={secret.perceivedTruth}
+                    onChange={(e) => updateSecret(secret.id, { perceivedTruth: e.target.value })}
+                    placeholder="La version falsa o incompleta que tienen los personajes o el lector."
+                  />
+                </label>
+                <label>
+                  Notas y consecuencias narrativas
+                  <textarea
+                    rows={2}
+                    value={secret.notes}
+                    onChange={(e) => updateSecret(secret.id, { notes: e.target.value })}
+                    placeholder="Cuando se revela, quien lo sabe, que cambia cuando se descubre..."
+                  />
+                </label>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
 
       <button type="button" onClick={props.onSave}>Guardar biblia de la historia</button>
     </section>

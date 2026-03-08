@@ -6,6 +6,11 @@ Objetivo: aterrizar dos ideas de producto con orden de ejecucion claro:
 
 Fecha de referencia: 2026-02-25.
 
+Nota de estado (2026-03-02):
+- La idea de timeline ya dejo de ser solo roadmap: existe una timeline canonica de saga y una vista `Timeline` enfocada en continuidad por personaje y por libro.
+- Este documento queda como referencia historica del enfoque original B/F. La implementacion actual de saga/timeline ya se desvio del MVP planteado aca.
+- Para el estado funcional mas reciente y el alcance hacia la futura `v4`, ver `docs/v4-status.md`.
+
 ## Criterio de priorizacion
 
 1. Maximizar valor temprano para el escritor.

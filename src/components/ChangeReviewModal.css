@@ -54,7 +54,7 @@
 }
 
 .change-review-block header {
-  font-family: Consolas, 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-weight: 700;
   color: #213a69;
 }

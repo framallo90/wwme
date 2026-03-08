@@ -1,12 +1,18 @@
 import { useEffect, useId, useRef } from 'react';
+
+import type { MainView } from '../types/book';
 import './HelpPanel.css';
 
 interface HelpPanelProps {
   isOpen: boolean;
+  hasBook: boolean;
+  hasSaga: boolean;
   focusMode: boolean;
   onClose: () => void;
   onCreateBook: () => void;
   onOpenBook: () => void;
+  onOpenStarterGuide: () => void;
+  onGoToView: (view: MainView) => void;
   onToggleFocusMode: () => void;
 }
 
@@ -24,180 +30,176 @@ interface FunctionGuide {
   howToUse: string[];
 }
 
+interface QuickAction {
+  title: string;
+  description: string;
+  buttonLabel: string;
+  disabled?: boolean;
+  onRun: () => void;
+}
+
 const QUICK_START_STEPS: GuideStep[] = [
   {
-    title: 'Paso 1 - Crear o abrir un libro',
-    reason: 'Sin un libro abierto, el resto de funciones queda bloqueado para evitar errores.',
+    title: '1) Abri un manuscrito',
+    reason: 'Todo el flujo arranca cuando WriteWMe sabe en que libro estas trabajando.',
     actions: [
-      'Usa `Nuevo` para crear desde cero o `Abrir` para continuar uno existente.',
-      'Si creas uno nuevo, elige una carpeta donde quieras guardar todo.',
-      'Confirma titulo y autor.',
+      'Usa `Nuevo libro` para empezar desde cero o `Abrir libro` para retomar uno existente.',
+      'Mira la banda superior: ahi debe aparecer el titulo del libro activo.',
+      'Si es una saga, luego podras vincular el libro al mundo compartido.',
     ],
-    check: 'Debes ver el titulo del libro en la barra superior y en la columna izquierda.',
+    check: 'Debes ver el titulo del libro y la lista de capitulos activa.',
   },
   {
-    title: 'Paso 2 - Crear el primer capitulo',
-    reason: 'WriteWMe trabaja por capitulos para ordenar mejor versiones y contexto IA.',
+    title: '2) Escribi primero, ordena despues',
+    reason: 'La herramienta tiene estructura potente, pero no hace falta completarla toda antes de escribir.',
     actions: [
-      'En `Capitulos`, pulsa `+`.',
-      'Haz clic en el capitulo para abrirlo en `Editor`.',
-      'Escribe texto base (aunque sea un borrador corto).',
+      'Crea un primer capitulo y vuelca un borrador corto.',
+      'Si te llegan ideas fuera de lugar, mandalas a `Recortes`.',
+      'Usa `Hilos` para preguntas o promesas narrativas que no quieras perder.',
     ],
-    check: 'Debes ver el texto en el editor y el contador de palabras actualizado.',
+    check: 'Debes tener texto en el editor o una nota guardada en `Recortes`.',
   },
   {
-    title: 'Paso 3 - Dar contexto narrativo a la IA',
-    reason: 'La IA responde mejor cuando conoce personajes, lugares y reglas de continuidad.',
+    title: '3) Fija tu canon minimo',
+    reason: 'La IA y los chequeos mejoran mucho cuando conocen personajes, lugares y reglas.',
     actions: [
-      'Abre `Base` y define idea central, tono y publico.',
-      'Abre `Biblia` y carga personajes, lugares y reglas.',
-      'Guarda los cambios antes de pedir reescrituras.',
+      'Completa `Base` con promesa, voz y reglas del proyecto.',
+      'Carga personajes y lugares en `Biblia`.',
+      'Si escribes saga, usa `Saga` para reglas globales y reglas fijadas para IA.',
     ],
-    check: 'En `Biblia` deben aparecer tus fichas y en `Base` tu direccion narrativa.',
+    check: 'En `Biblia` o `Saga` deben verse fichas reales, no solo campos vacios.',
   },
   {
-    title: 'Paso 4 - Iterar con IA sin perder control',
-    reason: 'Las acciones IA aceleran, pero los snapshots permiten volver atras sin riesgo.',
+    title: '4) Revisa sin perder el pulso',
+    reason: 'Las reescrituras fuertes deben sentirse como revision editorial, no como riesgo tecnico.',
     actions: [
-      'En panel derecho, elige una accion rapida o usa chat.',
-      'Antes de cambios grandes, toma nota del estado actual.',
-      'Si no te convence, usa `Deshacer IA`.',
+      'Antes de un cambio grande, guarda un `Hito`.',
+      'Usa `Cambios` para comparar versiones clave.',
+      'Si el resultado no sirve, usa `Deshacer IA` o vuelve a un hito.',
     ],
-    check: 'Debes poder volver al texto anterior con `Deshacer IA`.',
-  },
-  {
-    title: 'Paso 5 - Revisar y exportar',
-    reason: 'El flujo profesional termina en revision y salida, no en primer borrador.',
-    actions: [
-      'Revisa `Estilo`, `Diff` y `Preview`.',
-      'Completa `Portada` y `Amazon` si vas a publicar.',
-      'Exporta a Markdown, DOCX, EPUB o pack Amazon segun tu objetivo.',
-    ],
-    check: 'Debes generar al menos un archivo de salida en la carpeta `exports` del libro.',
+    check: 'Debes poder nombrar al menos una version importante de tu proceso.',
   },
 ];
 
 const MAIN_VIEWS_GUIDE: FunctionGuide[] = [
   {
     name: 'Editor',
-    purpose: 'Escribir y editar el capitulo activo.',
-    bestMoment: 'Uso diario de escritura.',
+    purpose: 'Escribir el capitulo activo sin salir del flujo.',
+    bestMoment: 'Trabajo diario de manuscrito.',
     howToUse: [
       'Selecciona un capitulo desde la izquierda.',
-      'Escribe directamente y deja que el guardado automatico trabaje.',
-      'Usa guardado manual (`Ctrl + S`) antes de cerrar la app.',
+      'Escribe normal; el guardado continuo hace el resto.',
+      'Usa `Modo foco` cuando quieras ver solo texto.',
     ],
   },
   {
     name: 'General',
-    purpose: 'Ver el libro completo por capitulos y estructura.',
-    bestMoment: 'Planificacion y control de avance.',
+    purpose: 'Revisar la estructura completa del libro.',
+    bestMoment: 'Inicio de sesion y revision de orden.',
     howToUse: [
-      'Abre `General` para revisar secuencia de capitulos.',
-      'Entra a un capitulo haciendo clic sobre su bloque.',
-      'Usa esta vista al inicio de cada sesion para orientarte.',
+      'Mira la secuencia completa de capitulos.',
+      'Entra a cualquier capitulo con un clic.',
+      'Usa esta vista para detectar huecos o redundancias.',
     ],
   },
   {
-    name: 'Preview',
-    purpose: 'Previsualizar maquetado y ritmo visual.',
-    bestMoment: 'Revision previa a exportar o publicar.',
+    name: 'Cambios',
+    purpose: 'Comparar versiones y puntos de restauracion.',
+    bestMoment: 'Despues de una reescritura fuerte o una pasada de IA.',
     howToUse: [
-      'Abre `Preview` para ver portada, capitulos y contraportada.',
-      'Revisa saltos, densidad de texto y orden de lectura.',
-      'Usa `Imprimir / PDF` para comprobacion final.',
-    ],
-  },
-  {
-    name: 'Diff',
-    purpose: 'Comparar cambios entre versiones y snapshots.',
-    bestMoment: 'Cuando una reescritura cambia demasiado y necesitas auditar.',
-    howToUse: [
-      'Selecciona capitulo y versiones a comparar.',
-      'Lee bloques insertados/eliminados antes de aprobar.',
-      'Combinalo con `Deshacer IA` si detectas regresiones.',
-    ],
-  },
-  {
-    name: 'Estilo',
-    purpose: 'Analizar ritmo, repeticiones y señales de calidad.',
-    bestMoment: 'Segunda vuelta de revision (despues de escribir).',
-    howToUse: [
-      'Abre `Estilo` para detectar muletillas y frases largas.',
-      'Corrige primero alertas grandes, luego detalles finos.',
-      'Exporta reporte si quieres seguimiento entre sesiones.',
-    ],
-  },
-  {
-    name: 'Buscar',
-    purpose: 'Buscar/reemplazar en un capitulo o en todo el libro.',
-    bestMoment: 'Cambios globales de nombres, terminos o tono.',
-    howToUse: [
-      'Define texto a buscar y reemplazo.',
-      'Ejecuta `Simular reemplazo global` para ver impacto antes de tocar texto.',
-      'Prueba primero en un capitulo y luego aplica al libro completo con cuidado.',
-    ],
-  },
-  {
-    name: 'Portada',
-    purpose: 'Asignar portada, contraportada y texto de lomo.',
-    bestMoment: 'Cuando el manuscrito ya esta estable.',
-    howToUse: [
-      'Pulsa `Cambiar portada` o `Cambiar contraportada`.',
-      'Valida la recomendacion de medidas KDP que aparece en pantalla.',
-      'Guarda datos de portada para persistir cambios.',
-    ],
-  },
-  {
-    name: 'Base',
-    purpose: 'Definir fundamento del libro: promesa, voz, reglas.',
-    bestMoment: 'Antes de escribir fuerte o si el proyecto se desordena.',
-    howToUse: [
-      'Completa idea central y publico objetivo.',
-      'Define reglas de estilo para mantener coherencia.',
-      'Actualiza cuando cambie el rumbo del libro.',
+      'Elige capitulo y dos versiones para comparar.',
+      'Lee primero lo agregado y lo eliminado.',
+      'Apoyate en hitos con nombre para encontrar giros clave.',
     ],
   },
   {
     name: 'Biblia',
-    purpose: 'Guardar personajes, lugares y continuidad narrativa.',
-    bestMoment: 'Desde el inicio y en cada hito importante.',
+    purpose: 'Guardar personajes, lugares y reglas del libro.',
+    bestMoment: 'Desde el inicio y cada vez que el canon cambie.',
     howToUse: [
-      'Crea fichas claras con rasgos y rol narrativo.',
-      'Usa el boton `Consejo de coherencia` para ver flujo recomendado paso a paso.',
-      'Al guardar un hito, el sistema intenta sincronizar automaticamente personajes/lugares del capitulo activo.',
-      'Revisa y corrige esas altas automaticas (edad, heridas, relaciones, motivacion).',
+      'Crea fichas cortas pero concretas.',
+      'Guarda rasgos, objetivos, atmosfera y reglas de continuidad.',
       'Usala antes de pedir escenas complejas a la IA.',
     ],
   },
   {
-    name: 'Idioma',
-    purpose: 'Alinear idioma del libro, IA y configuracion de mercado.',
-    bestMoment: 'Inicio de proyecto y antes de exportar/publicar.',
+    name: 'Saga',
+    purpose: 'Gestionar el canon global de varios libros.',
+    bestMoment: 'Cuando el proyecto supera un solo volumen.',
     howToUse: [
-      'Selecciona idioma principal de trabajo.',
-      'Revisa advertencias de mercado/moneda si aparecen.',
-      'Guarda para mantener prompts y metadata consistentes.',
+      'Vincula libros y asigna su volumen.',
+      'Carga reglas del mundo, secretos, relaciones y eventos canonicos.',
+      'Usa `Reglas fijadas para IA` para cosas que nunca deben olvidarse.',
     ],
   },
   {
-    name: 'Amazon',
-    purpose: 'Completar metadata, pricing y pack de publicacion KDP.',
-    bestMoment: 'Fase editorial final.',
+    name: 'Timeline',
+    purpose: 'Seguir la cronologia real y la ruta de personajes.',
+    bestMoment: 'Cuando hay viajes, saltos temporales o subtramas entrelazadas.',
     howToUse: [
-      'Completa titulo, descripcion, categorias y precios.',
-      'Revisa validaciones de campos obligatorios.',
-      'Exporta pack Amazon para carga rapida.',
+      'Filtra por personaje o libro.',
+      'Usa la escala visual para encontrar huecos grandes.',
+      'Consulta la genealogia dinamica y el detalle del evento en la columna lateral.',
     ],
   },
   {
-    name: 'Settings',
-    purpose: 'Configurar IA, autosave, accesibilidad y comportamiento global.',
-    bestMoment: 'Primera configuracion y ajustes de rendimiento.',
+    name: 'Atlas',
+    purpose: 'Visualizar el mundo como mapa de lugares y conexiones.',
+    bestMoment: 'Planificacion geografica y revision de rutas.',
     howToUse: [
-      'Define modelo y temperatura.',
-      'Ajusta guardado automatico y modo de aplicacion de chat.',
-      'Activa accesibilidad (alto contraste, texto grande) si lo necesitas.',
+      'Carga lugares y relaciones en `Saga`.',
+      'Selecciona un lugar para ver conexiones y rutas registradas.',
+      'Cruza esta vista con `Timeline` si sospechas viajes imposibles.',
+    ],
+  },
+  {
+    name: 'Recortes',
+    purpose: 'Guardar ideas sueltas fuera del manuscrito y fuera del canon.',
+    bestMoment: 'Cuando aparece una escena, frase o giro que aun no tiene lugar.',
+    howToUse: [
+      'Anota dialogos, suenos, escenas futuras o descartes utiles.',
+      'Guarda sin miedo: esto no toca el texto oficial.',
+      'Vuelve cuando necesites sembrar algo en un capitulo.',
+    ],
+  },
+  {
+    name: 'Hilos',
+    purpose: 'Rastrear preguntas abiertas y promesas narrativas.',
+    bestMoment: 'Revision de continuidad y cierre de subtramas.',
+    howToUse: [
+      'Crea un hilo por misterio, promesa o cabo suelto.',
+      'Marca si sigue abierto, resuelto o descartado.',
+      'Asocialo a un capitulo cuando haga falta.',
+    ],
+  },
+  {
+    name: 'Matriz',
+    purpose: 'Ver presencia de personajes por capitulo.',
+    bestMoment: 'Balance coral y control de desapariciones largas.',
+    howToUse: [
+      'Abre la matriz para detectar ausencias o saturacion.',
+      'Cruza esa lectura con `Timeline` y `Hilos`.',
+      'Usala para repartir foco entre protagonistas y secundarios.',
+    ],
+  },
+  {
+    name: 'Preview',
+    purpose: 'Revisar lectura, saltos y maquetado general.',
+    bestMoment: 'Antes de exportar o compartir.',
+    howToUse: [
+      'Revisa ritmo visual y saltos de pagina.',
+      'Chequea portada, contraportada y orden.',
+      'Usa esta vista como ultimo control editorial rapido.',
+    ],
+  },
+  {
+    name: 'Preferencias',
+    purpose: 'Configurar IA, guardado, respaldo y accesibilidad.',
+    bestMoment: 'Primer ajuste y cambios de rendimiento.',
+    howToUse: [
+      'Revisa modelo, temperatura y estado de IA local.',
+      'Ajusta auto-aplicado y respaldo.',
+      'Entra aqui si algo tecnico necesita atencion.',
     ],
   },
 ];
@@ -205,126 +207,131 @@ const MAIN_VIEWS_GUIDE: FunctionGuide[] = [
 const SIDEBAR_GUIDE: FunctionGuide[] = [
   {
     name: 'Biblioteca',
-    purpose: 'Gestionar todos tus libros desde un solo lugar.',
-    bestMoment: 'Al iniciar sesion o cambiar de proyecto.',
+    purpose: 'Abrir, cambiar o limpiar proyectos desde un solo lugar.',
+    bestMoment: 'Al entrar a trabajar o cambiar de libro.',
     howToUse: [
-      'Abre un libro con `Abrir`.',
-      'Usa `Opciones` para chat, Amazon, publicar/despublicar o eliminar.',
-      'Confirma siempre antes de eliminar: borra tambien en disco.',
+      'Abre un libro con un clic.',
+      'Usa `Opciones` para abrir chat, Amazon o cambiar estado.',
+      'Confirma dos veces antes de eliminar: borra en disco.',
     ],
   },
   {
     name: 'Capitulos',
-    purpose: 'Crear, ordenar y mantener la estructura narrativa.',
-    bestMoment: 'Planificacion de estructura y revision de flujo.',
+    purpose: 'Crear y mover la estructura del manuscrito.',
+    bestMoment: 'Planificacion y revision de ritmo.',
     howToUse: [
-      'Usa `+` para nuevo capitulo.',
-      'Controles por capitulo: `^` subir, `v` bajar, `R` renombrar, `D` duplicar, `X` borrar.',
-      'Reordena hasta que el arco narrativo tenga sentido.',
+      'Usa `+` para crear un capitulo.',
+      'Sube, baja, duplica o renombra desde los controles cortos.',
+      'Reordena hasta que el arco se sienta bien en lectura.',
     ],
   },
   {
     name: 'Exportar',
-    purpose: 'Sacar el manuscrito en formato de trabajo o publicacion.',
-    bestMoment: 'Cierre de borrador o entrega editorial.',
+    purpose: 'Sacar el manuscrito a formatos editoriales y de colaboracion.',
+    bestMoment: 'Entrega, revision externa o publicacion.',
     howToUse: [
-      'Capitulo Markdown: entrega puntual.',
-      'Libro archivo unico o por capitulos: revision externa.',
-      'DOCX/EPUB/Amazon pack: salida editorial o KDP.',
-      'Patch colaboracion: importa y revisa el preview diff antes de aplicar.',
+      'Usa Markdown para entregas rapidas.',
+      'DOCX y EPUB sirven como salida editorial base.',
+      'El `paquete de edicion` permite traer cambios externos con vista previa.',
     ],
   },
 ];
 
 const AI_GUIDE: FunctionGuide[] = [
   {
-    name: 'Acciones rapidas IA',
-    purpose: 'Aplicar mejoras puntuales sin escribir prompts largos.',
-    bestMoment: 'Bloqueos de redaccion o pulido rapido.',
+    name: 'Acciones rapidas',
+    purpose: 'Pulir o reescribir sin redactar prompts largos.',
+    bestMoment: 'Bloqueos puntuales o revision rapida.',
     howToUse: [
-      'Elige la accion segun objetivo (expandir, simplificar, etc.).',
-      'Evalua el resultado en el editor.',
-      'Si no te sirve, usa `Deshacer IA`.',
+      'Elige una accion segun tu objetivo.',
+      'Guarda un hito antes de cambios grandes.',
+      'Si no funciona, compara en `Cambios` o deshaz la version.',
     ],
   },
   {
-    name: 'Chat por capitulo o libro',
-    purpose: 'Conseguir ayuda contextual segun alcance.',
-    bestMoment: 'Consultas de trama, tono o reescrituras guiadas.',
+    name: 'Chat con contexto',
+    purpose: 'Consultar por capitulo o por libro sabiendo que contexto recibe la IA.',
+    bestMoment: 'Dudas de trama, continuidad o reescritura guiada.',
     howToUse: [
-      '`Por capitulo`: cambios localizados.',
-      '`Por libro`: decisiones globales de estructura y continuidad.',
-      'Usa `Seguimiento personaje` para ver, en chat, todas las acciones de un personaje a lo largo del libro.',
-      'Usa `Desde cap / Hasta cap` para filtrar rango antes de rastrear o resumir.',
-      'Usa `Resumen historia` para obtener estado cronologico desde el inicio hasta el punto actual.',
-      'Usa mensajes concretos: objetivo + tono + limite de palabras.',
+      'Mira el bloque `Contexto visible` antes de enviar.',
+      'Por capitulo sirve para una escena; por libro para estructura global.',
+      'Las reglas fijadas para IA entran siempre aunque la saga sea grande.',
     ],
   },
   {
-    name: 'Auto-aplicar y agente continuo',
-    purpose: 'Automatizar ciclos de mejora con menos pasos manuales.',
-    bestMoment: 'Cuando ya confias en el estilo base del proyecto.',
+    name: 'Seguimiento y resumen',
+    purpose: 'Pedir lectura de personaje o resumen de progreso sin releer todo.',
+    bestMoment: 'Mitad de libro o antes de tomar decisiones fuertes.',
     howToUse: [
-      'Auto-aplicar: envia y modifica texto automaticamente.',
-      'Agente continuo: varias rondas de mejora en cascada.',
-      'Para cambios delicados, desactiva auto-aplicar y usa modo consulta.',
+      'Usa `Seguimiento personaje` para una sola linea de accion.',
+      'Usa `Resumen historia` con rango de capitulos si quieres acotar.',
+      'Sirve para revisar lo que la IA deberia tener presente antes de reescribir.',
     ],
   },
 ];
 
 const COMMON_ISSUES: GuideStep[] = [
   {
-    title: 'No veo portada o contraportada',
-    reason: 'Suele ser ruta invalida, archivo movido o fallo de carga.',
-    actions: [
-      'Vuelve a `Portada` y pulsa `Cambiar portada`.',
-      'Si no aparece, pulsa `Reintentar` para forzar nueva carga del archivo.',
-      'Confirma que la imagen exista en disco.',
-      'Usa formato JPG/JPEG o PNG y valida medidas sugeridas de KDP.',
-      'Guarda y revisa en `Preview`.',
-    ],
-    check: 'La imagen debe verse en `Portada` y tambien en `Preview`.',
-  },
-  {
-    title: 'La IA responde raro o no mantiene estilo',
-    reason: 'Falta de contexto narrativo y/o idioma inconsistente.',
+    title: 'La IA no mantiene el canon',
+    reason: 'Suele faltar base, biblia o reglas fijadas para IA.',
     actions: [
       'Completa `Base` y `Biblia` con datos concretos.',
-      'Revisa `Idioma` y `Settings` (modelo, temperatura).',
-      'Da instrucciones especificas: tono, longitud, objetivo.',
+      'Si trabajas saga, agrega reglas fijas en `Saga`.',
+      'Verifica el bloque `Contexto visible` antes de enviar el mensaje.',
     ],
-    check: 'Las respuestas deben acercarse mas al tono definido.',
+    check: 'Debes ver personajes, lugares y reglas reales en el contexto cargado.',
   },
   {
-    title: 'Hice un cambio masivo y arruine texto',
-    reason: 'Busqueda/reemplazo global o accion IA demasiado agresiva.',
+    title: 'Me perdi despues de una reescritura',
+    reason: 'Falto marcar un hito o comparar la version actual con una anterior.',
     actions: [
-      'Usa `Deshacer IA` si fue por IA.',
-      'Revisa `Diff` para detectar en que se rompio.',
-      'Repite cambio en lotes pequenos, primero por capitulo.',
+      'Guarda hitos antes de cambios delicados.',
+      'Abre `Cambios` y compara versiones clave.',
+      'Si hace falta, restaura una version anterior y vuelve a intentar.',
     ],
-    check: 'El texto debe recuperar coherencia y continuidad.',
+    check: 'Debes poder volver a una etapa reconocible del manuscrito.',
+  },
+  {
+    title: 'La saga marca incoherencias',
+    reason: 'Timeline, relaciones o estado de personajes entraron en conflicto.',
+    actions: [
+      'Abre `Saga` o `Timeline` y filtra por el personaje o evento afectado.',
+      'Lee el revisor de coherencia antes de exportar.',
+      'Recuerda: el guardado no se bloquea; primero preserva tu trabajo.',
+    ],
+    check: 'La alerta debe convertirse en aviso resuelto o quedar registrada para despues.',
   },
 ];
 
 const SHORTCUTS = [
   '`Ctrl + F`: abrir busqueda global',
-  '`Ctrl + Shift + H`: abrir/cerrar ayuda',
-  '`Ctrl + Shift + F`: activar/desactivar modo foco',
-  '`Ctrl + S`: guardado manual inmediato',
+  '`Ctrl + Shift + H`: abrir o cerrar esta ayuda',
+  '`Ctrl + Shift + F`: activar o salir de modo foco',
+  '`Ctrl + S`: guardar ahora',
   '`Ctrl + Shift + N`: crear capitulo nuevo',
   '`Alt + Flecha arriba/abajo`: mover capitulo activo',
 ];
 
-const TECHNICAL_NOTES = [
-  'Cada libro vive en su carpeta con `book.json`, `chapters/`, `assets/`, `versions/`, `exports/`.',
-  'Config por libro en `config.json` para modelo, idioma, autosave y opciones IA.',
-  'Antes de publicar: revisar `Preview`, `Diff`, `Estilo`, `Amazon` y export final.',
-  'Para chequeo local rapido: `npm run verify:local`.',
+const ADVANCED_NOTES = [
+  'Cada libro vive en su propia carpeta con manuscrito, capitulos, exportaciones y versiones.',
+  'Los hitos te ayudan a nombrar versiones clave para no depender de numeros sueltos.',
+  'El respaldo automatico crea una copia versionada con manifiesto.',
+  'Si algo tecnico falla, primero entra en `Preferencias` y revisa `IA local`.',
 ];
 
 function HelpPanel(props: HelpPanelProps) {
-  const { isOpen, focusMode, onClose, onCreateBook, onOpenBook, onToggleFocusMode } = props;
+  const {
+    isOpen,
+    hasBook,
+    hasSaga,
+    focusMode,
+    onClose,
+    onCreateBook,
+    onOpenBook,
+    onOpenStarterGuide,
+    onGoToView,
+    onToggleFocusMode,
+  } = props;
   const titleId = useId();
   const dialogRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -366,6 +373,48 @@ function HelpPanel(props: HelpPanelProps) {
     onClose();
     onOpenBook();
   };
+
+  const quickActions: QuickAction[] = [
+    {
+      title: 'Guiame para arrancar',
+      description: 'Abre el recorrido corto con checklist de primer libro.',
+      buttonLabel: 'Abrir guia inicial',
+      onRun: () => {
+        onClose();
+        onOpenStarterGuide();
+      },
+    },
+    {
+      title: 'Llevarme al manuscrito',
+      description: 'Salta directo al editor para seguir escribiendo.',
+      buttonLabel: 'Ir al editor',
+      disabled: !hasBook,
+      onRun: () => {
+        onClose();
+        onGoToView('editor');
+      },
+    },
+    {
+      title: 'Abrir mi banco de ideas',
+      description: 'Te lleva a `Recortes` para guardar escenas sueltas o notas.',
+      buttonLabel: 'Ir a recortes',
+      disabled: !hasBook,
+      onRun: () => {
+        onClose();
+        onGoToView('scratchpad');
+      },
+    },
+    {
+      title: 'Ordenar el canon',
+      description: 'Abre `Saga` para reglas globales, timeline y relaciones.',
+      buttonLabel: 'Ir a saga',
+      disabled: !hasSaga,
+      onRun: () => {
+        onClose();
+        onGoToView('saga');
+      },
+    },
+  ];
 
   const handleDialogKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Tab') {
@@ -416,45 +465,55 @@ function HelpPanel(props: HelpPanelProps) {
         onClick={(event) => event.stopPropagation()}
       >
         <header className="help-header">
-          <h2 id={titleId}>Guia completa WriteWMe</h2>
+          <h2 id={titleId}>Asistente de escritura WriteWMe</h2>
           <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="Cerrar ayuda">
             X
           </button>
         </header>
 
         <p className="help-lead">
-          Esta guia esta pensada para dos perfiles: personas no tecnicas que quieren escribir sin friccion y personas
-          tecnicas que quieren control total del flujo. Puedes recorrerla de arriba hacia abajo.
+          Esta ayuda esta pensada para escribir, revisar y sostener una saga larga sin tener que pensar como un
+          programador. Si algo tecnico aparece, queda al final en `Avanzado`.
         </p>
+
+        <div className="help-quick-grid">
+          {quickActions.map((action) => (
+            <article key={action.title} className="help-quick-card">
+              <h3>{action.title}</h3>
+              <p>{action.description}</p>
+              <button type="button" onClick={action.onRun} disabled={action.disabled}>
+                {action.buttonLabel}
+              </button>
+            </article>
+          ))}
+        </div>
 
         <div className="help-track-grid">
           <article className="help-track-card">
-            <h3>Ruta recomendada (no tecnica)</h3>
-            <p>Si quieres escribir sin meterte en detalles de archivos o configuracion avanzada.</p>
+            <h3>Ruta de escritura</h3>
+            <p>Para avanzar sin romper el ritmo.</p>
             <ol>
-              <li>Crear/Abrir libro.</li>
-              <li>Escribir en Editor.</li>
-              <li>Definir Base + Biblia.</li>
-              <li>Pulir con IA y Estilo.</li>
-              <li>Revisar en Preview y exportar.</li>
+              <li>Editor para el texto vivo.</li>
+              <li>Recortes para ideas fuera de capitulo.</li>
+              <li>Biblia para fijar canon minimo.</li>
+              <li>Cambios para revisar versiones clave.</li>
             </ol>
           </article>
 
           <article className="help-track-card">
-            <h3>Ruta avanzada (tecnica)</h3>
-            <p>Si necesitas trazabilidad, control de versiones y salida editorial estricta.</p>
+            <h3>Ruta de saga</h3>
+            <p>Para controlar un mundo grande sin perder continuidad.</p>
             <ol>
-              <li>Validar estructura de libro y settings.</li>
-              <li>Trabajar por capitulos con snapshots y Diff.</li>
-              <li>Auditar metrica de estilo y continuidad.</li>
-              <li>Cerrar metadata Amazon y validaciones.</li>
-              <li>Exportar DOCX/EPUB/pack KDP.</li>
+              <li>Saga para reglas globales y secretos.</li>
+              <li>Timeline para cronologia real.</li>
+              <li>Atlas para lugares y rutas.</li>
+              <li>Hilos y Matriz para subtramas y reparto coral.</li>
             </ol>
           </article>
         </div>
 
-        <details className="help-section" open>
-          <summary>1) Primeros 15 minutos: paso a paso guiado</summary>
+        <details className="help-section">
+          <summary>1) Primeros pasos sin friccion</summary>
           <div className="help-step-list">
             {QUICK_START_STEPS.map((step) => (
               <article key={step.title} className="help-step-card">
@@ -475,8 +534,8 @@ function HelpPanel(props: HelpPanelProps) {
           </div>
         </details>
 
-        <details className="help-section" open>
-          <summary>2) Para que sirve cada pantalla (barra superior)</summary>
+        <details className="help-section">
+          <summary>2) Pantallas principales</summary>
           <div className="help-function-grid">
             {MAIN_VIEWS_GUIDE.map((entry) => (
               <article key={entry.name} className="help-function-card">
@@ -498,7 +557,7 @@ function HelpPanel(props: HelpPanelProps) {
         </details>
 
         <details className="help-section">
-          <summary>3) Columna izquierda: biblioteca, capitulos y exportaciones</summary>
+          <summary>3) Biblioteca, capitulos y exportacion</summary>
           <div className="help-function-grid">
             {SIDEBAR_GUIDE.map((entry) => (
               <article key={entry.name} className="help-function-card">
@@ -520,7 +579,7 @@ function HelpPanel(props: HelpPanelProps) {
         </details>
 
         <details className="help-section">
-          <summary>4) Panel IA: como usarlo bien</summary>
+          <summary>4) IA con contexto claro</summary>
           <div className="help-function-grid">
             {AI_GUIDE.map((entry) => (
               <article key={entry.name} className="help-function-card">
@@ -542,7 +601,7 @@ function HelpPanel(props: HelpPanelProps) {
         </details>
 
         <details className="help-section">
-          <summary>5) Problemas frecuentes y solucion rapida</summary>
+          <summary>5) Problemas frecuentes</summary>
           <div className="help-step-list">
             {COMMON_ISSUES.map((issue) => (
               <article key={issue.title} className="help-step-card">
@@ -573,32 +632,38 @@ function HelpPanel(props: HelpPanelProps) {
             </ul>
           </article>
           <article>
-            <h3>Notas tecnicas</h3>
-            <ul>
-              {TECHNICAL_NOTES.map((note) => (
-                <li key={note}>{note}</li>
-              ))}
-            </ul>
-          </article>
-          <article>
-            <h3>Flujo recomendado de trabajo</h3>
-            <ol>
-              <li>Planifica en `Base` + `Biblia`.</li>
-              <li>Escribe en `Editor` por bloques cortos.</li>
-              <li>Pule con IA y confirma con `Diff`.</li>
-              <li>Audita con `Estilo`.</li>
-              <li>Cierra salida en `Preview`, `Amazon` y export.</li>
-            </ol>
-          </article>
-          <article>
-            <h3>Consejo para no tecnicos</h3>
+            <h3>Orden corto si te abruma todo</h3>
             <p>
-              Si te abruma la cantidad de opciones, usa solo este orden: <code>Nuevo/Abrir</code> a{' '}
-              <code>Editor</code> a <code>Biblia</code> a <code>Panel IA</code> a <code>Preview</code> a{' '}
-              <code>Exportar</code>. El resto puede sumarse despues.
+              Usa solo este camino: <code>Nuevo/Abrir</code> a <code>Editor</code> a <code>Recortes</code> a{' '}
+              <code>Biblia</code> a <code>Panel IA</code> a <code>Cambios</code> a <code>Preview</code>.
+            </p>
+          </article>
+          <article>
+            <h3>Modo foco</h3>
+            <p>Sirve para escribir sin laterales. Puedes activarlo ahora mismo desde aqui.</p>
+          </article>
+          <article>
+            <h3>Cuando una saga crece</h3>
+            <p>
+              Fija reglas en <code>Saga</code>, mira rutas en <code>Timeline</code>, y guarda versiones con nombre antes
+              de tocar escenas delicadas.
             </p>
           </article>
         </div>
+
+        <details className="help-section">
+          <summary>6) Avanzado</summary>
+          <div className="help-step-list">
+            <article className="help-step-card">
+              <h3>Notas tecnicas minimas</h3>
+              <ul>
+                {ADVANCED_NOTES.map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+            </article>
+          </div>
+        </details>
 
         <footer className="help-actions">
           <button type="button" onClick={handleCreateBook} title="Inicia un libro nuevo desde este panel.">

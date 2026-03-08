@@ -1,7 +1,7 @@
 import { countWordsFromHtml } from './metrics';
 import { stripHtml } from './text';
-import { buildStoryBibleBlock } from './prompts';
-import type { ChapterDocument, StoryBible } from '../types/book';
+import { buildSagaWorldBlock, buildStoryBibleBlock } from './prompts';
+import type { ChapterDocument, SagaWorldBible, StoryBible } from '../types/book';
 import type { NormalizedChapterRange } from './chapterRange';
 
 const SENTENCE_SPLIT_PATTERN = /(?<=[.!?])\s+/g;
@@ -58,6 +58,8 @@ interface StoryProgressPromptInput {
   bookTitle: string;
   language: string;
   storyBible: StoryBible;
+  sagaTitle?: string | null;
+  sagaWorld?: SagaWorldBible | null;
   range: NormalizedChapterRange;
   digest: StoryProgressDigest;
 }
@@ -217,6 +219,7 @@ function formatDigestForPrompt(digest: StoryProgressDigest): string {
 export function buildStoryProgressPrompt(input: StoryProgressPromptInput): string {
   const digestBlock = formatDigestForPrompt(input.digest);
   const storyBibleBlock = buildStoryBibleBlock(input.storyBible);
+  const sagaWorldBlock = buildSagaWorldBlock(input.sagaTitle, input.sagaWorld);
 
   return [
     `MODO: resumen de progreso narrativo del libro "${input.bookTitle}".`,
@@ -234,6 +237,7 @@ export function buildStoryProgressPrompt(input: StoryProgressPromptInput): strin
     '4) Cabos abiertos / conflictos pendientes.',
     '',
     storyBibleBlock,
+    ...(sagaWorldBlock ? ['', sagaWorldBlock] : []),
     '',
     'HITOS POR CAPITULO:',
     digestBlock || '(sin hitos detectados)',
