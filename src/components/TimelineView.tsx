@@ -1,4 +1,4 @@
-import { type DragEvent, useMemo, useState } from 'react';
+import { type DragEvent, useCallback, useMemo, useRef, useState } from 'react';
 
 import { buildSagaConsistencyReport, type SagaConsistencyReport } from '../lib/sagaConsistency';
 import { buildTimelineOverviewModel } from '../lib/timelineOverview';
@@ -303,8 +303,17 @@ function TimelineView(props: TimelineViewProps) {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [editingEvent, setEditingEvent] = useState<SagaTimelineEvent | null>(null);
   const [isCreatingEvent, setIsCreatingEvent] = useState(false);
+  const [selectedFamilyRootId, setSelectedFamilyRootId] = useState('');
+  const [familyDepth, setFamilyDepth] = useState(4);
+  const [pendingDependencyId, setPendingDependencyId] = useState('');
   const [draggedEventId, setDraggedEventId] = useState<string | null>(null);
   const [dragOverEventId, setDragOverEventId] = useState<string | null>(null);
+  const [ganttDragEventId, setGanttDragEventId] = useState<string | null>(null);
+  const [ganttDragMode, setGanttDragMode] = useState<'move' | 'resize' | null>(null);
+  const ganttDragStartXRef = useRef(0);
+  const ganttDragOriginalStartRef = useRef(0);
+  const ganttDragOriginalEndRef = useRef(0);
+  const ganttTrackWidthRef = useRef(1);
 
   const isFiltered = Boolean(selectedCharacterId || selectedBookPath);
   const canDrag = Boolean(props.onReorderTimeline) && Boolean(props.activeSaga) && !isFiltered;
@@ -407,6 +416,8 @@ function TimelineView(props: TimelineViewProps) {
     filteredEvents.some((entry) => entry.id === selectedEventId) ? selectedEventId : filteredEvents[0]?.id ?? null;
   const selectedEvent = filteredEvents.find((entry) => entry.id === effectiveSelectedEventId) ?? filteredEvents[0] ?? null;
   const selectedCharacter = saga?.metadata.worldBible.characters.find((entry) => entry.id === selectedCharacterId) ?? null;
+  const selectedFamilyRootCharacter =
+    saga?.metadata.worldBible.characters.find((entry) => entry.id === selectedFamilyRootId) ?? selectedCharacter;
   const characterJourney = selectedCharacter
     ? sortedEvents.filter((event) => eventTouchesCharacter(event, selectedCharacter.id))
     : [];
@@ -433,95 +444,116 @@ function TimelineView(props: TimelineViewProps) {
         }
         return true;
       });
-  const selectedCharacterFamilyLinks = !selectedCharacter
+  const selectedCharacterFamilyLinks = !selectedFamilyRootCharacter
     ? []
     : activeFamilyRelationships.filter((entry) => (
-        entry.from.id === selectedCharacter.id || entry.to.id === selectedCharacter.id
+        entry.from.id === selectedFamilyRootCharacter.id || entry.to.id === selectedFamilyRootCharacter.id
       ));
-  const characterLabelById = new Map(
-    (saga?.metadata.worldBible.characters ?? []).map((entry) => [entry.id, entry.name || entry.id]),
+  const characterLabelById = useMemo(
+    () => new Map((saga?.metadata.worldBible.characters ?? []).map((entry) => [entry.id, entry.name || entry.id])),
+    [saga?.metadata.worldBible.characters],
   );
-  const parentMap = new Map<string, FamilyLevelEntry[]>();
-  const childMap = new Map<string, FamilyLevelEntry[]>();
-  const spouseMap = new Map<string, FamilyLevelEntry[]>();
-  const siblingMap = new Map<string, FamilyLevelEntry[]>();
-  const pushFamilyEntry = (target: Map<string, FamilyLevelEntry[]>, key: string, entry: FamilyLevelEntry) => {
-    const current = target.get(key) ?? [];
-    if (current.some((item) => item.id === entry.id && item.relationLabel === entry.relationLabel)) {
-      return;
+  const { parentMap, childMap, spouseMap, siblingMap } = (() => {
+    const familyRelationships = (saga?.metadata.worldBible.relationships ?? []).filter((entry) => {
+      if (!isFamilyRelationshipType(entry.type || '')) {
+        return false;
+      }
+      if (entry.from.kind !== 'character' || entry.to.kind !== 'character') {
+        return false;
+      }
+      if (selectedOrder !== null) {
+        const startsBefore = entry.startOrder === null || entry.startOrder === undefined || entry.startOrder <= selectedOrder;
+        const endsAfter = entry.endOrder === null || entry.endOrder === undefined || entry.endOrder >= selectedOrder;
+        if (!startsBefore || !endsAfter) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    const pMap = new Map<string, FamilyLevelEntry[]>();
+    const cMap = new Map<string, FamilyLevelEntry[]>();
+    const sMap = new Map<string, FamilyLevelEntry[]>();
+    const bMap = new Map<string, FamilyLevelEntry[]>();
+    const push = (target: Map<string, FamilyLevelEntry[]>, key: string, entry: FamilyLevelEntry) => {
+      const current = target.get(key) ?? [];
+      if (current.some((item) => item.id === entry.id && item.relationLabel === entry.relationLabel)) {
+        return;
+      }
+      target.set(key, [...current, entry]);
+    };
+    for (const relationship of familyRelationships) {
+      const fromLabel = characterLabelById.get(relationship.from.id) || relationship.from.id;
+      const toLabel = characterLabelById.get(relationship.to.id) || relationship.to.id;
+      if (isParentRelationship(relationship.type)) {
+        push(pMap, relationship.to.id, {
+          id: relationship.from.id,
+          label: fromLabel,
+          relationLabel: relationship.type || 'Ancestro',
+          notes: relationship.notes,
+        });
+        push(cMap, relationship.from.id, {
+          id: relationship.to.id,
+          label: toLabel,
+          relationLabel: relationship.type || 'Descendencia',
+          notes: relationship.notes,
+        });
+        continue;
+      }
+      if (isChildRelationship(relationship.type)) {
+        push(pMap, relationship.from.id, {
+          id: relationship.to.id,
+          label: toLabel,
+          relationLabel: relationship.type || 'Ancestro',
+          notes: relationship.notes,
+        });
+        push(cMap, relationship.to.id, {
+          id: relationship.from.id,
+          label: fromLabel,
+          relationLabel: relationship.type || 'Descendencia',
+          notes: relationship.notes,
+        });
+        continue;
+      }
+      if (isSpouseRelationship(relationship.type)) {
+        push(sMap, relationship.from.id, {
+          id: relationship.to.id,
+          label: toLabel,
+          relationLabel: relationship.type || 'Consorte',
+          notes: relationship.notes,
+        });
+        push(sMap, relationship.to.id, {
+          id: relationship.from.id,
+          label: fromLabel,
+          relationLabel: relationship.type || 'Consorte',
+          notes: relationship.notes,
+        });
+        continue;
+      }
+      if (isSiblingRelationship(relationship.type)) {
+        push(bMap, relationship.from.id, {
+          id: relationship.to.id,
+          label: toLabel,
+          relationLabel: relationship.type || 'Hermandad',
+          notes: relationship.notes,
+        });
+        push(bMap, relationship.to.id, {
+          id: relationship.from.id,
+          label: fromLabel,
+          relationLabel: relationship.type || 'Hermandad',
+          notes: relationship.notes,
+        });
+      }
     }
-    target.set(key, [...current, entry]);
-  };
-  for (const relationship of activeFamilyRelationships) {
-    const fromLabel = characterLabelById.get(relationship.from.id) || relationship.from.id;
-    const toLabel = characterLabelById.get(relationship.to.id) || relationship.to.id;
-    if (isParentRelationship(relationship.type)) {
-      pushFamilyEntry(parentMap, relationship.to.id, {
-        id: relationship.from.id,
-        label: fromLabel,
-        relationLabel: relationship.type || 'Ancestro',
-        notes: relationship.notes,
-      });
-      pushFamilyEntry(childMap, relationship.from.id, {
-        id: relationship.to.id,
-        label: toLabel,
-        relationLabel: relationship.type || 'Descendencia',
-        notes: relationship.notes,
-      });
-      continue;
-    }
-    if (isChildRelationship(relationship.type)) {
-      pushFamilyEntry(parentMap, relationship.from.id, {
-        id: relationship.to.id,
-        label: toLabel,
-        relationLabel: relationship.type || 'Ancestro',
-        notes: relationship.notes,
-      });
-      pushFamilyEntry(childMap, relationship.to.id, {
-        id: relationship.from.id,
-        label: fromLabel,
-        relationLabel: relationship.type || 'Descendencia',
-        notes: relationship.notes,
-      });
-      continue;
-    }
-    if (isSpouseRelationship(relationship.type)) {
-      pushFamilyEntry(spouseMap, relationship.from.id, {
-        id: relationship.to.id,
-        label: toLabel,
-        relationLabel: relationship.type || 'Consorte',
-        notes: relationship.notes,
-      });
-      pushFamilyEntry(spouseMap, relationship.to.id, {
-        id: relationship.from.id,
-        label: fromLabel,
-        relationLabel: relationship.type || 'Consorte',
-        notes: relationship.notes,
-      });
-      continue;
-    }
-    if (isSiblingRelationship(relationship.type)) {
-      pushFamilyEntry(siblingMap, relationship.from.id, {
-        id: relationship.to.id,
-        label: toLabel,
-        relationLabel: relationship.type || 'Hermandad',
-        notes: relationship.notes,
-      });
-      pushFamilyEntry(siblingMap, relationship.to.id, {
-        id: relationship.from.id,
-        label: fromLabel,
-        relationLabel: relationship.type || 'Hermandad',
-        notes: relationship.notes,
-      });
-    }
-  }
-  const selectedCharacterFamilyTree = !selectedCharacter
+    return { parentMap: pMap, childMap: cMap, spouseMap: sMap, siblingMap: bMap };
+  })();
+  const selectedCharacterFamilyTree = !selectedFamilyRootCharacter
     ? null
     : {
-        ancestors: buildFamilyLevels(selectedCharacter.id, parentMap),
-        descendants: buildFamilyLevels(selectedCharacter.id, childMap),
-        spouses: spouseMap.get(selectedCharacter.id) ?? [],
-        siblings: siblingMap.get(selectedCharacter.id) ?? [],
+        ancestors: buildFamilyLevels(selectedFamilyRootCharacter.id, parentMap, familyDepth),
+        descendants: buildFamilyLevels(selectedFamilyRootCharacter.id, childMap, familyDepth),
+        spouses: spouseMap.get(selectedFamilyRootCharacter.id) ?? [],
+        siblings: siblingMap.get(selectedFamilyRootCharacter.id) ?? [],
         bonds: selectedCharacterFamilyLinks.filter(
           (entry) =>
             !isParentRelationship(entry.type) &&
@@ -845,6 +877,123 @@ function TimelineView(props: TimelineViewProps) {
       note: totalElapsedYears > 0 ? 'anios acumulados' : 'sin saltos temporales',
     },
   ];
+  const dependencyCandidateEvents = selectedEvent
+    ? sortedEvents.filter(
+        (entry) => entry.id !== selectedEvent.id && !(selectedEvent.dependencyIds ?? []).includes(entry.id),
+      )
+    : [];
+
+  const handleAddSelectedEventDependency = () => {
+    if (!selectedEvent || !pendingDependencyId) {
+      return;
+    }
+    if ((selectedEvent.dependencyIds ?? []).includes(pendingDependencyId)) {
+      setPendingDependencyId('');
+      return;
+    }
+
+    props.onUpsertEvent({
+      ...selectedEvent,
+      dependencyIds: [...(selectedEvent.dependencyIds ?? []), pendingDependencyId],
+    });
+    setPendingDependencyId('');
+  };
+
+  const handleRemoveSelectedEventDependency = (dependencyId: string) => {
+    if (!selectedEvent) {
+      return;
+    }
+    props.onUpsertEvent({
+      ...selectedEvent,
+      dependencyIds: (selectedEvent.dependencyIds ?? []).filter((entry) => entry !== dependencyId),
+    });
+  };
+
+  const handleSnapSelectedEventToDependencies = () => {
+    if (!selectedEvent || selectedEventDependencies.length === 0) {
+      return;
+    }
+
+    const dependencyMaxOrder = Math.max(
+      ...selectedEventDependencies.map((entry) => entry.endOrder ?? entry.startOrder),
+    );
+    const nextStartOrder = dependencyMaxOrder + 1;
+    const currentDuration =
+      selectedEvent.kind === 'span'
+        ? Math.max(0, (selectedEvent.endOrder ?? selectedEvent.startOrder) - selectedEvent.startOrder)
+        : 0;
+    props.onUpsertEvent({
+      ...selectedEvent,
+      startOrder: nextStartOrder,
+      endOrder: selectedEvent.kind === 'span' ? nextStartOrder + currentDuration : null,
+    });
+  };
+
+  const handleAdjustSelectedEventDuration = (nextDuration: number) => {
+    if (!selectedEvent || selectedEvent.kind !== 'span') {
+      return;
+    }
+    const safeDuration = Math.max(0, Math.min(999, Number.isFinite(nextDuration) ? nextDuration : 0));
+    props.onUpsertEvent({
+      ...selectedEvent,
+      endOrder: selectedEvent.startOrder + safeDuration,
+    });
+  };
+
+  const handleGanttPointerDown = useCallback(
+    (eventId: string, mode: 'move' | 'resize', clientX: number, trackElement: HTMLElement) => {
+      const event = sortedEvents.find((entry) => entry.id === eventId);
+      if (!event) {
+        return;
+      }
+      setGanttDragEventId(eventId);
+      setGanttDragMode(mode);
+      ganttDragStartXRef.current = clientX;
+      ganttDragOriginalStartRef.current = event.startOrder;
+      ganttDragOriginalEndRef.current = event.endOrder ?? event.startOrder;
+      ganttTrackWidthRef.current = trackElement.getBoundingClientRect().width || 1;
+    },
+    [sortedEvents],
+  );
+
+  const handleGanttPointerMove = useCallback(
+    (clientX: number) => {
+      if (!ganttDragEventId || !ganttDragMode) {
+        return;
+      }
+      const deltaX = clientX - ganttDragStartXRef.current;
+      const deltaOrder = Math.round((deltaX / ganttTrackWidthRef.current) * ganttSpan);
+      if (deltaOrder === 0) {
+        return;
+      }
+      const event = sortedEvents.find((entry) => entry.id === ganttDragEventId);
+      if (!event) {
+        return;
+      }
+
+      if (ganttDragMode === 'move') {
+        const newStart = ganttDragOriginalStartRef.current + deltaOrder;
+        const duration = ganttDragOriginalEndRef.current - ganttDragOriginalStartRef.current;
+        props.onUpsertEvent({
+          ...event,
+          startOrder: newStart,
+          endOrder: event.kind === 'span' ? newStart + duration : null,
+        });
+      } else {
+        const newEnd = Math.max(ganttDragOriginalStartRef.current, ganttDragOriginalEndRef.current + deltaOrder);
+        props.onUpsertEvent({
+          ...event,
+          endOrder: newEnd,
+        });
+      }
+    },
+    [ganttDragEventId, ganttDragMode, ganttSpan, sortedEvents, props],
+  );
+
+  const handleGanttPointerUp = useCallback(() => {
+    setGanttDragEventId(null);
+    setGanttDragMode(null);
+  }, []);
 
   if (!saga) {
     return (
@@ -887,7 +1036,13 @@ function TimelineView(props: TimelineViewProps) {
       <div className="timeline-toolbar timeline-toolbar-shell">
         <label>
           Filtrar por personaje
-          <select value={selectedCharacterId} onChange={(event) => setSelectedCharacterId(event.target.value)}>
+          <select
+            value={selectedCharacterId}
+            onChange={(event) => {
+              setSelectedCharacterId(event.target.value);
+              setSelectedFamilyRootId(event.target.value);
+            }}
+          >
             <option value="">Todos</option>
             {saga.metadata.worldBible.characters.map((entry) => (
               <option key={entry.id} value={entry.id}>
@@ -1111,14 +1266,25 @@ function TimelineView(props: TimelineViewProps) {
                         <button
                           key={`${lane.id}-${event.id}`}
                           type="button"
-                          className={`timeline-lane-card timeline-gantt-bar ${selectedEvent?.id === event.id ? 'is-selected' : ''}`}
+                          className={`timeline-lane-card timeline-gantt-bar ${selectedEvent?.id === event.id ? 'is-selected' : ''} ${ganttDragEventId === event.id ? 'is-dragging' : ''}`}
                           style={{
                             left: `${leftPct}%`,
                             width: `calc(${widthPct}% - 0.2rem)`,
                             top: `${rowIndex * 3.6 + 0.35}rem`,
                             borderColor: lane.color,
+                            cursor: ganttDragEventId === event.id ? 'grabbing' : 'grab',
                           }}
                           onClick={() => setSelectedEventId(event.id)}
+                          onPointerDown={(e) => {
+                            const track = (e.currentTarget as HTMLElement).parentElement;
+                            if (track) {
+                              e.preventDefault();
+                              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                              handleGanttPointerDown(event.id, 'move', e.clientX, track);
+                            }
+                          }}
+                          onPointerMove={(e) => handleGanttPointerMove(e.clientX)}
+                          onPointerUp={handleGanttPointerUp}
                         >
                           <strong>{event.displayLabel || `T${event.startOrder}`}</strong>
                           <span>{event.title || 'Evento sin titulo'}</span>
@@ -1132,6 +1298,22 @@ function TimelineView(props: TimelineViewProps) {
                           ) : null}
                           {(crossLaneCountByEventId.get(event.id) ?? 0) > 0 ? (
                             <small>Cruces: {crossLaneCountByEventId.get(event.id)}</small>
+                          ) : null}
+                          {event.kind === 'span' ? (
+                            <span
+                              className="timeline-gantt-resize-handle"
+                              onPointerDown={(e) => {
+                                e.stopPropagation();
+                                const track = (e.currentTarget as HTMLElement).closest('.timeline-gantt-track');
+                                if (track) {
+                                  e.preventDefault();
+                                  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                                  handleGanttPointerDown(event.id, 'resize', e.clientX, track as HTMLElement);
+                                }
+                              }}
+                              onPointerMove={(e) => { e.stopPropagation(); handleGanttPointerMove(e.clientX); }}
+                              onPointerUp={(e) => { e.stopPropagation(); handleGanttPointerUp(); }}
+                            />
                           ) : null}
                         </button>
                       ))}
@@ -1228,6 +1410,7 @@ function TimelineView(props: TimelineViewProps) {
                     className={`timeline-check-item is-${issue.severity}`}
                     onClick={() => {
                       setSelectedCharacterId('');
+                      setSelectedFamilyRootId('');
                       setSelectedBookPath('');
                       if (issue.eventId) {
                         setSelectedEventId(issue.eventId);
@@ -1296,10 +1479,41 @@ function TimelineView(props: TimelineViewProps) {
           <section className="bible-section">
             <div className="bible-section-head">
               <h3>Genealogia dinamica</h3>
-              <span className="muted">{selectedCharacter ? `${selectedCharacterFamilyLinks.length} vinculos` : 'Sin filtro'}</span>
+              <span className="muted">{selectedFamilyRootCharacter ? `${selectedCharacterFamilyLinks.length} vinculos` : 'Sin filtro'}</span>
             </div>
-            {!selectedCharacter ? (
-              <p className="muted">Selecciona un personaje para visualizar su red familiar y dinastica.</p>
+            <div className="bible-two-col">
+              <label>
+                Raiz genealogica
+                <select
+                  value={selectedFamilyRootId}
+                  onChange={(event) => {
+                    setSelectedFamilyRootId(event.target.value);
+                    if (event.target.value) {
+                      setSelectedCharacterId(event.target.value);
+                    }
+                  }}
+                >
+                  <option value="">Seleccionar personaje</option>
+                  {saga.metadata.worldBible.characters.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.name || entry.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Profundidad generacional
+                <input
+                  type="number"
+                  min={2}
+                  max={8}
+                  value={familyDepth}
+                  onChange={(event) => setFamilyDepth(Math.max(2, Math.min(8, Number(event.target.value) || 4)))}
+                />
+              </label>
+            </div>
+            {!selectedFamilyRootCharacter ? (
+              <p className="muted">Selecciona un personaje raiz para visualizar su arbol dinastico multigeneracional.</p>
             ) : !selectedCharacterFamilyTree || (
               selectedCharacterFamilyTree.ancestors.length === 0 &&
               selectedCharacterFamilyTree.descendants.length === 0 &&
@@ -1307,75 +1521,114 @@ function TimelineView(props: TimelineViewProps) {
               selectedCharacterFamilyTree.siblings.length === 0 &&
               selectedCharacterFamilyTree.bonds.length === 0
             ) ? (
-              <p className="muted">No hay relaciones familiares cargadas para este personaje.</p>
+              <p className="muted">No hay relaciones familiares cargadas para este personaje raiz.</p>
             ) : (
-              <div className="timeline-family-tree">
-                {selectedCharacterFamilyTree.ancestors.map((level, index) => (
-                  <div key={`ancestor-level-${index + 1}`} className="timeline-family-generation">
-                    <strong>Ancestros G-{index + 1}</strong>
-                    {level.map((entry) => (
-                      <div key={`ancestor-${index + 1}-${entry.id}`} className="timeline-detail-stack">
-                        <strong>{entry.label}</strong>
-                        <span>{entry.relationLabel}</span>
-                        <small>{entry.notes || 'Sin notas.'}</small>
+              <div className="timeline-family-tree-vertical">
+                {[...selectedCharacterFamilyTree.ancestors].reverse().map((level, index) => {
+                  const genLabel = selectedCharacterFamilyTree.ancestors.length - index;
+                  return (
+                    <div key={`ancestor-row-${genLabel}`} className="timeline-ftv-row">
+                      <div className="timeline-ftv-connector" />
+                      <div className="timeline-ftv-level-label">G-{genLabel}</div>
+                      <div className="timeline-ftv-nodes">
+                        {level.map((entry) => (
+                          <button
+                            key={`a-${genLabel}-${entry.id}`}
+                            type="button"
+                            className="timeline-ftv-node"
+                            onClick={() => setSelectedFamilyRootId(entry.id)}
+                            title={`Explorar arbol desde ${entry.label}`}
+                          >
+                            <strong>{entry.label}</strong>
+                            <small>{entry.relationLabel}</small>
+                          </button>
+                        ))}
                       </div>
+                    </div>
+                  );
+                })}
+
+                <div className="timeline-ftv-row is-focus-row">
+                  <div className="timeline-ftv-connector" />
+                  <div className="timeline-ftv-level-label">Raiz</div>
+                  <div className="timeline-ftv-nodes">
+                    <div className="timeline-ftv-node is-focus">
+                      <strong>{selectedFamilyRootCharacter.name || 'Personaje'}</strong>
+                      <small>{selectedFamilyRootCharacter.summary || 'Sin resumen.'}</small>
+                    </div>
+                    {selectedCharacterFamilyTree.spouses.map((entry) => (
+                      <button
+                        key={`spouse-${entry.id}`}
+                        type="button"
+                        className="timeline-ftv-node is-spouse"
+                        onClick={() => setSelectedFamilyRootId(entry.id)}
+                        title={`Explorar arbol desde ${entry.label}`}
+                      >
+                        <strong>{entry.label}</strong>
+                        <small>Consorte</small>
+                      </button>
                     ))}
                   </div>
-                ))}
-                <div className="timeline-family-generation is-focus">
-                  <strong>{selectedCharacter.name || 'Personaje'}</strong>
-                  <small>{selectedCharacter.summary || 'Sin resumen.'}</small>
-                  {selectedCharacterFamilyTree.spouses.length > 0 ? (
-                    <div className="timeline-detail-stack">
-                      <strong>Consortes</strong>
-                      {selectedCharacterFamilyTree.spouses.map((entry) => (
-                        <small key={`spouse-${entry.id}`}>{entry.label}</small>
-                      ))}
-                    </div>
-                  ) : null}
                   {selectedCharacterFamilyTree.siblings.length > 0 ? (
-                    <div className="timeline-detail-stack">
-                      <strong>Hermandad</strong>
+                    <div className="timeline-ftv-siblings">
+                      <span className="muted">Hermandad:</span>
                       {selectedCharacterFamilyTree.siblings.map((entry) => (
-                        <small key={`sibling-${entry.id}`}>{entry.label}</small>
+                        <button
+                          key={`sibling-${entry.id}`}
+                          type="button"
+                          className="timeline-ftv-sibling-chip"
+                          onClick={() => setSelectedFamilyRootId(entry.id)}
+                          title={`Explorar arbol desde ${entry.label}`}
+                        >
+                          {entry.label}
+                        </button>
                       ))}
                     </div>
                   ) : null}
                 </div>
+
                 {selectedCharacterFamilyTree.descendants.map((level, index) => (
-                  <div key={`descendant-level-${index + 1}`} className="timeline-family-generation">
-                    <strong>Descendencia G+{index + 1}</strong>
-                    {level.map((entry) => (
-                      <div key={`descendant-${index + 1}-${entry.id}`} className="timeline-detail-stack">
-                        <strong>{entry.label}</strong>
-                        <span>{entry.relationLabel}</span>
-                        <small>{entry.notes || 'Sin notas.'}</small>
-                      </div>
-                    ))}
+                  <div key={`descendant-row-${index + 1}`} className="timeline-ftv-row">
+                    <div className="timeline-ftv-connector" />
+                    <div className="timeline-ftv-level-label">G+{index + 1}</div>
+                    <div className="timeline-ftv-nodes">
+                      {level.map((entry) => (
+                        <button
+                          key={`d-${index + 1}-${entry.id}`}
+                          type="button"
+                          className="timeline-ftv-node"
+                          onClick={() => setSelectedFamilyRootId(entry.id)}
+                          title={`Explorar arbol desde ${entry.label}`}
+                        >
+                          <strong>{entry.label}</strong>
+                          <small>{entry.relationLabel}</small>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 ))}
+
                 {selectedCharacterFamilyTree.bonds.length > 0 ? (
-                  <div className="timeline-family-generation">
-                    <strong>Vinculos dinasticos</strong>
-                    {selectedCharacterFamilyTree.bonds.map((relationship) => {
-                      const fromName =
-                        saga.metadata.worldBible.characters.find((entry) => entry.id === relationship.from.id)?.name ||
-                        relationship.from.id ||
-                        'Personaje';
-                      const toName =
-                        saga.metadata.worldBible.characters.find((entry) => entry.id === relationship.to.id)?.name ||
-                        relationship.to.id ||
-                        'Personaje';
-                      return (
-                        <div key={`bond-${relationship.id}`} className="timeline-detail-stack">
-                          <strong>{relationship.type || 'Relacion familiar'}</strong>
-                          <span>
-                            {fromName} {'->'} {toName}
-                          </span>
-                          <small>{relationship.notes || 'Sin notas.'}</small>
-                        </div>
-                      );
-                    })}
+                  <div className="timeline-ftv-row">
+                    <div className="timeline-ftv-level-label">Vinculos</div>
+                    <div className="timeline-ftv-nodes">
+                      {selectedCharacterFamilyTree.bonds.map((relationship) => {
+                        const fromName =
+                          saga.metadata.worldBible.characters.find((entry) => entry.id === relationship.from.id)?.name ||
+                          relationship.from.id ||
+                          'Personaje';
+                        const toName =
+                          saga.metadata.worldBible.characters.find((entry) => entry.id === relationship.to.id)?.name ||
+                          relationship.to.id ||
+                          'Personaje';
+                        return (
+                          <div key={`bond-${relationship.id}`} className="timeline-ftv-node is-bond">
+                            <strong>{relationship.type || 'Relacion'}</strong>
+                            <small>{fromName} {'→'} {toName}</small>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 ) : null}
               </div>
@@ -1458,6 +1711,57 @@ function TimelineView(props: TimelineViewProps) {
                 ) : null}
 
                 <div className="timeline-detail-list">
+                  <strong>Ajustes Gantt</strong>
+                  <div className="timeline-gantt-quick-edit">
+                    <label>
+                      Inicio
+                      <input
+                        type="number"
+                        min={1}
+                        value={selectedEvent.startOrder}
+                        onChange={(event) => {
+                          const nextStart = Math.max(1, Number(event.target.value) || selectedEvent.startOrder);
+                          const duration =
+                            selectedEvent.kind === 'span'
+                              ? Math.max(0, (selectedEvent.endOrder ?? selectedEvent.startOrder) - selectedEvent.startOrder)
+                              : 0;
+                          props.onUpsertEvent({
+                            ...selectedEvent,
+                            startOrder: nextStart,
+                            endOrder: selectedEvent.kind === 'span' ? nextStart + duration : null,
+                          });
+                        }}
+                      />
+                    </label>
+                    {selectedEvent.kind === 'span' ? (
+                      <label>
+                        Duracion (unidades)
+                        <input
+                          type="number"
+                          min={0}
+                          max={999}
+                          value={Math.max(0, (selectedEvent.endOrder ?? selectedEvent.startOrder) - selectedEvent.startOrder)}
+                          onChange={(event) => handleAdjustSelectedEventDuration(Number(event.target.value))}
+                        />
+                      </label>
+                    ) : (
+                      <label>
+                        Tipo
+                        <input value="Punto" disabled />
+                      </label>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleSnapSelectedEventToDependencies}
+                      disabled={selectedEventDependencies.length === 0}
+                      title="Alinea el inicio de este evento justo despues del ultimo prerequisito."
+                    >
+                      Alinear con dependencias
+                    </button>
+                  </div>
+                </div>
+
+                <div className="timeline-detail-list">
                   <strong>Dependencias</strong>
                   {selectedEventDependencies.length === 0 && selectedEventDependents.length === 0 ? (
                     <p className="muted">Sin dependencias registradas para este evento.</p>
@@ -1468,9 +1772,14 @@ function TimelineView(props: TimelineViewProps) {
                           <span>
                             Requiere: {dependency.displayLabel || `T${dependency.startOrder}`} | {dependency.title || dependency.id}
                           </span>
-                          <button type="button" onClick={() => setSelectedEventId(dependency.id)}>
-                            Ver
-                          </button>
+                          <div className="timeline-detail-actions">
+                            <button type="button" onClick={() => setSelectedEventId(dependency.id)}>
+                              Ver
+                            </button>
+                            <button type="button" onClick={() => handleRemoveSelectedEventDependency(dependency.id)}>
+                              Quitar
+                            </button>
+                          </div>
                         </div>
                       ))}
                       {selectedEventDependents.map((dependent) => (
@@ -1485,6 +1794,19 @@ function TimelineView(props: TimelineViewProps) {
                       ))}
                     </>
                   )}
+                  <div className="timeline-dependency-add">
+                    <select value={pendingDependencyId} onChange={(event) => setPendingDependencyId(event.target.value)}>
+                      <option value="">Agregar dependencia...</option>
+                      {dependencyCandidateEvents.map((candidate) => (
+                        <option key={`dependency-candidate-${candidate.id}`} value={candidate.id}>
+                          {(candidate.displayLabel || `T${candidate.startOrder}`)} | {candidate.title || candidate.id}
+                        </option>
+                      ))}
+                    </select>
+                    <button type="button" onClick={handleAddSelectedEventDependency} disabled={!pendingDependencyId}>
+                      Anexar
+                    </button>
+                  </div>
                 </div>
 
                 <div className="timeline-detail-list">

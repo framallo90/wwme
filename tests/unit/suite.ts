@@ -53,7 +53,7 @@ import {
   splitAiOutputAndSummary,
 } from '../../src/lib/text';
 import { parseLocaleIntegerOr, parseLocaleNumber, parseLocaleNumberOr } from '../../src/lib/numberInput';
-import { buildBookReplacePreview, replaceMatchesInTextLiteral } from '../../src/lib/searchReplace';
+import { buildBookReplacePreview, getSearchPatternError, replaceMatchesInTextLiteral } from '../../src/lib/searchReplace';
 import {
   countWordsFromHtml,
   countWordsFromPlainText,
@@ -90,6 +90,7 @@ import {
   buildBookConsultantPackArchive,
   buildBookEditorPackArchive,
   buildBookLayoutPackArchive,
+  buildBookPdfBinary,
   buildSagaBibleDossierHtml,
   buildSagaCartographerPackArchive,
   buildSagaHistorianPackArchive,
@@ -387,6 +388,7 @@ function createConfig(overrides?: Partial<AppConfig>): AppConfig {
   return {
     model: 'llama3.2:3b',
     language: 'es',
+    theme: 'system',
     systemPrompt: '',
     temperature: 0.6,
     audioVoiceName: '',
@@ -892,6 +894,58 @@ const tests: TestCase[] = [
     },
   },
   {
+    name: 'searchReplace: soporta regex valido en busqueda global',
+    run: () => {
+      const preview = buildBookReplacePreview(
+        [
+          {
+            id: '01',
+            title: 'Capitulo 1',
+            content: 'Lena entra. Helena sale. Lena vuelve.',
+            lengthPreset: 'media',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+        'H?e?lena',
+        'Aria',
+        { caseSensitive: false, wholeWord: true, useRegex: true },
+      );
+
+      assert.equal(preview.totalMatches, 3);
+      assert.equal(preview.affectedChapters, 1);
+    },
+  },
+  {
+    name: 'searchReplace: reporta regex invalido sin romper flujo',
+    run: () => {
+      const error = getSearchPatternError('([abc', {
+        caseSensitive: false,
+        wholeWord: false,
+        useRegex: true,
+      });
+      assert.ok(error && error.length > 0);
+
+      const preview = buildBookReplacePreview(
+        [
+          {
+            id: '01',
+            title: 'Capitulo 1',
+            content: 'Lena entra.',
+            lengthPreset: 'media',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+        '([abc',
+        'X',
+        { caseSensitive: false, wholeWord: false, useRegex: true },
+      );
+      assert.equal(preview.totalMatches, 0);
+      assert.equal(preview.affectedChapters, 0);
+    },
+  },
+  {
     name: 'editorialChecklist: bloquea sin portada y precios',
     run: () => {
       const metadata = createMetadata();
@@ -1228,6 +1282,43 @@ const tests: TestCase[] = [
     },
   },
   {
+    name: 'continuityGuard: detecta inconsistencia material en objeto parafraseado',
+    run: () => {
+      const storyBible = createStoryBible();
+      storyBible.characters[0].name = 'Valerius';
+      storyBible.characters[0].aliases = 'lord valerius';
+      storyBible.continuityRules = 'Valerius porta un anillo de plata desde el juramento.';
+
+      const report = buildContinuityGuardReport({
+        chapterText: 'Lord Valerius alza su sortija dorada y sella el pacto.',
+        storyBible,
+        chapterNumber: 5,
+      });
+
+      assert.ok(report.issues.some((issue) => issue.message.toLowerCase().includes('inconsistencia material')));
+    },
+  },
+  {
+    name: 'continuityGuard: permite parafrasis material equivalente sin alertar',
+    run: () => {
+      const storyBible = createStoryBible();
+      storyBible.characters[0].name = 'Valerius';
+      storyBible.characters[0].aliases = 'lord valerius';
+      storyBible.continuityRules = 'Valerius porta un anillo de plata desde el juramento.';
+
+      const report = buildContinuityGuardReport({
+        chapterText: 'Valerius guarda su sortija argentea antes de hablar.',
+        storyBible,
+        chapterNumber: 5,
+      });
+
+      assert.equal(
+        report.issues.some((issue) => issue.message.toLowerCase().includes('inconsistencia material')),
+        false,
+      );
+    },
+  },
+  {
     name: 'continuityGuard: detecta regresion de conocimiento en multi-escena',
     run: () => {
       const storyBible = createStoryBible();
@@ -1268,6 +1359,47 @@ const tests: TestCase[] = [
       assert.equal(
         report.issues.some((issue) => issue.message.toLowerCase().includes('regresion de conocimiento')),
         false,
+      );
+    },
+  },
+  {
+    name: 'continuityGuard: detecta conocimiento adelantado en reglas en ingles',
+    run: () => {
+      const storyBible = createStoryBible();
+      storyBible.characters[0].name = 'Elara';
+      storyBible.characters[0].aliases = 'the heir';
+      storyBible.continuityRules = 'Elara does not know about Maeron betrayal until chapter 8.';
+
+      const report = buildContinuityGuardReport({
+        chapterText: 'Elara knows about Maeron betrayal and updates her strategy.',
+        storyBible,
+        chapterNumber: 3,
+        language: 'en',
+      });
+
+      assert.ok(report.issues.some((issue) => issue.message.toLowerCase().includes('conocimiento adelantado')));
+    },
+  },
+  {
+    name: 'continuityGuard: detecta inconsistencia de miembro en texto en ingles',
+    run: () => {
+      const storyBible = createStoryBible();
+      storyBible.characters[0].name = 'Lena';
+      storyBible.characters[0].aliases = 'the smuggler';
+      storyBible.characters[0].notes = 'Right arm immobilized since chapter 1.';
+
+      const report = buildContinuityGuardReport({
+        chapterText: 'Lena opens the gate with her right hand and runs to the docks.',
+        storyBible,
+        language: 'en',
+      });
+
+      assert.ok(
+        report.issues.some(
+          (issue) =>
+            issue.message.toLowerCase().includes('inconsistencia') &&
+            issue.message.toLowerCase().includes('right'),
+        ),
       );
     },
   },
@@ -1818,6 +1950,20 @@ const tests: TestCase[] = [
       assert.ok(html.includes('Cronicas del Faro'));
       assert.ok(html.includes('Canon de personajes'));
       assert.ok(html.includes('Carriles y cronologia'));
+    },
+  },
+  {
+    name: 'export: PDF editorial genera binario valido y paginado',
+    run: () => {
+      const metadata = createMetadata();
+      const chapters = createChapters();
+      const bytes = buildBookPdfBinary(metadata, chapters);
+      const header = new TextDecoder().decode(bytes.slice(0, 8));
+      const tail = new TextDecoder().decode(bytes.slice(Math.max(0, bytes.length - 24)));
+
+      assert.ok(header.startsWith('%PDF-1.4'));
+      assert.ok(tail.includes('%%EOF'));
+      assert.ok(bytes.length > 800);
     },
   },
   {

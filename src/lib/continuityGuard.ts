@@ -39,6 +39,7 @@ interface BuildContinuityGuardReportInput {
   storyBible: StoryBible;
   chapterNumber?: number | null;
   priorChapterTexts?: string[] | null;
+  language?: string | null;
 }
 
 interface EntityDescriptor {
@@ -57,14 +58,100 @@ interface LimbConstraint {
   source: string;
 }
 
+type ContinuityLanguageCode = 'es' | 'en';
+
+interface ContinuityLanguagePatterns {
+  limbActionPattern: RegExp;
+  limbWordPattern: RegExp;
+  sideWordPattern: RegExp;
+  injuryWordPattern: RegExp;
+  knowledgeRestrictionPattern: RegExp;
+  knowledgeAssertionPattern: RegExp;
+  knowledgeImplicitAssertionPattern: RegExp;
+  unreliableNarrationPattern: RegExp;
+  revealRestrictionPattern: RegExp;
+  revealMentionPattern: RegExp;
+  revealNegationPattern: RegExp;
+  inabilityPattern: RegExp;
+  untilChapterPattern: RegExp;
+  beforeChapterPattern: RegExp;
+  rightSidePrefixes: string[];
+  leftSidePrefixes: string[];
+  rightSidePattern: string;
+  leftSidePattern: string;
+  armLimbPrefixes: string[];
+  legLimbPrefixes: string[];
+  armFamilyPattern: string;
+  legPattern: string;
+}
+
 const ENTITY_WORD_CHARS = 'A-Za-z0-9A-Za-z\\u00C0-\\u024F';
-const LIMB_ACTION_PATTERN =
-  /\b(abre|agarra|sujeta|empuja|golpea|dispara|escribe|levanta|carga|empuna|blande|maneja)\b/u;
-const LIMB_WORD_PATTERN = /\b(brazo|mano|pierna)\b/u;
-const SIDE_WORD_PATTERN = /\b(derech[oa]?|izquierd[oa]?)\b/u;
-const INJURY_WORD_PATTERN =
-  /\b(herid[oa]?|inmovilizad[oa]?|fracturad[oa]?|quebrad[oa]?|amputad[oa]?|vendad[oa]?)\b/u;
-const COMMON_SINGLE_TERM_STOPWORDS = new Set([
+const LANGUAGE_PATTERNS: Record<ContinuityLanguageCode, ContinuityLanguagePatterns> = {
+  es: {
+    limbActionPattern:
+      /\b(abre|agarra|sujeta|empuja|golpea|dispara|escribe|levanta|carga|empuna|blande|maneja)\b/u,
+    limbWordPattern: /\b(brazo|mano|pierna)\b/u,
+    sideWordPattern: /\b(derech[oa]?|izquierd[oa]?)\b/u,
+    injuryWordPattern: /\b(herid[oa]?|inmovilizad[oa]?|fracturad[oa]?|quebrad[oa]?|amputad[oa]?|vendad[oa]?)\b/u,
+    knowledgeRestrictionPattern: /\b(no sabe|desconoce|ignora|no conoce|cree que|descree de)\b/u,
+    knowledgeAssertionPattern: /\b(sabe|conoce|descubre|entiende|recuerda|sospecha|se entera|adivina)\b/u,
+    knowledgeImplicitAssertionPattern: /\b(admite|confiesa|explica|describe|detalla|narra|cuenta|reconoce|menciona)\b/u,
+    unreliableNarrationPattern:
+      /\b(ironia|ironico|sarcasmo|sarcastic[oa]?|miente|mintio|finge|fingio|simula|simulo|aparenta|aparento|engana|engano|narrador no fiable|unreliable)\b/u,
+    revealRestrictionPattern: /\bno\s+revel\w*\b/u,
+    revealMentionPattern: /\brevel\w*\b/u,
+    revealNegationPattern: /\bno\s+revel\w*\b/u,
+    inabilityPattern: /\b(no puede|incapaz)\b/u,
+    untilChapterPattern: /hasta\s+(?:el\s+)?capitulo\s+(\d+)/i,
+    beforeChapterPattern: /antes\s+de(?:l)?\s+capitulo\s+(\d+)/i,
+    rightSidePrefixes: ['derech'],
+    leftSidePrefixes: ['izquierd'],
+    rightSidePattern: 'derech[oa]?',
+    leftSidePattern: 'izquierd[oa]?',
+    armLimbPrefixes: ['brazo', 'mano'],
+    legLimbPrefixes: ['pierna'],
+    armFamilyPattern: '(?:brazo|mano)',
+    legPattern: '(?:pierna)',
+  },
+  en: {
+    limbActionPattern:
+      /\b(open|opens|grab|grabs|hold|holds|push|pushes|hit|hits|shoot|shoots|write|writes|lift|lifts|carry|carries|wield|wields|handle|handles)\b/u,
+    limbWordPattern: /\b(arm|hand|leg)\b/u,
+    sideWordPattern: /\b(right|left)\b/u,
+    injuryWordPattern: /\b(injur(?:ed|y)?|immobiliz(?:ed|e)|fractur(?:ed|e)|broken|amputat(?:ed|e)|bandag(?:ed|e)|wound(?:ed)?)\b/u,
+    knowledgeRestrictionPattern:
+      /\b(does not know|doesn't know|is unaware|ignores|does not understand|doesn't understand|believes that)\b/u,
+    knowledgeAssertionPattern: /\b(know|knows|learn|learns|discover|discovers|understand|understands|remember|remembers|suspect|suspects|realize|realizes)\b/u,
+    knowledgeImplicitAssertionPattern:
+      /\b(admit|admits|confess|confesses|explain|explains|describe|describes|detail|details|narrate|narrates|mention|mentions|acknowledge|acknowledges)\b/u,
+    unreliableNarrationPattern:
+      /\b(irony|ironic|sarcasm|sarcastic|lies?|lied|pretend|pretends|pretended|feign|feigns|feigned|simulate|simulates|simulated|deceive|deceives|deceived|unreliable narrator)\b/u,
+    revealRestrictionPattern: /\b(does not reveal|doesn't reveal|will not reveal|won't reveal)\b/u,
+    revealMentionPattern: /\breveal(?:s|ed|ing)?\b/u,
+    revealNegationPattern: /\b(does not reveal|doesn't reveal|will not reveal|won't reveal)\b/u,
+    inabilityPattern: /\b(cannot|can't|unable)\b/u,
+    untilChapterPattern: /until\s+chapter\s+(\d+)/i,
+    beforeChapterPattern: /before\s+chapter\s+(\d+)/i,
+    rightSidePrefixes: ['right'],
+    leftSidePrefixes: ['left'],
+    rightSidePattern: 'right',
+    leftSidePattern: 'left',
+    armLimbPrefixes: ['arm', 'hand'],
+    legLimbPrefixes: ['leg'],
+    armFamilyPattern: '(?:arm|hand)',
+    legPattern: '(?:leg)',
+  },
+};
+
+function resolveLanguagePatterns(language?: string | null): ContinuityLanguagePatterns {
+  const normalized = normalizeToken(language ?? '');
+  if (normalized.startsWith('en')) {
+    return LANGUAGE_PATTERNS.en;
+  }
+  return LANGUAGE_PATTERNS.es;
+}
+
+const COMMON_SINGLE_TERM_STOPWORDS_ES = [
   'a',
   'al',
   'de',
@@ -94,6 +181,46 @@ const COMMON_SINGLE_TERM_STOPWORDS = new Set([
   'unas',
   'y',
   'e',
+];
+const COMMON_SINGLE_TERM_STOPWORDS_EN = [
+  'a',
+  'an',
+  'and',
+  'as',
+  'at',
+  'for',
+  'he',
+  'her',
+  'hers',
+  'him',
+  'his',
+  'i',
+  'in',
+  'it',
+  'its',
+  'me',
+  'my',
+  'of',
+  'on',
+  'or',
+  'our',
+  'ours',
+  'she',
+  'the',
+  'their',
+  'theirs',
+  'them',
+  'they',
+  'to',
+  'us',
+  'we',
+  'you',
+  'your',
+  'yours',
+];
+const COMMON_SINGLE_TERM_STOPWORDS = new Set([
+  ...COMMON_SINGLE_TERM_STOPWORDS_ES,
+  ...COMMON_SINGLE_TERM_STOPWORDS_EN,
 ]);
 const SEMANTIC_STOPWORDS = new Set([
   ...COMMON_SINGLE_TERM_STOPWORDS,
@@ -136,6 +263,46 @@ const SEMANTIC_STOPWORDS = new Set([
   'todo',
   'tras',
   'ya',
+  'about',
+  'after',
+  'against',
+  'all',
+  'also',
+  'are',
+  'because',
+  'before',
+  'between',
+  'but',
+  'by',
+  'from',
+  'had',
+  'has',
+  'have',
+  'if',
+  'into',
+  'is',
+  'more',
+  'most',
+  'not',
+  'now',
+  'so',
+  'than',
+  'that',
+  'then',
+  'there',
+  'these',
+  'this',
+  'those',
+  'through',
+  'under',
+  'very',
+  'was',
+  'were',
+  'what',
+  'when',
+  'where',
+  'who',
+  'with',
 ]);
 const SEMANTIC_CANONICAL_GROUPS = [
   ['anillo', 'sortija', 'aro', 'ring'],
@@ -157,31 +324,58 @@ const SEMANTIC_CANONICAL_TOKEN_MAP = new Map<string, string>(
     group.map((token) => [token, group[0]] as const),
   ),
 );
-const KNOWLEDGE_RESTRICTION_PATTERN =
-  /\b(no sabe|desconoce|ignora|no conoce|cree que|descree de)\b/u;
-const KNOWLEDGE_ASSERTION_PATTERN =
-  /\b(sabe|conoce|descubre|entiende|recuerda|sospecha|se entera|adivina)\b/u;
-const KNOWLEDGE_IMPLICIT_ASSERTION_PATTERN =
-  /\b(admite|confiesa|explica|describe|detalla|narra|cuenta|reconoce|menciona)\b/u;
-const UNRELIABLE_NARRATION_PATTERN =
-  /\b(ironia|ironico|sarcasmo|sarcastic[oa]?|miente|mintio|finge|fingio|simula|simulo|aparenta|aparento|engana|engano|narrador no fiable|unreliable)\b/u;
+const OBJECT_IDENTITY_TOKENS = new Set([
+  'anillo',
+  'espada',
+  'corona',
+  'llave',
+  'amuleto',
+  'veneno',
+  'reliquia',
+  'talisman',
+]);
+const MATERIAL_CANONICAL_GROUPS = [
+  ['plata', 'argentea', 'argenteo', 'argenteas', 'argenteos', 'silver'],
+  ['oro', 'dorado', 'dorada', 'dorados', 'doradas', 'gold'],
+  ['hierro', 'ferreo', 'ferrea', 'iron'],
+  ['bronce', 'bronze'],
+  ['obsidiana', 'obsidian'],
+  ['marfil', 'ivory'],
+  ['hueso', 'bone'],
+];
+const MATERIAL_CANONICAL_TOKEN_MAP = new Map<string, string>(
+  MATERIAL_CANONICAL_GROUPS.flatMap((group) =>
+    group.map((token) => [token, group[0]] as const),
+  ),
+);
+const MATERIAL_CANONICAL_SET = new Set(MATERIAL_CANONICAL_GROUPS.map((group) => group[0]));
 const RULE_CONCEPT_NOISE = new Set([
   'capitulo',
   'capitulos',
+  'chapter',
+  'chapters',
   'antes',
+  'before',
   'despues',
   'hasta',
+  'until',
   'revela',
-  'revela',
+  'reveal',
   'revelar',
-  'revela',
+  'reveals',
   'real',
   'no',
+  'not',
   'sabe',
+  'know',
+  'knows',
   'conoce',
+  'understands',
+  'aware',
   'desconoce',
   'ignora',
   'cree',
+  'believes',
   'que',
 ]);
 
@@ -204,6 +398,14 @@ function tokenizeSemanticText(value: string): string[] {
     .split(/[^a-z0-9]+/g)
     .map((token) => normalizeSemanticToken(token))
     .filter((token) => token.length > 2 && !SEMANTIC_STOPWORDS.has(token));
+}
+
+function canonicalizeMaterialToken(value: string): string {
+  const normalized = normalizeToken(value).replace(/[^a-z0-9]+/g, ' ').trim();
+  if (!normalized) {
+    return '';
+  }
+  return MATERIAL_CANONICAL_TOKEN_MAP.get(normalized) ?? normalized;
 }
 
 function buildSemanticTokenSet(...values: string[]): string[] {
@@ -257,6 +459,15 @@ interface KnowledgeRule {
   limitChapter: number | null;
   conceptTokens: string[];
   sourceLine: string;
+}
+
+interface ObjectMaterialRule {
+  id: string;
+  objectToken: string;
+  materialToken: string;
+  sourceLine: string;
+  characterLabel: string;
+  normalizedCharacterTerms: string[];
 }
 
 function splitSentenceChunks(text: string, maxLength = 260): SentenceChunk[] {
@@ -538,7 +749,7 @@ function extractRelevantRuleLines(storyBible: StoryBible, character: StoryCharac
   });
 }
 
-function extractLimbConstraints(storyBible: StoryBible): LimbConstraint[] {
+function extractLimbConstraints(storyBible: StoryBible, patterns: ContinuityLanguagePatterns): LimbConstraint[] {
   const constraints: LimbConstraint[] = [];
 
   for (const character of storyBible.characters) {
@@ -556,12 +767,12 @@ function extractLimbConstraints(storyBible: StoryBible): LimbConstraint[] {
     for (const source of candidateSources) {
       const chunks = splitSentenceChunks(source, 220);
       for (const chunk of chunks) {
-        if (!INJURY_WORD_PATTERN.test(chunk.normalized)) {
+        if (!patterns.injuryWordPattern.test(chunk.normalized)) {
           continue;
         }
 
-        const limbMatch = chunk.normalized.match(LIMB_WORD_PATTERN);
-        const sideMatch = chunk.normalized.match(SIDE_WORD_PATTERN);
+        const limbMatch = chunk.normalized.match(patterns.limbWordPattern);
+        const sideMatch = chunk.normalized.match(patterns.sideWordPattern);
         if (!limbMatch || !sideMatch) {
           continue;
         }
@@ -579,9 +790,13 @@ function extractLimbConstraints(storyBible: StoryBible): LimbConstraint[] {
   return constraints;
 }
 
-function detectLimbInconsistencies(chapterText: string, storyBible: StoryBible): ContinuityIssue[] {
+function detectLimbInconsistencies(
+  chapterText: string,
+  storyBible: StoryBible,
+  patterns: ContinuityLanguagePatterns,
+): ContinuityIssue[] {
   const issues: ContinuityIssue[] = [];
-  const constraints = extractLimbConstraints(storyBible);
+  const constraints = extractLimbConstraints(storyBible, patterns);
   if (constraints.length === 0) {
     return issues;
   }
@@ -596,14 +811,27 @@ function detectLimbInconsistencies(chapterText: string, storyBible: StoryBible):
       continue;
     }
 
-    const limbPattern =
-      constraint.limb === 'brazo' || constraint.limb === 'mano' ? '(?:brazo|mano)' : escapeRegExp(constraint.limb);
-    const sidePattern = constraint.side.startsWith('derech')
-      ? 'derech[oa]?'
-      : constraint.side.startsWith('izquierd')
-        ? 'izquierd[oa]?'
-        : escapeRegExp(constraint.side);
-    const limbSidePattern = new RegExp(`\\b${limbPattern}\\s+${sidePattern}\\b`, 'u');
+    const normalizedLimb = normalizeToken(constraint.limb);
+    const normalizedSide = normalizeToken(constraint.side);
+    const isArmFamily = patterns.armLimbPrefixes.some((prefix) => normalizedLimb.startsWith(prefix));
+    const isLegFamily = patterns.legLimbPrefixes.some((prefix) => normalizedLimb.startsWith(prefix));
+    const isRightSide = patterns.rightSidePrefixes.some((prefix) => normalizedSide.startsWith(prefix));
+    const isLeftSide = patterns.leftSidePrefixes.some((prefix) => normalizedSide.startsWith(prefix));
+
+    const limbPattern = isArmFamily
+      ? patterns.armFamilyPattern
+      : isLegFamily
+        ? patterns.legPattern
+        : escapeRegExp(normalizedLimb);
+    const sidePattern = isRightSide
+      ? patterns.rightSidePattern
+      : isLeftSide
+        ? patterns.leftSidePattern
+        : escapeRegExp(normalizedSide);
+    const limbSidePattern = new RegExp(
+      `\\b(?:${limbPattern}\\s+${sidePattern}|${sidePattern}\\s+${limbPattern})\\b`,
+      'u',
+    );
 
     for (const chunk of chapterChunks) {
       const referencesCharacter = normalizedCharacterTerms.some((term) => containsNormalizedTerm(chunk.normalized, term));
@@ -615,11 +843,11 @@ function detectLimbInconsistencies(chapterText: string, storyBible: StoryBible):
         continue;
       }
 
-      if (!LIMB_ACTION_PATTERN.test(chunk.normalized)) {
+      if (!patterns.limbActionPattern.test(chunk.normalized)) {
         continue;
       }
 
-      if (chunk.normalized.includes('no puede') || chunk.normalized.includes('incapaz')) {
+      if (patterns.inabilityPattern.test(chunk.normalized)) {
         continue;
       }
 
@@ -636,14 +864,14 @@ function detectLimbInconsistencies(chapterText: string, storyBible: StoryBible):
   return issues;
 }
 
-function parseRevealRuleChapterLimit(normalizedLine: string): number | null {
-  const untilMatch = normalizedLine.match(/hasta\s+(?:el\s+)?capitulo\s+(\d+)/i);
+function parseRevealRuleChapterLimit(normalizedLine: string, patterns: ContinuityLanguagePatterns): number | null {
+  const untilMatch = normalizedLine.match(patterns.untilChapterPattern);
   if (untilMatch) {
     const parsed = Number.parseInt(untilMatch[1] ?? '', 10);
     return Number.isFinite(parsed) ? parsed : null;
   }
 
-  const beforeMatch = normalizedLine.match(/antes\s+de[l]?\s+capitulo\s+(\d+)/i);
+  const beforeMatch = normalizedLine.match(patterns.beforeChapterPattern);
   if (beforeMatch) {
     const parsed = Number.parseInt(beforeMatch[1] ?? '', 10);
     return Number.isFinite(parsed) ? parsed : null;
@@ -663,6 +891,7 @@ function isRevealRuleActiveForChapter(limitChapter: number | null, chapterNumber
 function detectRevealInconsistencies(
   chapterText: string,
   storyBible: StoryBible,
+  patterns: ContinuityLanguagePatterns,
   chapterNumber?: number | null,
 ): ContinuityIssue[] {
   const issues: ContinuityIssue[] = [];
@@ -688,13 +917,13 @@ function detectRevealInconsistencies(
       .map((line) => {
         const normalizedLine = normalizeToken(line);
         const referencesCharacter = characterTerms.some((term) => normalizedLine.includes(normalizeToken(term)));
-        if (!referencesCharacter || !normalizedLine.includes('no revela')) {
+        if (!referencesCharacter || !patterns.revealRestrictionPattern.test(normalizedLine)) {
           return null;
         }
 
         return {
           line,
-          limitChapter: parseRevealRuleChapterLimit(normalizedLine),
+          limitChapter: parseRevealRuleChapterLimit(normalizedLine, patterns),
           conceptTokens: extractRuleConceptTokens(line, characterTerms),
         };
       })
@@ -712,15 +941,15 @@ function detectRevealInconsistencies(
     const normalizedCharacterTerms = characterTerms.map((term) => normalizeToken(term)).filter(Boolean);
     let evidence = '';
     for (const chunk of splitSentenceChunks(chapterText)) {
-      if (!chunk.normalized.includes('revela')) {
+      if (!patterns.revealMentionPattern.test(chunk.normalized)) {
         continue;
       }
 
-      if (chunk.normalized.includes('no revela')) {
+      if (patterns.revealNegationPattern.test(chunk.normalized)) {
         continue;
       }
 
-      if (UNRELIABLE_NARRATION_PATTERN.test(chunk.normalized)) {
+      if (patterns.unreliableNarrationPattern.test(chunk.normalized)) {
         continue;
       }
 
@@ -762,6 +991,7 @@ function detectRevealInconsistencies(
 function detectKnowledgeInconsistencies(
   chapterText: string,
   storyBible: StoryBible,
+  patterns: ContinuityLanguagePatterns,
   chapterNumber?: number | null,
 ): ContinuityIssue[] {
   const issues: ContinuityIssue[] = [];
@@ -791,13 +1021,13 @@ function detectKnowledgeInconsistencies(
       .map((line) => {
         const normalizedLine = normalizeToken(line);
         const referencesCharacter = characterTerms.some((term) => normalizedLine.includes(normalizeToken(term)));
-        if (!referencesCharacter || !KNOWLEDGE_RESTRICTION_PATTERN.test(normalizedLine)) {
+        if (!referencesCharacter || !patterns.knowledgeRestrictionPattern.test(normalizedLine)) {
           return null;
         }
 
         return {
           line,
-          limitChapter: parseRevealRuleChapterLimit(normalizedLine),
+          limitChapter: parseRevealRuleChapterLimit(normalizedLine, patterns),
           conceptTokens: extractRuleConceptTokens(line, characterTerms),
         };
       })
@@ -814,8 +1044,8 @@ function detectKnowledgeInconsistencies(
 
       for (const chunk of chapterChunks) {
         if (
-          !KNOWLEDGE_ASSERTION_PATTERN.test(chunk.normalized) &&
-          !KNOWLEDGE_IMPLICIT_ASSERTION_PATTERN.test(chunk.normalized)
+          !patterns.knowledgeAssertionPattern.test(chunk.normalized) &&
+          !patterns.knowledgeImplicitAssertionPattern.test(chunk.normalized)
         ) {
           continue;
         }
@@ -825,7 +1055,7 @@ function detectKnowledgeInconsistencies(
           continue;
         }
 
-        if (UNRELIABLE_NARRATION_PATTERN.test(chunk.normalized)) {
+        if (patterns.unreliableNarrationPattern.test(chunk.normalized)) {
           continue;
         }
 
@@ -854,7 +1084,7 @@ function detectKnowledgeInconsistencies(
   return issues;
 }
 
-function buildKnowledgeRules(storyBible: StoryBible): KnowledgeRule[] {
+function buildKnowledgeRules(storyBible: StoryBible, patterns: ContinuityLanguagePatterns): KnowledgeRule[] {
   const continuityLines = storyBible.continuityRules
     .split(/\n+/g)
     .map((line) => line.trim())
@@ -882,14 +1112,14 @@ function buildKnowledgeRules(storyBible: StoryBible): KnowledgeRule[] {
       const referencesCharacter = normalizedCharacterTerms.some(
         (term) => term && containsNormalizedTerm(normalizedLine, term),
       );
-      if (!referencesCharacter || !KNOWLEDGE_RESTRICTION_PATTERN.test(normalizedLine)) {
+      if (!referencesCharacter || !patterns.knowledgeRestrictionPattern.test(normalizedLine)) {
         continue;
       }
 
       rules.push({
         character,
         normalizedCharacterTerms,
-        limitChapter: parseRevealRuleChapterLimit(normalizedLine),
+        limitChapter: parseRevealRuleChapterLimit(normalizedLine, patterns),
         conceptTokens: extractRuleConceptTokens(line, characterTerms),
         sourceLine: line,
       });
@@ -902,10 +1132,11 @@ function buildKnowledgeRules(storyBible: StoryBible): KnowledgeRule[] {
 function detectKnowledgeRegressionInconsistencies(
   chapterText: string,
   storyBible: StoryBible,
+  patterns: ContinuityLanguagePatterns,
   chapterNumber?: number | null,
   priorChapterTexts?: string[] | null,
 ): ContinuityIssue[] {
-  const rules = buildKnowledgeRules(storyBible);
+  const rules = buildKnowledgeRules(storyBible, patterns);
   if (rules.length === 0) {
     return [];
   }
@@ -933,13 +1164,13 @@ function detectKnowledgeRegressionInconsistencies(
       }
 
       if (
-        !KNOWLEDGE_ASSERTION_PATTERN.test(chunk.normalized) &&
-        !KNOWLEDGE_IMPLICIT_ASSERTION_PATTERN.test(chunk.normalized)
+        !patterns.knowledgeAssertionPattern.test(chunk.normalized) &&
+        !patterns.knowledgeImplicitAssertionPattern.test(chunk.normalized)
       ) {
         continue;
       }
 
-      if (UNRELIABLE_NARRATION_PATTERN.test(chunk.normalized)) {
+      if (patterns.unreliableNarrationPattern.test(chunk.normalized)) {
         continue;
       }
 
@@ -968,11 +1199,11 @@ function detectKnowledgeRegressionInconsistencies(
         continue;
       }
 
-      if (!KNOWLEDGE_RESTRICTION_PATTERN.test(chunk.normalized)) {
+      if (!patterns.knowledgeRestrictionPattern.test(chunk.normalized)) {
         continue;
       }
 
-      if (UNRELIABLE_NARRATION_PATTERN.test(chunk.normalized)) {
+      if (patterns.unreliableNarrationPattern.test(chunk.normalized)) {
         continue;
       }
 
@@ -1003,6 +1234,127 @@ function detectKnowledgeRegressionInconsistencies(
   return issues;
 }
 
+function buildObjectMaterialRules(storyBible: StoryBible): ObjectMaterialRule[] {
+  const continuityLines = storyBible.continuityRules
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (continuityLines.length === 0) {
+    return [];
+  }
+
+  const rules: ObjectMaterialRule[] = [];
+
+  for (const line of continuityLines) {
+    const normalizedLine = normalizeToken(line);
+    const lineTokens = tokenizeSemanticText(line);
+    const objectToken = lineTokens.find((token) => OBJECT_IDENTITY_TOKENS.has(token));
+    const materialToken = lineTokens
+      .map((token) => canonicalizeMaterialToken(token))
+      .find((token) => MATERIAL_CANONICAL_SET.has(token));
+    if (!objectToken || !materialToken) {
+      continue;
+    }
+
+    const referencedCharacters = storyBible.characters
+      .filter((character) => normalizeCanonStatus(character.canonStatus) === 'canonical')
+      .map((character) => ({
+        character,
+        normalizedTerms: buildEntityTerms(character.name, character.aliases)
+          .map((term) => normalizeToken(term))
+          .filter(Boolean),
+      }))
+      .filter(({ normalizedTerms }) =>
+        normalizedTerms.some((term) => term && containsNormalizedTerm(normalizedLine, term)),
+      );
+
+    if (referencedCharacters.length === 0) {
+      rules.push({
+        id: `object-material-${normalizeToken(line).slice(0, 36)}`,
+        objectToken,
+        materialToken,
+        sourceLine: line,
+        characterLabel: '',
+        normalizedCharacterTerms: [],
+      });
+      continue;
+    }
+
+    for (const entry of referencedCharacters) {
+      rules.push({
+        id: `object-material-${entry.character.id}-${normalizeToken(line).slice(0, 28)}`,
+        objectToken,
+        materialToken,
+        sourceLine: line,
+        characterLabel: entry.character.name || entry.character.id,
+        normalizedCharacterTerms: entry.normalizedTerms,
+      });
+    }
+  }
+
+  return rules;
+}
+
+function detectObjectMaterialInconsistencies(
+  chapterText: string,
+  storyBible: StoryBible,
+  patterns: ContinuityLanguagePatterns,
+): ContinuityIssue[] {
+  const rules = buildObjectMaterialRules(storyBible);
+  if (rules.length === 0) {
+    return [];
+  }
+
+  const chapterChunks = splitSentenceChunks(chapterText);
+  const issues: ContinuityIssue[] = [];
+
+  for (const rule of rules) {
+    for (const chunk of chapterChunks) {
+      if (patterns.unreliableNarrationPattern.test(chunk.normalized)) {
+        continue;
+      }
+
+      if (rule.normalizedCharacterTerms.length > 0) {
+        const referencesCharacter = rule.normalizedCharacterTerms.some(
+          (term) => term && containsNormalizedTerm(chunk.normalized, term),
+        );
+        if (!referencesCharacter) {
+          continue;
+        }
+      }
+
+      const chunkTokens = tokenizeSemanticText(chunk.normalized);
+      if (!chunkTokens.includes(rule.objectToken)) {
+        continue;
+      }
+
+      const materialMentions = Array.from(
+        new Set(
+          chunkTokens
+            .map((token) => canonicalizeMaterialToken(token))
+            .filter((token) => MATERIAL_CANONICAL_SET.has(token)),
+        ),
+      );
+      if (materialMentions.length === 0 || materialMentions.includes(rule.materialToken)) {
+        continue;
+      }
+
+      const detectedMaterial = materialMentions[0];
+      issues.push({
+        id: `${rule.id}-${rule.objectToken}-${detectedMaterial}`,
+        severity: 'warning',
+        message: rule.characterLabel
+          ? `${rule.characterLabel}: posible inconsistencia material en ${rule.objectToken}; biblia sugiere ${rule.materialToken} y aparece ${detectedMaterial}.`
+          : `Posible inconsistencia material en ${rule.objectToken}; biblia sugiere ${rule.materialToken} y aparece ${detectedMaterial}.`,
+        evidence: `${chunk.raw} | Regla: ${rule.sourceLine}`,
+      });
+      break;
+    }
+  }
+
+  return issues;
+}
+
 export function buildContinuityHighlights(storyBible: StoryBible): ContinuityHighlightTerm[] {
   const descriptors = buildEntityDescriptors(storyBible);
   const highlights: ContinuityHighlightTerm[] = [];
@@ -1028,6 +1380,7 @@ export function buildContinuityGuardReport(input: BuildContinuityGuardReportInpu
     return { mentions: [], issues: [] };
   }
 
+  const patterns = resolveLanguagePatterns(input.language);
   const descriptors = buildEntityDescriptors(input.storyBible);
   const mentions: ContinuityEntityMention[] = [];
   const chapterChunks = splitSentenceChunks(chapterText);
@@ -1082,15 +1435,17 @@ export function buildContinuityGuardReport(input: BuildContinuityGuardReportInpu
   }
 
   const issues = [
-    ...detectRevealInconsistencies(chapterText, input.storyBible, input.chapterNumber),
-    ...detectKnowledgeInconsistencies(chapterText, input.storyBible, input.chapterNumber),
+    ...detectRevealInconsistencies(chapterText, input.storyBible, patterns, input.chapterNumber),
+    ...detectKnowledgeInconsistencies(chapterText, input.storyBible, patterns, input.chapterNumber),
     ...detectKnowledgeRegressionInconsistencies(
       chapterText,
       input.storyBible,
+      patterns,
       input.chapterNumber,
       input.priorChapterTexts,
     ),
-    ...detectLimbInconsistencies(chapterText, input.storyBible),
+    ...detectObjectMaterialInconsistencies(chapterText, input.storyBible, patterns),
+    ...detectLimbInconsistencies(chapterText, input.storyBible, patterns),
   ];
   const dedupedIssues: ContinuityIssue[] = [];
   const seenIssueIds = new Set<string>();

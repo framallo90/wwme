@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { confirm, open } from '@tauri-apps/plugin-dialog';
 import { exists, readFile } from '@tauri-apps/plugin-fs';
@@ -7,6 +7,7 @@ import AppShell from './app/AppShell';
 import Sidebar from './components/Sidebar';
 import TopToolbar from './components/TopToolbar';
 import './styles/tokens.css';
+import './styles/shell.css';
 import './App.css';
 import './styles/ai-panel.css';
 import './styles/atlas.css';
@@ -42,10 +43,6 @@ import {
   selectStoryBibleForPrompt,
 } from './lib/prompts';
 import { getLanguageInstruction, normalizeLanguageCode } from './lib/language';
-import PromptModal from './components/PromptModal';
-import OnboardingPanel from './components/OnboardingPanel';
-import ChangeReviewModal from './components/ChangeReviewModal';
-import EditorialChecklistModal from './components/EditorialChecklistModal';
 import {
   attachBookToSaga,
   clearBackCoverImage,
@@ -101,6 +98,7 @@ import {
   buildBookSearchMatchesAsync,
   buildBookReplacePreviewAsync,
   buildSagaSearchMatchesAsync,
+  getSearchPatternError,
   replaceMatchesInHtml,
   type ChapterSearchMatch,
   type ReplacePreviewReport,
@@ -154,14 +152,19 @@ import type {
 const LazyAIPanel = lazy(() => import('./components/AIPanel'));
 const LazyAmazonPanel = lazy(() => import('./components/AmazonPanel'));
 const LazyBookFoundationPanel = lazy(() => import('./components/BookFoundationPanel'));
+const LazyChangeReviewModal = lazy(() => import('./components/ChangeReviewModal'));
 const LazyCoverView = lazy(() => import('./components/CoverView'));
 const LazyEditorPane = lazy(() => import('./components/EditorPane'));
+const LazyEditorialChecklistModal = lazy(() => import('./components/EditorialChecklistModal'));
 const LazyHelpPanel = lazy(() => import('./components/HelpPanel'));
 const LazyLanguagePanel = lazy(() => import('./components/LanguagePanel'));
+const LazyOnboardingPanel = lazy(() => import('./components/OnboardingPanel'));
 const LazyOutlineView = lazy(() => import('./components/OutlineView'));
 const LazyPreviewView = lazy(() => import('./components/PreviewView'));
 const LazyPlotBoardView = lazy(() => import('./components/PlotBoardView'));
+const LazyPromptModal = lazy(() => import('./components/PromptModal'));
 const LazyRelationshipGraphView = lazy(() => import('./components/RelationshipGraphView'));
+const LazySagaDashboardView = lazy(() => import('./components/SagaDashboardView'));
 const LazySagaPanel = lazy(() => import('./components/SagaPanel'));
 const LazySearchReplacePanel = lazy(() => import('./components/SearchReplacePanel'));
 const LazySettingsPanel = lazy(() => import('./components/SettingsPanel'));
@@ -624,6 +627,7 @@ interface PersistedOnboardingState {
   dismissedForever: boolean;
   writingStarted: boolean;
   completed: boolean;
+  backupGuardMode: 'strict' | 'explore';
   lastUpdated: string;
 }
 
@@ -633,6 +637,7 @@ function createDefaultOnboardingState(): PersistedOnboardingState {
     dismissedForever: false,
     writingStarted: false,
     completed: false,
+    backupGuardMode: 'strict',
     lastUpdated: '',
   };
 }
@@ -661,6 +666,7 @@ function loadPersistedOnboardingState(): PersistedOnboardingState {
       dismissedForever: parsed.dismissedForever === true,
       writingStarted: parsed.writingStarted === true,
       completed: parsed.completed === true,
+      backupGuardMode: parsed.backupGuardMode === 'explore' ? 'explore' : 'strict',
       lastUpdated: typeof parsed.lastUpdated === 'string' ? parsed.lastUpdated : '',
     };
   } catch {
@@ -1007,6 +1013,12 @@ function App() {
   });
 
   const [config, setConfig] = useState<AppConfig>(DEFAULT_APP_CONFIG);
+  const [systemPrefersDark, setSystemPrefersDark] = useState<boolean>(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return false;
+    }
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
   const [ollamaStatus, setOllamaStatus] = useState<OllamaServiceStatus>(() => buildIdleOllamaStatus(DEFAULT_APP_CONFIG.model));
   const [book, setBook] = useState<BookProject | null>(null);
   const [activeSaga, setActiveSaga] = useState<SagaProject | null>(null);
@@ -1039,11 +1051,15 @@ function App() {
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [onboardingBackupGuardMode, setOnboardingBackupGuardMode] = useState<'strict' | 'explore'>(
+    () => loadPersistedOnboardingState().backupGuardMode,
+  );
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [replaceQuery, setReplaceQuery] = useState('');
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
   const [searchWholeWord, setSearchWholeWord] = useState(false);
+  const [searchUseRegex, setSearchUseRegex] = useState(false);
   const [searchBusy, setSearchBusy] = useState(false);
   const [searchMatches, setSearchMatches] = useState<ChapterSearchMatch[]>([]);
   const [searchTotalMatches, setSearchTotalMatches] = useState(0);
@@ -1194,6 +1210,14 @@ function App() {
     return book.chapters[activeChapterId] ?? null;
   }, [activeChapterId, book]);
 
+  const activeChapterPlainText = useMemo(() => {
+    if (!activeChapter) {
+      return '';
+    }
+    return stripHtml(activeChapter.content);
+  }, [activeChapter]);
+  const deferredActiveChapterPlainText = useDeferredValue(activeChapterPlainText);
+
   const activeChapterNumber = useMemo(() => {
     if (!book || !activeChapter) {
       return null;
@@ -1252,12 +1276,22 @@ function App() {
         : [];
 
     return buildContinuityGuardReport({
-      chapterText: stripHtml(activeChapter.content),
+      chapterText: deferredActiveChapterPlainText,
       storyBible: storyBibleChronicleIndex ?? canonicalStoryBible ?? book.metadata.storyBible,
       chapterNumber: activeChapterNumber,
       priorChapterTexts,
+      language: config.language,
     });
-  }, [activeChapter, activeChapterNumber, book, canonicalStoryBible, orderedChapters, storyBibleChronicleIndex]);
+  }, [
+    activeChapter,
+    activeChapterNumber,
+    book,
+    canonicalStoryBible,
+    config.language,
+    deferredActiveChapterPlainText,
+    orderedChapters,
+    storyBibleChronicleIndex,
+  ]);
 
   const semanticReferencesCatalog = useMemo(
     () =>
@@ -1343,6 +1377,8 @@ function App() {
       storyBibleChronicleIndex.continuityRules.trim().length > 0
     );
   }, [storyBibleChronicleIndex]);
+  const hasBackupConfigured = useMemo(() => config.backupDirectory.trim().length > 0, [config.backupDirectory]);
+  const enforceBackupGate = onboardingBackupGuardMode === 'strict';
 
   const hasMeaningfulWriting = useMemo(
     () =>
@@ -1356,9 +1392,12 @@ function App() {
     [orderedChapters],
   );
 
-  const hasCompletedOnboardingCore = Boolean(book) && orderedChapters.length > 0 && hasMeaningfulWriting && (
-    hasFoundationData || hasStoryBibleData
-  );
+  const hasCompletedOnboardingCore =
+    Boolean(book) &&
+    (!enforceBackupGate || hasBackupConfigured) &&
+    orderedChapters.length > 0 &&
+    hasMeaningfulWriting &&
+    (hasFoundationData || hasStoryBibleData);
 
   const linkedSagaForBook = useMemo(() => {
     if (!book?.metadata.sagaPath) {
@@ -1524,6 +1563,18 @@ function App() {
     const persisted = loadPersistedOnboardingState();
     const hasExistingWorkspace = libraryIndex.books.length > 0 || libraryIndex.sagas.length > 0;
 
+    if (enforceBackupGate && !hasBackupConfigured) {
+      setOnboardingOpen(true);
+      savePersistedOnboardingState({
+        ...persisted,
+        backupGuardMode: onboardingBackupGuardMode,
+        autoOpenedOnce: true,
+        lastUpdated: getNowIso(),
+      });
+      onboardingAutoHandledRef.current = true;
+      return;
+    }
+
     if (config.expertWriterMode) {
       onboardingAutoHandledRef.current = true;
       return;
@@ -1537,6 +1588,7 @@ function App() {
     if (hasExistingWorkspace || hasMeaningfulWriting || hasCompletedOnboardingCore) {
       savePersistedOnboardingState({
         ...persisted,
+        backupGuardMode: onboardingBackupGuardMode,
         autoOpenedOnce: true,
         writingStarted: persisted.writingStarted || hasMeaningfulWriting,
         completed: persisted.completed || hasCompletedOnboardingCore,
@@ -1549,27 +1601,32 @@ function App() {
     setOnboardingOpen(true);
     savePersistedOnboardingState({
       ...persisted,
+      backupGuardMode: onboardingBackupGuardMode,
       autoOpenedOnce: true,
       lastUpdated: getNowIso(),
     });
     onboardingAutoHandledRef.current = true;
   }, [
+    enforceBackupGate,
     hasCompletedOnboardingCore,
     hasMeaningfulWriting,
     libraryIndex.books.length,
     libraryIndex.sagas.length,
     libraryLoaded,
     config.expertWriterMode,
+    hasBackupConfigured,
+    onboardingBackupGuardMode,
   ]);
 
   useEffect(() => {
-    if (!hasMeaningfulWriting && !hasCompletedOnboardingCore) {
+    if (!hasMeaningfulWriting && !hasCompletedOnboardingCore && enforceBackupGate && !hasBackupConfigured) {
       return;
     }
 
     const persisted = loadPersistedOnboardingState();
     const nextState: PersistedOnboardingState = {
       ...persisted,
+      backupGuardMode: onboardingBackupGuardMode,
       autoOpenedOnce: persisted.autoOpenedOnce || hasMeaningfulWriting || hasCompletedOnboardingCore,
       writingStarted: persisted.writingStarted || hasMeaningfulWriting,
       completed: persisted.completed || hasCompletedOnboardingCore,
@@ -1577,7 +1634,7 @@ function App() {
     };
 
     savePersistedOnboardingState(nextState);
-  }, [hasCompletedOnboardingCore, hasMeaningfulWriting]);
+  }, [enforceBackupGate, hasBackupConfigured, hasCompletedOnboardingCore, hasMeaningfulWriting, onboardingBackupGuardMode]);
 
   const ensureScopeMessagesLoaded = useCallback(
     async (scope: ChatScope, chapterId?: string): Promise<ChatMessage[]> => {
@@ -1639,11 +1696,22 @@ function App() {
     () => ({
       caseSensitive: searchCaseSensitive,
       wholeWord: searchWholeWord,
+      useRegex: searchUseRegex,
     }),
-    [searchCaseSensitive, searchWholeWord],
+    [searchCaseSensitive, searchWholeWord, searchUseRegex],
+  );
+  const searchPatternError = useMemo(
+    () => getSearchPatternError(searchQuery, currentSearchOptions),
+    [searchQuery, currentSearchOptions],
   );
 
   const activeLanguage = useMemo(() => normalizeLanguageCode(config.language), [config.language]);
+  const resolvedTheme = useMemo<'light' | 'dark' | 'sepia'>(() => {
+    if (config.theme === 'system') {
+      return systemPrefersDark ? 'dark' : 'light';
+    }
+    return config.theme;
+  }, [config.theme, systemPrefersDark]);
   const amazonActiveLanguage = useMemo(
     () => normalizeLanguageCode(book?.metadata.amazon.language ?? ''),
     [book?.metadata.amazon.language],
@@ -1948,6 +2016,12 @@ function App() {
 
   const resetSnapshotNavigation = useCallback((chapterId: string | null) => {
     if (!chapterId) {
+      return;
+    }
+
+    const hadUndoCursor = snapshotUndoCursorRef.current[chapterId] !== undefined;
+    const hadRedoStack = (snapshotRedoStackRef.current[chapterId]?.length ?? 0) > 0;
+    if (!hadUndoCursor && !hadRedoStack) {
       return;
     }
 
@@ -2492,6 +2566,7 @@ function App() {
     const persisted = loadPersistedOnboardingState();
     savePersistedOnboardingState({
       ...persisted,
+      backupGuardMode: onboardingBackupGuardMode,
       autoOpenedOnce: true,
       dismissedForever: true,
       lastUpdated: getNowIso(),
@@ -2499,7 +2574,45 @@ function App() {
     setOnboardingOpen(false);
     onboardingAutoHandledRef.current = true;
     setStatus('La guia inicial ya no se abrira automaticamente en este equipo.');
-  }, []);
+  }, [onboardingBackupGuardMode]);
+
+  const handleOnboardingClose = useCallback(() => {
+    if (enforceBackupGate && !hasBackupConfigured) {
+      setMainView('settings');
+      setStatus('Configura una carpeta de backup antes de continuar.');
+      setOnboardingOpen(true);
+      return;
+    }
+    setOnboardingOpen(false);
+  }, [enforceBackupGate, hasBackupConfigured]);
+
+  const handleOnboardingDismissForever = useCallback(() => {
+    if (enforceBackupGate && !hasBackupConfigured) {
+      setMainView('settings');
+      setStatus('No puedes desactivar la guia hasta configurar backup.');
+      setOnboardingOpen(true);
+      return;
+    }
+    dismissOnboardingForever();
+  }, [dismissOnboardingForever, enforceBackupGate, hasBackupConfigured]);
+
+  const handleOnboardingBackupGuardModeChange = useCallback(
+    (mode: 'strict' | 'explore') => {
+      setOnboardingBackupGuardMode(mode);
+      const persisted = loadPersistedOnboardingState();
+      savePersistedOnboardingState({
+        ...persisted,
+        backupGuardMode: mode,
+        lastUpdated: getNowIso(),
+      });
+      if (mode === 'strict' && !hasBackupConfigured) {
+        setStatus('Modo seguro activo: configura backup para continuar.');
+      } else if (mode === 'explore') {
+        setStatus('Modo exploracion activo: puedes escribir sin backup (recomendado solo para pruebas).');
+      }
+    },
+    [hasBackupConfigured],
+  );
 
   const requestAiSafeReview = useCallback(
     (input: { title: string; subtitle: string; beforeText: string; afterText: string }): Promise<boolean> => {
@@ -2628,14 +2741,33 @@ function App() {
 
   useEffect(() => {
     setSearchPreviewReport(null);
-  }, [searchQuery, replaceQuery, searchCaseSensitive, searchWholeWord]);
+  }, [searchQuery, replaceQuery, searchCaseSensitive, searchWholeWord, searchUseRegex]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return;
+    }
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const update = (eventOrList: MediaQueryListEvent | MediaQueryList) => {
+      setSystemPrefersDark(eventOrList.matches);
+    };
+    update(mediaQuery);
+    const listener = (event: MediaQueryListEvent) => update(event);
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', listener);
+      return () => mediaQuery.removeEventListener('change', listener);
+    }
+    mediaQuery.addListener(listener);
+    return () => mediaQuery.removeListener(listener);
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
+    root.setAttribute('data-theme', resolvedTheme);
     root.setAttribute('data-contrast', config.accessibilityHighContrast ? 'high' : 'normal');
     root.setAttribute('data-text-size', config.accessibilityLargeText ? 'large' : 'normal');
     root.lang = activeLanguage;
-  }, [config.accessibilityHighContrast, config.accessibilityLargeText, activeLanguage]);
+  }, [resolvedTheme, config.accessibilityHighContrast, config.accessibilityLargeText, activeLanguage]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -2997,14 +3129,23 @@ function App() {
     });
   }, []);
 
-  const handleSaveActiveSaga = useCallback(async () => {
+  const handleSaveActiveSaga = useCallback(async (metadataOverride?: SagaProject['metadata']) => {
     if (!activeSaga) {
       return;
     }
-    const consistencyReport = activeSaga.metadata.strictValidationMode ? buildSagaConsistencyReport(activeSaga) : null;
+
+    const metadataToSave = metadataOverride ?? activeSaga.metadata;
+    const sagaForValidation =
+      metadataOverride
+        ? {
+            ...activeSaga,
+            metadata: metadataOverride,
+          }
+        : activeSaga;
+    const consistencyReport = metadataToSave.strictValidationMode ? buildSagaConsistencyReport(sagaForValidation) : null;
 
     try {
-      const savedMetadata = await saveSagaMetadata(activeSaga.path, activeSaga.metadata);
+      const savedMetadata = await saveSagaMetadata(activeSaga.path, metadataToSave);
       const savedProject: SagaProject = {
         ...activeSaga,
         metadata: savedMetadata,
@@ -4006,13 +4147,19 @@ function App() {
     }
   }, [book, syncBookToLibrary]);
 
-  const handleSaveStoryBible = useCallback(async () => {
+  const handleSaveStoryBible = useCallback(async (storyBibleOverride?: BookProject['metadata']['storyBible']) => {
     if (!book) {
       return;
     }
 
     try {
-      const savedMetadata = await saveBookMetadata(book.path, book.metadata);
+      const metadataToSave = storyBibleOverride
+        ? {
+            ...book.metadata,
+            storyBible: storyBibleOverride,
+          }
+        : book.metadata;
+      const savedMetadata = await saveBookMetadata(book.path, metadataToSave);
       setBook((previous) => {
         if (!previous || previous.path !== book.path) {
           return previous;
@@ -4034,12 +4181,16 @@ function App() {
   }, [book, syncBookToLibrary]);
 
   const syncStoryBibleFromChapter = useCallback(
-    async (chapter: { id: string; title: string; content: string }) => {
+    async (
+      chapter: { id: string; title: string; content: string },
+      baseStoryBibleOverride?: BookProject['metadata']['storyBible'],
+    ) => {
       if (!book) {
         return { addedCharacters: 0, addedLocations: 0 };
       }
 
-      const syncResult = buildStoryBibleAutoSyncFromChapter(book.metadata.storyBible, chapter);
+      const baseStoryBible = baseStoryBibleOverride ?? book.metadata.storyBible;
+      const syncResult = buildStoryBibleAutoSyncFromChapter(baseStoryBible, chapter);
       if (syncResult.addedCharacters.length === 0 && syncResult.addedLocations.length === 0) {
         return { addedCharacters: 0, addedLocations: 0 };
       }
@@ -4073,14 +4224,15 @@ function App() {
     [book, syncBookToLibrary],
   );
 
-  const handleSyncStoryBibleFromActiveChapter = useCallback(async () => {
+  const handleSyncStoryBibleFromActiveChapter = useCallback(
+    async (baseStoryBibleOverride?: BookProject['metadata']['storyBible']) => {
     if (!book || !activeChapter) {
       setStatus('Abre un capitulo para sincronizar la biblia.');
       return;
     }
 
     try {
-      const sync = await syncStoryBibleFromChapter(activeChapter);
+      const sync = await syncStoryBibleFromChapter(activeChapter, baseStoryBibleOverride);
       if (sync.addedCharacters === 0 && sync.addedLocations === 0) {
         setStatus('Sincronizacion completada: no se detectaron personajes o lugares nuevos.');
         return;
@@ -4669,6 +4821,13 @@ function App() {
       setStatus('Buscar: escribe texto para iniciar la busqueda.');
       return;
     }
+    if (searchPatternError) {
+      setSearchMatches([]);
+      setSearchTotalMatches(0);
+      setSearchPreviewReport(null);
+      setStatus(`Regex invalido: ${searchPatternError}`);
+      return;
+    }
 
     setSearchBusy(true);
     try {
@@ -4679,7 +4838,7 @@ function App() {
     } finally {
       setSearchBusy(false);
     }
-  }, [book, searchQuery, orderedChapters, currentSearchOptions]);
+  }, [book, searchQuery, orderedChapters, currentSearchOptions, searchPatternError]);
 
   const handlePreviewReplaceInBook = useCallback(async () => {
     if (!book) {
@@ -4690,6 +4849,11 @@ function App() {
     if (!query) {
       setSearchPreviewReport(null);
       setStatus('Simular reemplazo: define primero el texto a buscar.');
+      return;
+    }
+    if (searchPatternError) {
+      setSearchPreviewReport(null);
+      setStatus(`Regex invalido: ${searchPatternError}`);
       return;
     }
 
@@ -4710,7 +4874,7 @@ function App() {
     } finally {
       setSearchBusy(false);
     }
-  }, [book, searchQuery, replaceQuery, orderedChapters, currentSearchOptions]);
+  }, [book, searchQuery, replaceQuery, orderedChapters, currentSearchOptions, searchPatternError]);
 
   const handleRunSagaSearch = useCallback(async () => {
     if (!activeSaga) return;
@@ -4719,6 +4883,12 @@ function App() {
       setSagaSearchResults([]);
       setSagaSearchTotalMatches(0);
       setStatus('Busqueda en saga: escribe texto primero.');
+      return;
+    }
+    if (searchPatternError) {
+      setSagaSearchResults([]);
+      setSagaSearchTotalMatches(0);
+      setStatus(`Regex invalido: ${searchPatternError}`);
       return;
     }
 
@@ -4741,7 +4911,7 @@ function App() {
     } finally {
       setSearchBusy(false);
     }
-  }, [activeSaga, searchQuery, currentSearchOptions]);
+  }, [activeSaga, searchQuery, currentSearchOptions, searchPatternError]);
 
   const handleReplaceInActiveChapter = useCallback(async () => {
     if (!book || !activeChapterId) {
@@ -4756,6 +4926,10 @@ function App() {
     const query = searchQuery.trim();
     if (!query) {
       setStatus('Reemplazar: define primero el texto a buscar.');
+      return;
+    }
+    if (searchPatternError) {
+      setStatus(`Regex invalido: ${searchPatternError}`);
       return;
     }
 
@@ -4791,7 +4965,7 @@ function App() {
       dirtyRef.current = false;
       resetSnapshotNavigation(chapter.id);
 
-      refreshSearchResults(nextProject, query, currentSearchOptions);
+    refreshSearchResults(nextProject, query, currentSearchOptions);
       setSearchPreviewReport(null);
       setStatus(`Reemplazo aplicado en capitulo activo: ${updated.replacements} cambio/s.`);
     } catch (error) {
@@ -4804,6 +4978,7 @@ function App() {
     activeChapterId,
     searchQuery,
     replaceQuery,
+    searchPatternError,
     currentSearchOptions,
     config.autoVersioning,
     resetSnapshotNavigation,
@@ -4819,6 +4994,10 @@ function App() {
     const query = searchQuery.trim();
     if (!query) {
       setStatus('Reemplazar libro: define primero el texto a buscar.');
+      return;
+    }
+    if (searchPatternError) {
+      setStatus(`Regex invalido: ${searchPatternError}`);
       return;
     }
 
@@ -4899,6 +5078,7 @@ function App() {
     book,
     searchQuery,
     replaceQuery,
+    searchPatternError,
     searchPreviewReport,
     currentSearchOptions,
     config.autoVersioning,
@@ -4912,6 +5092,11 @@ function App() {
       const key = event.key.toLowerCase();
       const ctrlOrMeta = event.ctrlKey || event.metaKey;
       const shift = event.shiftKey;
+      const editableTarget = isEditableTarget(event.target);
+
+      if (editableTarget && !(ctrlOrMeta && key === 's')) {
+        return;
+      }
 
       if (ctrlOrMeta && shift && key === 'f') {
         event.preventDefault();
@@ -6773,6 +6958,64 @@ function App() {
     }
   }, [book, activeChapter, syncBookToLibrary]);
 
+  const handleRestoreSnapshotVersion = useCallback(
+    async (chapterId: string, version: number) => {
+      if (!book) {
+        return;
+      }
+
+      const currentChapter = book.chapters[chapterId];
+      if (!currentChapter) {
+        setStatus(`No se encontro el capitulo ${chapterId} para restaurar.`);
+        return;
+      }
+
+      try {
+        const snapshots = await listChapterSnapshots(book.path, chapterId);
+        const targetSnapshot = snapshots.find((entry) => entry.version === version);
+        if (!targetSnapshot) {
+          setStatus(`No se encontro la version v${version} para ${chapterId}.`);
+          return;
+        }
+
+        if (config.autoVersioning) {
+          await saveChapterSnapshot(
+            book.path,
+            currentChapter,
+            `Pre-restauracion desde diff (v${version})`,
+            { milestoneLabel: `Antes de restaurar v${version}` },
+          );
+        }
+
+        const restored = await saveChapter(book.path, {
+          ...targetSnapshot.chapter,
+          id: chapterId,
+          updatedAt: getNowIso(),
+        });
+
+        snapshotUndoCursorRef.current[chapterId] = undefined;
+        snapshotRedoStackRef.current[chapterId] = [];
+        setSnapshotRedoNonce((value) => value + 1);
+
+        const nextBook: BookProject = {
+          ...book,
+          chapters: {
+            ...book.chapters,
+            [chapterId]: restored,
+          },
+        };
+
+        setBook(nextBook);
+        await syncBookToLibrary(nextBook);
+        dirtyRef.current = false;
+        setStatus(`Capitulo ${chapterId} restaurado a v${version}.`);
+      } catch (error) {
+        setStatus(`No se pudo restaurar la version seleccionada: ${formatUnknownError(error)}`);
+      }
+    },
+    [book, config.autoVersioning, syncBookToLibrary],
+  );
+
   const handleRedoSnapshot = useCallback(async () => {
     if (!book || !activeChapter) {
       return;
@@ -7430,6 +7673,22 @@ function App() {
     });
   }, [book, orderedChapters, queueEditorialGuardedAction]);
 
+  const handleExportBookPdf = useCallback(async () => {
+    if (!book) {
+      return;
+    }
+
+    void queueEditorialGuardedAction('Exportar PDF editorial', async () => {
+      try {
+        const { exportBookPdf } = await loadExportModule();
+        const path = await exportBookPdf(book.path, book.metadata, orderedChapters);
+        setStatus(`PDF editorial exportado: ${path}`);
+      } catch (error) {
+        setStatus(`No se pudo exportar PDF: ${formatUnknownError(error)}`);
+      }
+    });
+  }, [book, orderedChapters, queueEditorialGuardedAction]);
+
   const handleExportBookEpub = useCallback(async () => {
     if (!book) {
       return;
@@ -7551,6 +7810,82 @@ function App() {
         setStatus(`No se pudo exportar el pack consultoria: ${formatUnknownError(error)}`);
       }
     });
+  }, [activeSaga, book, orderedChapters, queueEditorialGuardedAction]);
+
+  const handleExportAllRolePacks = useCallback(async () => {
+    if (!book && !activeSaga) {
+      setStatus('Abre un libro o una saga para exportar packs por rol.');
+      return;
+    }
+
+    const runExport = async () => {
+      const module = await loadExportModule();
+      const done: string[] = [];
+      const failed: string[] = [];
+
+      if (activeSaga) {
+        try {
+          await module.exportSagaCartographerPack(activeSaga.path, activeSaga);
+          done.push('cartografo');
+        } catch {
+          failed.push('cartografo');
+        }
+      }
+
+      if (book) {
+        try {
+          await module.exportBookEditorPack(book.path, book.metadata, orderedChapters, activeSaga);
+          done.push('editor');
+        } catch {
+          failed.push('editor');
+        }
+
+        try {
+          await module.exportBookLayoutPack(book.path, book.metadata, orderedChapters);
+          done.push('maquetacion');
+        } catch {
+          failed.push('maquetacion');
+        }
+
+        try {
+          await module.exportBookConsultantPack(book.path, book.metadata, orderedChapters, activeSaga);
+          done.push('consultoria');
+        } catch {
+          failed.push('consultoria');
+        }
+      }
+
+      if (activeSaga) {
+        try {
+          await module.exportSagaHistorianPack(activeSaga.path, activeSaga);
+          done.push('cronologia');
+        } catch {
+          failed.push('cronologia');
+        }
+      }
+
+      if (done.length === 0) {
+        setStatus(`Lote por rol sin exportes exitosos.${failed.length > 0 ? ` Fallaron: ${failed.join(', ')}.` : ''}`);
+        return;
+      }
+
+      setStatus(
+        `Lote por rol exportado (${done.join(', ')}).${failed.length > 0 ? ` Fallaron: ${failed.join(', ')}.` : ''}`,
+      );
+    };
+
+    if (book) {
+      void queueEditorialGuardedAction('Exportar lote de packs por rol', async () => {
+        await runExport();
+      });
+      return;
+    }
+
+    try {
+      await runExport();
+    } catch (error) {
+      setStatus(`No se pudo exportar el lote por rol: ${formatUnknownError(error)}`);
+    }
   }, [activeSaga, book, orderedChapters, queueEditorialGuardedAction]);
 
   const handleExportStyleReport = useCallback(async () => {
@@ -7731,14 +8066,27 @@ function App() {
   );
 
   const centerView = useMemo(() => {
+    if (mainView === 'saga-dashboard') {
+      return (
+        <LazySagaDashboardView
+          saga={activeSaga}
+          book={book}
+          orderedChapters={orderedChapters}
+          looseThreads={book?.metadata.looseThreads ?? []}
+          onOpenBook={(bookPath) => { void handleOpenLibraryBook(bookPath); }}
+          onShowView={(view) => { setMainView(view); }}
+        />
+      );
+    }
+
     if (mainView === 'saga') {
       return (
         <LazySagaPanel
           saga={activeSaga}
           chapterOptionsByBook={sagaChapterOptionsByBook}
           onChange={handleSagaChange}
-          onSave={() => {
-            void handleSaveActiveSaga();
+          onSave={(nextMetadata) => {
+            void handleSaveActiveSaga(nextMetadata);
           }}
           onOpenBook={(bookPath) => {
             void handleOpenLibraryBook(bookPath);
@@ -7850,6 +8198,9 @@ function App() {
           bookPath={book?.path ?? null}
           chapters={orderedChapters}
           activeChapterId={activeChapterId}
+          onRestoreSnapshot={(chapterId, version) => {
+            void handleRestoreSnapshotVersion(chapterId, version);
+          }}
         />
       );
     }
@@ -7916,8 +8267,8 @@ function App() {
           }}
           hasActiveChapter={Boolean(activeChapter)}
           onChange={handleStoryBibleChange}
-          onSyncFromActiveChapter={() => {
-            void handleSyncStoryBibleFromActiveChapter();
+          onSyncFromActiveChapter={(baseStoryBible) => {
+            void handleSyncStoryBibleFromActiveChapter(baseStoryBible);
           }}
           onSave={handleSaveStoryBible}
         />
@@ -7945,6 +8296,8 @@ function App() {
           replacement={replaceQuery}
           caseSensitive={searchCaseSensitive}
           wholeWord={searchWholeWord}
+          useRegex={searchUseRegex}
+          patternError={searchPatternError}
           activeChapterId={activeChapterId}
           results={searchMatches}
           totalMatches={searchTotalMatches}
@@ -7953,6 +8306,7 @@ function App() {
           onReplacementChange={setReplaceQuery}
           onCaseSensitiveChange={setSearchCaseSensitive}
           onWholeWordChange={setSearchWholeWord}
+          onUseRegexChange={setSearchUseRegex}
           onRunSearch={handleRunBookSearch}
           onPreviewReplaceInBook={handlePreviewReplaceInBook}
           onReplaceInChapter={() => {
@@ -8191,6 +8545,7 @@ function App() {
     handleAddManuscriptNote,
     handlePatchActiveChapterManuscriptNote,
     handleRefreshContinuityBriefing,
+    handleRestoreSnapshotVersion,
     stopReadAloud,
     handleUndoEdit,
     handleRedoEdit,
@@ -8216,10 +8571,12 @@ function App() {
     searchBusy,
     searchCaseSensitive,
     searchMatches,
+    searchPatternError,
     searchQuery,
     searchTotalMatches,
     sagaSearchResults,
     sagaSearchTotalMatches,
+    searchUseRegex,
     searchWholeWord,
     searchPreviewReport,
     handleRunSagaSearch,
@@ -8281,6 +8638,7 @@ function App() {
             onExportBookSplit={handleExportBookSplit}
             onExportAmazonBundle={handleExportAmazonBundle}
             onExportBookDocx={handleExportBookDocx}
+            onExportBookPdf={handleExportBookPdf}
             onExportBookEpub={handleExportBookEpub}
             onExportAudiobook={handleExportBookAudiobook}
             onExportCartographerPack={handleExportCartographerPack}
@@ -8288,6 +8646,7 @@ function App() {
             onExportLayoutPack={handleExportLayoutPack}
             onExportConsultantPack={handleExportConsultantPack}
             onExportHistorianPack={handleExportHistorianPack}
+            onExportAllRolePacks={handleExportAllRolePacks}
             onExportSagaBible={handleExportSagaBible}
             onExportCollaborationPatch={handleExportCollaborationPatch}
             onImportCollaborationPatch={handleImportCollaborationPatch}
@@ -8444,6 +8803,7 @@ function App() {
               onShowFoundation={() => setMainView('foundation')}
               onShowBible={() => setMainView('bible')}
               onShowSaga={() => setMainView('saga')}
+              onShowSagaDashboard={() => setMainView('saga-dashboard')}
               onShowTimeline={() => setMainView('timeline')}
               onShowPlot={() => setMainView('plot')}
               onShowRelations={() => setMainView('relations')}
@@ -8529,32 +8889,56 @@ function App() {
         }
         status={book ? `Libro activo: ${book.metadata.title} | ${status}` : status}
       />
-      <OnboardingPanel
-        isOpen={onboardingOpen}
-        expertMode={config.expertWriterMode}
-        hasBook={Boolean(book)}
-        hasChapters={orderedChapters.length > 0}
-        hasWritingStarted={hasMeaningfulWriting}
-        hasFoundation={hasFoundationData}
-        hasStoryBible={hasStoryBibleData}
-        onClose={() => setOnboardingOpen(false)}
-        onDismissForever={dismissOnboardingForever}
-        onCreateBook={() => {
-          setOnboardingOpen(false);
-          void handleCreateBook('blank');
-        }}
-        onCreateSagaTemplateBook={() => {
-          setOnboardingOpen(false);
-          void handleCreateBook('saga');
-        }}
-        onOpenBook={() => {
-          setOnboardingOpen(false);
-          void handleOpenBook();
-        }}
-        onGoToView={(view) => {
-          setMainView(view);
-        }}
-      />
+      <Suspense fallback={null}>
+        <LazyOnboardingPanel
+          isOpen={onboardingOpen}
+          expertMode={config.expertWriterMode}
+          backupGuardMode={onboardingBackupGuardMode}
+          hasBook={Boolean(book)}
+          hasBackupConfigured={hasBackupConfigured}
+          hasChapters={orderedChapters.length > 0}
+          hasWritingStarted={hasMeaningfulWriting}
+          hasFoundation={hasFoundationData}
+          hasStoryBible={hasStoryBibleData}
+          onClose={handleOnboardingClose}
+          onDismissForever={handleOnboardingDismissForever}
+          onBackupGuardModeChange={handleOnboardingBackupGuardModeChange}
+          onConfigureBackup={() => {
+            setMainView('settings');
+            void handlePickBackupDirectory();
+          }}
+          onCreateBook={() => {
+            if (enforceBackupGate && !hasBackupConfigured) {
+              setMainView('settings');
+              setStatus('Configura una carpeta de backup antes de crear el libro.');
+              return;
+            }
+            setOnboardingOpen(false);
+            void handleCreateBook('blank');
+          }}
+          onCreateSagaTemplateBook={() => {
+            if (enforceBackupGate && !hasBackupConfigured) {
+              setMainView('settings');
+              setStatus('Configura una carpeta de backup antes de crear la plantilla.');
+              return;
+            }
+            setOnboardingOpen(false);
+            void handleCreateBook('saga');
+          }}
+          onOpenBook={() => {
+            if (enforceBackupGate && !hasBackupConfigured) {
+              setMainView('settings');
+              setStatus('Configura una carpeta de backup antes de abrir un libro.');
+              return;
+            }
+            setOnboardingOpen(false);
+            void handleOpenBook();
+          }}
+          onGoToView={(view) => {
+            setMainView(view);
+          }}
+        />
+      </Suspense>
       <Suspense fallback={null}>
         <LazyHelpPanel
           isOpen={helpOpen}
@@ -8579,65 +8963,67 @@ function App() {
           onToggleFocusMode={toggleFocusMode}
         />
       </Suspense>
-      {aiSafeReview ? (
-        <ChangeReviewModal
-          isOpen
-          title={aiSafeReview.title}
-          subtitle={aiSafeReview.subtitle}
-          beforeText={aiSafeReview.beforeText}
-          afterText={aiSafeReview.afterText}
-          confirmLabel="Aplicar cambios"
-          cancelLabel="Cancelar cambios"
-          onConfirm={() => {
-            const resolver = aiSafeReview.resolve;
-            setAiSafeReview(null);
-            resolver(true);
+      <Suspense fallback={null}>
+        {aiSafeReview ? (
+          <LazyChangeReviewModal
+            isOpen
+            title={aiSafeReview.title}
+            subtitle={aiSafeReview.subtitle}
+            beforeText={aiSafeReview.beforeText}
+            afterText={aiSafeReview.afterText}
+            confirmLabel="Aplicar cambios"
+            cancelLabel="Cancelar cambios"
+            onConfirm={() => {
+              const resolver = aiSafeReview.resolve;
+              setAiSafeReview(null);
+              resolver(true);
+            }}
+            onCancel={() => {
+              const resolver = aiSafeReview.resolve;
+              setAiSafeReview(null);
+              resolver(false);
+            }}
+          />
+        ) : null}
+        <LazyEditorialChecklistModal
+          isOpen={editorialIntent.isOpen}
+          report={editorialIntent.isOpen ? editorialChecklistReport : null}
+          customItems={book?.metadata.editorialChecklistCustom ?? []}
+          intentLabel={editorialIntent.intentLabel}
+          allowProceed={Boolean(editorialChecklistReport?.isReady)}
+          onClose={closeEditorialChecklist}
+          onProceed={() => {
+            const proceed = editorialIntent.onProceed;
+            closeEditorialChecklist();
+            proceed?.();
           }}
-          onCancel={() => {
-            const resolver = aiSafeReview.resolve;
-            setAiSafeReview(null);
-            resolver(false);
+          onAddCustomItem={(input) => {
+            void handleAddEditorialChecklistItem(input);
+          }}
+          onToggleCustomItem={(id) => {
+            void handleToggleEditorialChecklistItem(id);
+          }}
+          onDeleteCustomItem={(id) => {
+            void handleDeleteEditorialChecklistItem(id);
           }}
         />
-      ) : null}
-      <EditorialChecklistModal
-        isOpen={editorialIntent.isOpen}
-        report={editorialIntent.isOpen ? editorialChecklistReport : null}
-        customItems={book?.metadata.editorialChecklistCustom ?? []}
-        intentLabel={editorialIntent.intentLabel}
-        allowProceed={Boolean(editorialChecklistReport?.isReady)}
-        onClose={closeEditorialChecklist}
-        onProceed={() => {
-          const proceed = editorialIntent.onProceed;
-          closeEditorialChecklist();
-          proceed?.();
-        }}
-        onAddCustomItem={(input) => {
-          void handleAddEditorialChecklistItem(input);
-        }}
-        onToggleCustomItem={(id) => {
-          void handleToggleEditorialChecklistItem(id);
-        }}
-        onDeleteCustomItem={(id) => {
-          void handleDeleteEditorialChecklistItem(id);
-        }}
-      />
-      {promptModal && (
-        <PromptModal
-          key={`${promptModal.title}-${promptModal.label}-${promptModal.defaultValue ?? ''}`}
-          isOpen
-          title={promptModal.title}
-          label={promptModal.label}
-          defaultValue={promptModal.defaultValue}
-          placeholder={promptModal.placeholder}
-          multiline={promptModal.multiline}
-          confirmLabel={promptModal.confirmLabel}
-          secondaryLabel={promptModal.secondaryLabel}
-          onSecondary={promptModal.onSecondary}
-          onConfirm={promptModal.onConfirm}
-          onClose={() => setPromptModal(null)}
-        />
-      )}
+        {promptModal && (
+          <LazyPromptModal
+            key={`${promptModal.title}-${promptModal.label}-${promptModal.defaultValue ?? ''}`}
+            isOpen
+            title={promptModal.title}
+            label={promptModal.label}
+            defaultValue={promptModal.defaultValue}
+            placeholder={promptModal.placeholder}
+            multiline={promptModal.multiline}
+            confirmLabel={promptModal.confirmLabel}
+            secondaryLabel={promptModal.secondaryLabel}
+            onSecondary={promptModal.onSecondary}
+            onConfirm={promptModal.onConfirm}
+            onClose={() => setPromptModal(null)}
+          />
+        )}
+      </Suspense>
     </>
   );
 }
