@@ -100,6 +100,7 @@ const CONFIG_FILE = 'config.json';
 const PROMPTS_FILE = 'prompts.json';
 const LIBRARY_FILE = 'library.json';
 const TRUST_METRICS_FILE = 'trust-metrics.json';
+const CHAPTER_SNAPSHOT_RETENTION = 5;
 type BookLanguageSource = Partial<BookMetadata> & {
   amazon?: Partial<AmazonKdpData>;
   language?: unknown;
@@ -869,6 +870,38 @@ function parseVersion(fileName: string, chapterId: string): number {
   const matcher = new RegExp(`^${chapterId}_v(\\d+)\\.json$`);
   const match = fileName.match(matcher);
   return match ? Number(match[1]) : 0;
+}
+
+async function pruneChapterSnapshots(bookPath: string, chapterId: string, keepLatest: number): Promise<void> {
+  if (!Number.isFinite(keepLatest) || keepLatest < 1) {
+    return;
+  }
+
+  const versionsPath = versionsDirPath(bookPath);
+  if (!(await exists(versionsPath))) {
+    return;
+  }
+
+  const entries = await readDir(versionsPath);
+  const snapshots = entries
+    .filter((entry) => entry.isFile)
+    .map((entry) => ({
+      fileName: entry.name,
+      version: parseVersion(entry.name, chapterId),
+    }))
+    .filter((entry) => entry.version > 0)
+    .sort((left, right) => right.version - left.version);
+
+  if (snapshots.length <= keepLatest) {
+    return;
+  }
+
+  for (const snapshot of snapshots.slice(keepLatest)) {
+    const snapshotPath = joinPath(versionsPath, snapshot.fileName);
+    if (await exists(snapshotPath)) {
+      await remove(snapshotPath);
+    }
+  }
 }
 
 function sanitizeLegacyChapterContent(content: string): { content: string; changed: boolean } {
@@ -3324,6 +3357,10 @@ export async function loadAppConfig(bookPath: string): Promise<AppConfig> {
     language: hasExplicitLanguage
       ? normalizeLanguageCode(loaded.language)
       : bookLanguageHint,
+    theme:
+      loaded.theme === 'light' || loaded.theme === 'dark' || loaded.theme === 'sepia'
+        ? loaded.theme
+        : DEFAULT_APP_CONFIG.theme,
     systemPrompt:
       typeof loaded.systemPrompt === 'string' && loaded.systemPrompt.trim()
         ? loaded.systemPrompt
@@ -3779,6 +3816,7 @@ export async function saveChapterSnapshot(
 
   const fileName = `${chapter.id}_v${nextVersion}.json`;
   await writeJson(joinPath(versionsPath, fileName), snapshot);
+  await pruneChapterSnapshots(bookPath, chapter.id, CHAPTER_SNAPSHOT_RETENTION);
   return snapshot;
 }
 
