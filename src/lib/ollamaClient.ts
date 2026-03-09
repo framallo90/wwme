@@ -37,22 +37,127 @@ export interface OllamaServiceStatus {
   message: string;
 }
 
-function compressPrompt(prompt: string, mode: AppConfig['aiResponseMode']): string {
+function scorePromptSegment(segment: string): number {
+  const normalized = segment.toLowerCase();
+  let score = Math.min(10, Math.floor(segment.length / 180));
+
+  if (
+    /\b(capitulo|chapter|escena|scene|conflicto|conflict|giro|twist|promesa|promise|traicion|betrayal|secreto|secret|climax|reveal|arc|pov|tono|tone)\b/u.test(
+      normalized,
+    )
+  ) {
+    score += 6;
+  }
+
+  if (/[?!]/.test(segment)) {
+    score += 1;
+  }
+
+  if (/["“”'’]/.test(segment)) {
+    score += 1;
+  }
+
+  return score;
+}
+
+export function compressPromptForModel(prompt: string, mode: AppConfig['aiResponseMode']): string {
   const normalized = prompt.trim();
   const maxChars = mode === 'rapido' ? 12000 : mode === 'calidad' ? 32000 : 22000;
   if (normalized.length <= maxChars) {
     return normalized;
   }
 
-  // Distribuir en 3 partes: cabeza (35%), centro (30%), cola (35%)
-  const headSize = Math.floor(maxChars * 0.35);
-  const middleSize = Math.floor(maxChars * 0.30);
-  const tailSize = Math.max(2000, maxChars - headSize - middleSize - 200);
-  const middleStart = Math.floor((normalized.length - middleSize) / 2);
-  const head = normalized.slice(0, headSize);
-  const middle = normalized.slice(middleStart, middleStart + middleSize);
-  const tail = normalized.slice(-tailSize);
-  return `${head}\n\n[... fragmento inicial omitido ...]\n\n${middle}\n\n[... fragmento final omitido ...]\n\n${tail}`;
+  const segments = normalized
+    .split(/\n{2,}/g)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  // Fallback defensivo para prompts sin separadores por bloque.
+  if (segments.length < 4) {
+    const headSize = Math.floor(maxChars * 0.32);
+    const middleSize = Math.floor(maxChars * 0.36);
+    const tailSize = Math.max(1800, maxChars - headSize - middleSize - 220);
+    const middleStart = Math.floor((normalized.length - middleSize) / 2);
+    const head = normalized.slice(0, headSize);
+    const middle = normalized.slice(middleStart, middleStart + middleSize);
+    const tail = normalized.slice(-tailSize);
+    return `${head}\n\n[... seccion intermedia resumida ...]\n\n${middle}\n\n[... seccion final resumida ...]\n\n${tail}`;
+  }
+
+  const headBudget = Math.floor(maxChars * 0.28);
+  const middleBudget = Math.floor(maxChars * 0.44);
+  const tailBudget = Math.max(1800, maxChars - headBudget - middleBudget - 240);
+  const centerIndex = Math.floor(segments.length / 2);
+
+  const selectedIndices = new Set<number>();
+  let headUsed = 0;
+  let tailUsed = 0;
+  let headEnd = -1;
+  let tailStart = segments.length;
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    if (headUsed >= headBudget && index > 0) {
+      break;
+    }
+    selectedIndices.add(index);
+    headEnd = index;
+    headUsed += segment.length + 2;
+  }
+
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    if (index <= headEnd) {
+      break;
+    }
+    const segment = segments[index];
+    if (tailUsed >= tailBudget && index < segments.length - 1) {
+      break;
+    }
+    selectedIndices.add(index);
+    tailStart = index;
+    tailUsed += segment.length + 2;
+  }
+
+  const middleCandidates: Array<{ index: number; score: number; distanceToCenter: number }> = [];
+  for (let index = headEnd + 1; index < tailStart; index += 1) {
+    const segment = segments[index];
+    middleCandidates.push({
+      index,
+      score: scorePromptSegment(segment),
+      distanceToCenter: Math.abs(index - centerIndex),
+    });
+  }
+
+  middleCandidates.sort((left, right) => {
+    if (left.score !== right.score) {
+      return right.score - left.score;
+    }
+    return left.distanceToCenter - right.distanceToCenter;
+  });
+
+  let middleUsed = 0;
+  for (const candidate of middleCandidates) {
+    if (middleUsed >= middleBudget) {
+      break;
+    }
+    const segment = segments[candidate.index];
+    selectedIndices.add(candidate.index);
+    middleUsed += segment.length + 2;
+  }
+
+  const orderedSelected = Array.from(selectedIndices).sort((left, right) => left - right);
+  const outputParts: string[] = [];
+  for (let index = 0; index < orderedSelected.length; index += 1) {
+    const currentIndex = orderedSelected[index];
+    const previousIndex = index > 0 ? orderedSelected[index - 1] : -1;
+    if (index > 0 && currentIndex - previousIndex > 1) {
+      outputParts.push('[... bloque intermedio resumido ...]');
+    }
+    outputParts.push(segments[currentIndex]);
+  }
+
+  const compressed = outputParts.join('\n\n').trim();
+  return compressed.length <= maxChars ? compressed : compressed.slice(0, maxChars);
 }
 
 function resolveProfileOptions(mode: AppConfig['aiResponseMode']): Record<string, number> {
@@ -205,7 +310,7 @@ export async function generateWithOllama(input: GenerateInput): Promise<string> 
   }, timeoutMs);
 
   try {
-    const prompt = compressPrompt(input.prompt, mode);
+    const prompt = compressPromptForModel(input.prompt, mode);
     const response = await fetch(OLLAMA_URL, {
       method: 'POST',
       headers: {

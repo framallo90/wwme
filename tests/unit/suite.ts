@@ -108,7 +108,7 @@ import {
   detectBookMetadataQuickFixIssues,
   formatBackupSnapshotStamp,
 } from '../../src/lib/storage';
-import { buildOllamaServiceStatus, extractOllamaModelNames } from '../../src/lib/ollamaClient';
+import { buildOllamaServiceStatus, compressPromptForModel, extractOllamaModelNames } from '../../src/lib/ollamaClient';
 import { buildTimelineOverviewModel } from '../../src/lib/timelineOverview';
 import {
   applyImpactDrivenVersioning,
@@ -682,6 +682,22 @@ const tests: TestCase[] = [
       const missing = buildOllamaServiceStatus('qwen2.5:7b', models);
       assert.equal(missing.state, 'missing-model');
       assert.ok(missing.message.includes('no esta descargado'));
+    },
+  },
+  {
+    name: 'ollama: compresion prioriza inicio, medio relevante y cierre',
+    run: () => {
+      const blocks = Array.from({ length: 24 }, (_entry, index) =>
+        `BLOQUE ${index}\n${'La escena mantiene tension y detalles de continuidad. '.repeat(24)}`,
+      );
+      blocks[12] = `${blocks[12]}\nTRAICION-NUCLEAR: Elara descubre la verdad central del arco.`;
+      const prompt = blocks.join('\n\n');
+
+      const compressed = compressPromptForModel(prompt, 'rapido');
+      assert.ok(compressed.length <= 12000);
+      assert.ok(compressed.includes('BLOQUE 0'));
+      assert.ok(compressed.includes('BLOQUE 23'));
+      assert.ok(compressed.includes('TRAICION-NUCLEAR'));
     },
   },
   {
