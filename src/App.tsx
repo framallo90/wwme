@@ -7749,6 +7749,21 @@ function App() {
     }
   }, [activeSaga]);
 
+  const handleExportTimelineInteractive = useCallback(async () => {
+    if (!activeSaga) {
+      setStatus('Abre una saga para exportar la timeline interactiva.');
+      return;
+    }
+
+    try {
+      const { exportSagaTimelineInteractive } = await loadExportModule();
+      const path = await exportSagaTimelineInteractive(activeSaga.path, activeSaga);
+      setStatus(`Timeline interactiva exportada: ${path}`);
+    } catch (error) {
+      setStatus(`No se pudo exportar la timeline interactiva: ${formatUnknownError(error)}`);
+    }
+  }, [activeSaga]);
+
   const handleExportSagaBible = useCallback(async () => {
     if (!activeSaga) {
       setStatus('Abre una saga para exportar la biblia compilada.');
@@ -7861,6 +7876,13 @@ function App() {
           done.push('cronologia');
         } catch {
           failed.push('cronologia');
+        }
+
+        try {
+          await module.exportSagaTimelineInteractive(activeSaga.path, activeSaga);
+          done.push('timeline-interactiva');
+        } catch {
+          failed.push('timeline-interactiva');
         }
       }
 
@@ -8646,6 +8668,7 @@ function App() {
             onExportLayoutPack={handleExportLayoutPack}
             onExportConsultantPack={handleExportConsultantPack}
             onExportHistorianPack={handleExportHistorianPack}
+            onExportTimelineInteractive={handleExportTimelineInteractive}
             onExportAllRolePacks={handleExportAllRolePacks}
             onExportSagaBible={handleExportSagaBible}
             onExportCollaborationPatch={handleExportCollaborationPatch}

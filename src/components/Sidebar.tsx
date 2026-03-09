@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import type { ChapterDocument, LibraryBookEntry, LibrarySagaEntry } from '../types/book';
 import logoImage from '../assets/wwme-logo-2.0.png';
@@ -38,6 +38,7 @@ interface SidebarProps {
   onExportBookSplit: () => void;
   onExportAmazonBundle: () => void;
   onExportBookDocx: () => void;
+  onExportBookPdf: () => void;
   onExportBookEpub: () => void;
   onExportAudiobook: () => void;
   onExportCartographerPack: () => void;
@@ -45,6 +46,8 @@ interface SidebarProps {
   onExportLayoutPack: () => void;
   onExportConsultantPack: () => void;
   onExportHistorianPack: () => void;
+  onExportTimelineInteractive: () => void;
+  onExportAllRolePacks: () => void;
   onExportSagaBible: () => void;
   onOpenEditorialChecklist: () => void;
   onExportCollaborationPatch: () => void;
@@ -452,6 +455,9 @@ function Sidebar(props: SidebarProps) {
           <button type="button" onClick={props.onExportBookDocx} disabled={!props.hasBook} title="Genera manuscrito editorial en formato DOCX.">
             Libro DOCX editorial
           </button>
+          <button type="button" onClick={props.onExportBookPdf} disabled={!props.hasBook} title="Genera manuscrito editorial en formato PDF con perfil reproducible.">
+            Libro PDF editorial
+          </button>
           <button type="button" onClick={props.onExportBookEpub} disabled={!props.hasBook} title="Genera eBook en formato EPUB.">
             Libro EPUB editorial
           </button>
@@ -505,6 +511,22 @@ function Sidebar(props: SidebarProps) {
           </button>
           <button
             type="button"
+            onClick={props.onExportTimelineInteractive}
+            disabled={!props.hasSaga}
+            title="Genera una timeline HTML readonly tipo Gantt para compartir con edicion."
+          >
+            Timeline interactiva
+          </button>
+          <button
+            type="button"
+            onClick={props.onExportAllRolePacks}
+            disabled={!props.hasBook && !props.hasSaga}
+            title="Genera en lote los packs por rol disponibles segun el contexto abierto."
+          >
+            Lote packs por rol
+          </button>
+          <button
+            type="button"
             onClick={props.onExportSagaBible}
             disabled={!props.hasSaga}
             title="Compila una biblia de saga en HTML imprimible, util para revision o PDF."
@@ -533,4 +555,4 @@ function Sidebar(props: SidebarProps) {
   );
 }
 
-export default Sidebar;
+export default memo(Sidebar);

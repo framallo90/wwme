@@ -94,6 +94,7 @@ import {
   buildSagaBibleDossierHtml,
   buildSagaCartographerPackArchive,
   buildSagaHistorianPackArchive,
+  buildSagaTimelineInteractiveHtml,
   sanitizeChapterHtmlForExport,
 } from '../../src/lib/export';
 import { buildPlotBoardModel, getPlotStageLabel } from '../../src/lib/plotBoard';
@@ -1950,6 +1951,31 @@ const tests: TestCase[] = [
       assert.ok(html.includes('Cronicas del Faro'));
       assert.ok(html.includes('Canon de personajes'));
       assert.ok(html.includes('Carriles y cronologia'));
+    },
+  },
+  {
+    name: 'export: timeline interactiva compila html tipo Gantt para revision externa',
+    run: () => {
+      const saga = createSagaFixture();
+      saga.metadata.worldBible.timelineLanes = [
+        {
+          id: 'lane-main',
+          label: 'Linea principal',
+          color: '#1f5f8b',
+          era: 'Presente',
+          description: 'Trayectoria central',
+        },
+      ];
+      saga.metadata.worldBible.timeline = saga.metadata.worldBible.timeline.map((event) => ({
+        ...event,
+        laneId: 'lane-main',
+      }));
+
+      const html = buildSagaTimelineInteractiveHtml(saga);
+      assert.ok(html.includes('Timeline interactiva'));
+      assert.ok(html.includes('Linea principal'));
+      assert.ok(html.includes('lane-track'));
+      assert.ok(html.includes('Nacimiento de Elara'));
     },
   },
   {

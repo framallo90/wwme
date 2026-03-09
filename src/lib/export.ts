@@ -186,6 +186,227 @@ export function buildSagaHistorianPackArchive(saga: SagaProject): Uint8Array {
   ]);
 }
 
+export function buildSagaTimelineInteractiveHtml(saga: SagaProject): string {
+  const world = saga.metadata.worldBible;
+  const events = [...world.timeline].sort((left, right) => left.startOrder - right.startOrder);
+  const minOrder = events.length > 0 ? Math.min(...events.map((event) => event.startOrder)) : 1;
+  const maxOrder = events.length > 0 ? Math.max(...events.map((event) => event.endOrder ?? event.startOrder)) : 1;
+  const span = Math.max(1, maxOrder - minOrder + 1);
+
+  const laneMap = new Map<
+    string,
+    {
+      id: string;
+      label: string;
+      color: string;
+      era: string;
+      description: string;
+      events: typeof events;
+    }
+  >();
+
+  for (const lane of world.timelineLanes) {
+    laneMap.set(lane.id, {
+      id: lane.id,
+      label: lane.label || lane.id,
+      color: lane.color || '#1f5f8b',
+      era: lane.era || 'Sin era',
+      description: lane.description || '',
+      events: [],
+    });
+  }
+
+  for (const event of events) {
+    const laneId = event.laneId?.trim() || 'lane-main';
+    const current = laneMap.get(laneId);
+    if (current) {
+      current.events.push(event);
+      continue;
+    }
+
+    laneMap.set(laneId, {
+      id: laneId,
+      label: event.laneLabel?.trim() || 'Carril emergente',
+      color: '#1f5f8b',
+      era: event.eraLabel?.trim() || 'Sin era',
+      description: '',
+      events: [event],
+    });
+  }
+
+  const laneRows = Array.from(laneMap.values())
+    .filter((lane) => lane.events.length > 0)
+    .map((lane) => {
+      const rowEndOrders: number[] = [];
+      const bars = lane.events
+        .slice()
+        .sort((left, right) => left.startOrder - right.startOrder || left.title.localeCompare(right.title))
+        .map((event) => {
+          const endOrder = event.endOrder ?? event.startOrder;
+          let rowIndex = 0;
+          while ((rowEndOrders[rowIndex] ?? Number.NEGATIVE_INFINITY) >= event.startOrder) {
+            rowIndex += 1;
+          }
+          rowEndOrders[rowIndex] = endOrder;
+
+          return {
+            id: event.id,
+            title: event.title || event.id,
+            category: event.category,
+            leftPct: ((event.startOrder - minOrder) / span) * 100,
+            widthPct: Math.max(6, ((endOrder - event.startOrder + 1) / span) * 100),
+            rowIndex,
+            startOrder: event.startOrder,
+            endOrder,
+            summary: event.summary || '',
+          };
+        });
+
+      const rowCount = Math.max(1, rowEndOrders.length);
+      const rowHeightRem = 2.45;
+      const laneHeightRem = rowCount * rowHeightRem + 0.9;
+      const eventsList = bars
+        .map(
+          (bar) =>
+            `<li><strong>${escapeXml(bar.title)}</strong> · ${escapeXml(
+              bar.category,
+            )} · ${bar.startOrder}${bar.endOrder !== bar.startOrder ? `-${bar.endOrder}` : ''}${
+              bar.summary ? ` · ${escapeXml(bar.summary)}` : ''
+            }</li>`,
+        )
+        .join('');
+
+      const barsHtml = bars
+        .map((bar) => {
+          const topRem = 0.4 + bar.rowIndex * rowHeightRem;
+          const title = `${bar.title} (${bar.startOrder}${bar.endOrder !== bar.startOrder ? `-${bar.endOrder}` : ''})`;
+          return `<button class="timeline-bar" style="left:${bar.leftPct.toFixed(2)}%;width:${bar.widthPct.toFixed(
+            2,
+          )}%;top:${topRem.toFixed(2)}rem;background:${escapeXml(
+            lane.color,
+          )};" title="${escapeXml(title)}" type="button">${escapeXml(bar.title)}</button>`;
+        })
+        .join('');
+
+      return `
+        <section class="lane" data-lane-id="${escapeXml(lane.id)}">
+          <header>
+            <h3>${escapeXml(lane.label)}</h3>
+            <p>${escapeXml(lane.era)}${lane.description ? ` · ${escapeXml(lane.description)}` : ''}</p>
+          </header>
+          <div class="lane-track" style="height:${laneHeightRem.toFixed(2)}rem;">
+            ${barsHtml}
+          </div>
+          <ul class="lane-events">${eventsList}</ul>
+        </section>
+      `;
+    })
+    .join('\n');
+
+  const markCount = Math.min(10, span + 1);
+  const marks = Array.from({ length: markCount }, (_entry, index) => {
+    const value =
+      markCount === 1 ? minOrder : Math.round(minOrder + ((span - 1) * index) / Math.max(1, markCount - 1));
+    const leftPct = span <= 1 ? 0 : ((value - minOrder) / span) * 100;
+    return `<li style="left:${leftPct.toFixed(2)}%;"><span>T${value}</span></li>`;
+  }).join('\n');
+
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Timeline interactiva · ${escapeXml(saga.metadata.title)}</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1b2432;
+      --paper: #f5f0e6;
+      --panel: #ffffff;
+      --line: #d4c6ae;
+      --muted: #5f5b52;
+      --accent: #1f5f8b;
+      font-family: "Source Sans 3", "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: linear-gradient(180deg, #f0e6d2 0%, var(--paper) 100%);
+      color: var(--ink);
+      padding: 2rem 1.3rem 3rem;
+    }
+    .sheet {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 1.4rem 1.5rem 1.6rem;
+      box-shadow: 0 18px 34px rgba(16, 24, 40, 0.08);
+    }
+    h1 { margin: 0 0 0.35rem; font-size: 1.65rem; }
+    .meta { margin: 0 0 1rem; color: var(--muted); }
+    .axis {
+      position: relative;
+      list-style: none;
+      margin: 0 0 1rem;
+      padding: 1.4rem 0 0;
+      border-top: 2px dashed var(--line);
+      min-height: 2rem;
+    }
+    .axis li { position: absolute; transform: translateX(-50%); color: var(--muted); font-size: 0.76rem; }
+    .lane { border: 1px solid var(--line); border-radius: 12px; background: #fffdfa; margin-bottom: 1rem; padding: 0.9rem; }
+    .lane h3 { margin: 0; font-size: 1.08rem; }
+    .lane p { margin: 0.25rem 0 0.65rem; color: var(--muted); font-size: 0.88rem; }
+    .lane-track {
+      position: relative;
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+      background: linear-gradient(180deg, #fefbf4 0%, #f7f0e1 100%);
+      margin-bottom: 0.8rem;
+      overflow: hidden;
+    }
+    .timeline-bar {
+      position: absolute;
+      display: block;
+      border: 0;
+      border-radius: 999px;
+      color: #fff;
+      font-size: 0.72rem;
+      line-height: 1.15;
+      padding: 0.28rem 0.5rem;
+      text-align: left;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      box-shadow: 0 5px 12px rgba(16, 24, 40, 0.14);
+    }
+    .lane-events {
+      margin: 0;
+      padding-left: 1rem;
+      color: var(--muted);
+      display: grid;
+      gap: 0.25rem;
+    }
+    .lane-events strong { color: var(--ink); }
+    @media (max-width: 900px) {
+      body { padding: 1rem 0.65rem 1.5rem; }
+      .sheet { padding: 1rem; }
+      .timeline-bar { font-size: 0.66rem; }
+    }
+  </style>
+</head>
+<body>
+  <main class="sheet">
+    <h1>Timeline interactiva · ${escapeXml(saga.metadata.title)}</h1>
+    <p class="meta">Lectura editorial readonly · carriles: ${world.timelineLanes.length} · eventos: ${events.length}</p>
+    <ol class="axis">${marks}</ol>
+    ${laneRows || '<p>Sin eventos en la cronologia de la saga.</p>'}
+  </main>
+</body>
+</html>`;
+}
+
 export function buildBookEditorPackArchive(
   bookPath: string,
   metadata: BookMetadata,
@@ -598,6 +819,158 @@ function extractChapterParagraphs(chapter: ChapterDocument): string[] {
     .filter((line) => line.length > 0);
 }
 
+interface DocxInlineRun {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+}
+
+interface DocxBlock {
+  kind: 'paragraph' | 'list-item' | 'blockquote' | 'heading';
+  headingLevel?: number;
+  runs: DocxInlineRun[];
+}
+
+function decodeBasicHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/gi, '&')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&#39;/gi, "'")
+    .replace(/&#(\d+);/g, (_match, code: string) => {
+      try { return String.fromCodePoint(Number(code)); } catch { return _match; }
+    })
+    .replace(/&#x([0-9a-fA-F]+);/gi, (_match, hex: string) => {
+      try { return String.fromCodePoint(Number.parseInt(hex, 16)); } catch { return _match; }
+    });
+}
+
+function buildDocxRunsFromInlineHtml(html: string): DocxInlineRun[] {
+  const runs: DocxInlineRun[] = [];
+  const tokens = html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/\r\n/g, '\n')
+    .split(/(<[^>]+>|[^<]+)/g)
+    .filter(Boolean);
+  let boldDepth = 0;
+  let italicDepth = 0;
+
+  for (const token of tokens) {
+    if (token.startsWith('<')) {
+      const normalized = token.toLowerCase().trim();
+      if (/^<\s*(strong|b)[\s>]/.test(normalized)) {
+        boldDepth += 1;
+      } else if (/^<\s*\/\s*(strong|b)\s*>/.test(normalized)) {
+        boldDepth = Math.max(0, boldDepth - 1);
+      } else if (/^<\s*(em|i)[\s>]/.test(normalized)) {
+        italicDepth += 1;
+      } else if (/^<\s*\/\s*(em|i)\s*>/.test(normalized)) {
+        italicDepth = Math.max(0, italicDepth - 1);
+      }
+      continue;
+    }
+
+    const normalizedText = decodeBasicHtmlEntities(token).replace(/\s+/g, ' ').trim();
+    if (!normalizedText) {
+      continue;
+    }
+
+    runs.push({
+      text: normalizedText,
+      bold: boldDepth > 0,
+      italic: italicDepth > 0,
+    });
+  }
+
+  return runs;
+}
+
+function extractDocxBlocksFromChapter(chapter: ChapterDocument): DocxBlock[] {
+  const html = chapter.content.replace(/\r\n/g, '\n');
+  const blocks: DocxBlock[] = [];
+  const pattern = /<(p|li|blockquote|h[1-6])\b[^>]*>([\s\S]*?)<\/\1>/gi;
+  let match = pattern.exec(html);
+
+  while (match) {
+    const tag = (match[1] ?? '').toLowerCase();
+    const inner = match[2] ?? '';
+    const runs = buildDocxRunsFromInlineHtml(inner);
+    if (runs.length > 0) {
+      if (tag === 'li') {
+        blocks.push({ kind: 'list-item', runs });
+      } else if (tag === 'blockquote') {
+        blocks.push({ kind: 'blockquote', runs });
+      } else if (/^h[1-6]$/.test(tag)) {
+        blocks.push({
+          kind: 'heading',
+          headingLevel: Number(tag.slice(1)) || 2,
+          runs,
+        });
+      } else {
+        blocks.push({ kind: 'paragraph', runs });
+      }
+    }
+
+    match = pattern.exec(html);
+  }
+
+  if (blocks.length > 0) {
+    return blocks;
+  }
+
+  return extractChapterParagraphs(chapter).map((paragraph) => ({
+    kind: 'paragraph' as const,
+    runs: [{ text: paragraph }],
+  }));
+}
+
+function buildDocxParagraphFromRuns(
+  runs: DocxInlineRun[],
+  options?: {
+    bold?: boolean;
+    fontHalfPoints?: number;
+    spacingBefore?: number;
+    spacingAfter?: number;
+    alignCenter?: boolean;
+    indentLeft?: number;
+    italic?: boolean;
+  },
+): string {
+  const paragraphProps = [
+    options?.alignCenter ? '<w:jc w:val="center" />' : '',
+    options?.spacingBefore || options?.spacingAfter
+      ? `<w:spacing w:before="${options?.spacingBefore ?? 0}" w:after="${options?.spacingAfter ?? 0}" />`
+      : '',
+    options?.indentLeft ? `<w:ind w:left="${options.indentLeft}" />` : '',
+  ]
+    .filter(Boolean)
+    .join('');
+  const paragraphProperties = paragraphProps ? `<w:pPr>${paragraphProps}</w:pPr>` : '';
+
+  const runXml =
+    runs.length > 0
+      ? runs
+          .map((run) => {
+            const runProps = [
+              options?.bold || run.bold ? '<w:b />' : '',
+              options?.italic || run.italic ? '<w:i />' : '',
+              options?.fontHalfPoints ? `<w:sz w:val="${options.fontHalfPoints}" />` : '',
+              options?.fontHalfPoints ? `<w:szCs w:val="${options.fontHalfPoints}" />` : '',
+            ]
+              .filter(Boolean)
+              .join('');
+            const runProperties = runProps ? `<w:rPr>${runProps}</w:rPr>` : '';
+            return `<w:r>${runProperties}<w:t xml:space="preserve">${escapeXml(run.text)}</w:t></w:r>`;
+          })
+          .join('')
+      : '<w:r><w:t xml:space="preserve"></w:t></w:r>';
+
+  return `<w:p>${paragraphProperties}${runXml}</w:p>`;
+}
+
 function buildDocxParagraph(
   text: string,
   options?: {
@@ -606,29 +979,11 @@ function buildDocxParagraph(
     spacingBefore?: number;
     spacingAfter?: number;
     alignCenter?: boolean;
+    indentLeft?: number;
+    italic?: boolean;
   },
 ): string {
-  const runProps = [
-    options?.bold ? '<w:b />' : '',
-    options?.fontHalfPoints ? `<w:sz w:val="${options.fontHalfPoints}" />` : '',
-    options?.fontHalfPoints ? `<w:szCs w:val="${options.fontHalfPoints}" />` : '',
-  ]
-    .filter(Boolean)
-    .join('');
-
-  const paragraphProps = [
-    options?.alignCenter ? '<w:jc w:val="center" />' : '',
-    options?.spacingBefore || options?.spacingAfter
-      ? `<w:spacing w:before="${options?.spacingBefore ?? 0}" w:after="${options?.spacingAfter ?? 0}" />`
-      : '',
-  ]
-    .filter(Boolean)
-    .join('');
-
-  const textNode = `<w:t xml:space="preserve">${escapeXml(text)}</w:t>`;
-  const paragraphProperties = paragraphProps ? `<w:pPr>${paragraphProps}</w:pPr>` : '';
-  const runProperties = runProps ? `<w:rPr>${runProps}</w:rPr>` : '';
-  return `<w:p>${paragraphProperties}<w:r>${runProperties}${textNode}</w:r></w:p>`;
+  return buildDocxParagraphFromRuns([{ text }], options);
 }
 
 function buildDocxDocumentXml(metadata: BookMetadata, orderedChapters: ChapterDocument[]): string {
@@ -667,15 +1022,48 @@ function buildDocxDocumentXml(metadata: BookMetadata, orderedChapters: ChapterDo
       }),
     );
 
-    const paragraphs = extractChapterParagraphs(chapter);
-    if (paragraphs.length === 0) {
+    const blocks = extractDocxBlocksFromChapter(chapter);
+    if (blocks.length === 0) {
       bodyParts.push(buildDocxParagraph(''));
       return;
     }
 
-    paragraphs.forEach((paragraph) => {
+    blocks.forEach((block) => {
+      if (block.kind === 'list-item') {
+        bodyParts.push(
+          buildDocxParagraphFromRuns([{ text: '• ' }, ...block.runs], {
+            spacingAfter: 90,
+            indentLeft: 360,
+          }),
+        );
+        return;
+      }
+
+      if (block.kind === 'blockquote') {
+        bodyParts.push(
+          buildDocxParagraphFromRuns(block.runs, {
+            spacingAfter: 120,
+            indentLeft: 720,
+            italic: true,
+          }),
+        );
+        return;
+      }
+
+      if (block.kind === 'heading') {
+        bodyParts.push(
+          buildDocxParagraphFromRuns(block.runs, {
+            bold: true,
+            spacingBefore: 140,
+            spacingAfter: 120,
+            fontHalfPoints: block.headingLevel && block.headingLevel <= 2 ? 28 : 24,
+          }),
+        );
+        return;
+      }
+
       bodyParts.push(
-        buildDocxParagraph(paragraph, {
+        buildDocxParagraphFromRuns(block.runs, {
           spacingAfter: 120,
         }),
       );
@@ -1027,6 +1415,200 @@ function buildBookInteriorHtml(metadata: BookMetadata, orderedChapters: ChapterD
 </html>`;
 }
 
+function mmToPoints(value: number): number {
+  return (value / 25.4) * 72;
+}
+
+function formatPdfNumber(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(2) : '0';
+}
+
+function toPdfTextSafe(value: string): string {
+  const withoutControlChars = value
+    .split('')
+    .map((char) => {
+      const code = char.charCodeAt(0);
+      return code < 32 || code === 127 ? ' ' : char;
+    })
+    .join('');
+
+  return withoutControlChars
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^\x20-\x7E]/g, '?')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function escapePdfLiteral(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+}
+
+function wrapPdfLine(line: string, maxChars: number): string[] {
+  const normalized = toPdfTextSafe(line);
+  if (!normalized) {
+    return [''];
+  }
+
+  if (normalized.length <= maxChars) {
+    return [normalized];
+  }
+
+  const words = normalized.split(/\s+/);
+  const wrapped: string[] = [];
+  let buffer = '';
+
+  for (const word of words) {
+    const candidate = buffer ? `${buffer} ${word}` : word;
+    if (candidate.length <= maxChars) {
+      buffer = candidate;
+      continue;
+    }
+
+    if (buffer) {
+      wrapped.push(buffer);
+      buffer = '';
+    }
+
+    if (word.length <= maxChars) {
+      buffer = word;
+      continue;
+    }
+
+    let offset = 0;
+    while (offset < word.length) {
+      wrapped.push(word.slice(offset, offset + maxChars));
+      offset += maxChars;
+    }
+  }
+
+  if (buffer) {
+    wrapped.push(buffer);
+  }
+
+  return wrapped.length > 0 ? wrapped : [''];
+}
+
+function buildPdfLineBuffer(metadata: BookMetadata, orderedChapters: ChapterDocument[], maxChars: number): string[] {
+  const lines: string[] = [];
+  lines.push(toPdfTextSafe(metadata.title));
+  lines.push(`Autor: ${toPdfTextSafe(metadata.author)}`);
+  lines.push('');
+
+  for (const [index, chapter] of orderedChapters.entries()) {
+    lines.push(`CAPITULO ${index + 1}: ${toPdfTextSafe(chapter.title)}`);
+    lines.push('');
+    const paragraphs = extractChapterParagraphs(chapter);
+    if (paragraphs.length === 0) {
+      lines.push('');
+      continue;
+    }
+    for (const paragraph of paragraphs) {
+      const wrapped = wrapPdfLine(paragraph, maxChars);
+      lines.push(...wrapped);
+      lines.push('');
+    }
+    lines.push('');
+  }
+
+  return lines;
+}
+
+function buildPdfDocument(metadata: BookMetadata, orderedChapters: ChapterDocument[]): Uint8Array {
+  const trim = resolveTrimSize(metadata);
+  const pageWidth = trim.width * 72;
+  const pageHeight = trim.height * 72;
+  const marginTop = mmToPoints(metadata.interiorFormat.marginTopMm);
+  const marginBottom = mmToPoints(metadata.interiorFormat.marginBottomMm);
+  const marginInside = mmToPoints(metadata.interiorFormat.marginInsideMm);
+  const marginOutside = mmToPoints(metadata.interiorFormat.marginOutsideMm);
+  const usableWidth = Math.max(120, pageWidth - marginInside - marginOutside);
+  const usableHeight = Math.max(180, pageHeight - marginTop - marginBottom);
+  const fontSize = 11.5;
+  const lineHeight = Math.max(12.5, fontSize * metadata.interiorFormat.lineHeight);
+  const maxCharsPerLine = Math.max(28, Math.floor(usableWidth / (fontSize * 0.53)));
+  const lines = buildPdfLineBuffer(metadata, orderedChapters, maxCharsPerLine);
+  const linesPerPage = Math.max(24, Math.floor(usableHeight / lineHeight));
+
+  const pageChunks: string[][] = [];
+  for (let index = 0; index < lines.length; index += linesPerPage) {
+    pageChunks.push(lines.slice(index, index + linesPerPage));
+  }
+  if (pageChunks.length === 0) {
+    pageChunks.push(['']);
+  }
+
+  const objects: Array<{ id: number; body: string }> = [];
+  const pageObjectIds: number[] = [];
+  const contentObjectIds: number[] = [];
+  const firstTextY = pageHeight - marginTop - fontSize;
+
+  objects.push({ id: 1, body: '<< /Type /Catalog /Pages 2 0 R >>' });
+  objects.push({ id: 3, body: '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>' });
+
+  pageChunks.forEach((chunk, index) => {
+    const pageObjectId = 4 + index * 2;
+    const contentObjectId = pageObjectId + 1;
+    pageObjectIds.push(pageObjectId);
+    contentObjectIds.push(contentObjectId);
+
+    const commands: string[] = [
+      'BT',
+      `/F1 ${formatPdfNumber(fontSize)} Tf`,
+      `1 0 0 1 ${formatPdfNumber(marginInside)} ${formatPdfNumber(firstTextY)} Tm`,
+    ];
+    chunk.forEach((line, lineIndex) => {
+      if (lineIndex > 0) {
+        commands.push(`0 -${formatPdfNumber(lineHeight)} Td`);
+      }
+      commands.push(`(${escapePdfLiteral(toPdfTextSafe(line))}) Tj`);
+    });
+    commands.push('ET');
+
+    const stream = `${commands.join('\n')}\n`;
+    objects.push({
+      id: contentObjectId,
+      body: `<< /Length ${stream.length} >>\nstream\n${stream}endstream`,
+    });
+    objects.push({
+      id: pageObjectId,
+      body: `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${formatPdfNumber(pageWidth)} ${formatPdfNumber(pageHeight)}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObjectId} 0 R >>`,
+    });
+  });
+
+  objects.push({
+    id: 2,
+    body: `<< /Type /Pages /Count ${pageObjectIds.length} /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(' ')}] >>`,
+  });
+
+  const maxObjectId = Math.max(...objects.map((entry) => entry.id));
+  const sortedObjects = objects.slice().sort((left, right) => left.id - right.id);
+  let pdf = '%PDF-1.4\n%\u00e2\u00e3\u00cf\u00d3\n';
+  const offsets = new Array<number>(maxObjectId + 1).fill(0);
+
+  for (const entry of sortedObjects) {
+    offsets[entry.id] = pdf.length;
+    pdf += `${entry.id} 0 obj\n${entry.body}\nendobj\n`;
+  }
+
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${maxObjectId + 1}\n`;
+  pdf += '0000000000 65535 f \n';
+  for (let objectId = 1; objectId <= maxObjectId; objectId += 1) {
+    if (offsets[objectId] > 0) {
+      pdf += `${offsets[objectId].toString().padStart(10, '0')} 00000 n \n`;
+    } else {
+      pdf += '0000000000 65535 f \n';
+    }
+  }
+  pdf += `trailer\n<< /Size ${maxObjectId + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return new TextEncoder().encode(pdf);
+}
+
+export function buildBookPdfBinary(metadata: BookMetadata, orderedChapters: ChapterDocument[]): Uint8Array {
+  return buildPdfDocument(metadata, orderedChapters);
+}
+
 export async function exportChapterMarkdown(
   bookPath: string,
   chapter: ChapterDocument,
@@ -1149,6 +1731,20 @@ export async function exportBookEpub(
   );
 }
 
+export async function exportBookPdf(
+  bookPath: string,
+  metadata: BookMetadata,
+  orderedChapters: ChapterDocument[],
+): Promise<string> {
+  const document = buildBookPdfBinary(metadata, orderedChapters);
+  return writeBinaryExport(
+    bookPath,
+    `${safeFileName(metadata.title)}-editorial.pdf`,
+    document,
+    'pdf',
+  );
+}
+
 export async function exportBookStyleReport(
   bookPath: string,
   metadata: BookMetadata,
@@ -1240,6 +1836,18 @@ export async function exportSagaBibleDossier(
     sagaPath,
     `${safeFileName(saga.metadata.title)}-biblia-de-saga.html`,
     buildSagaBibleDossierHtml(saga),
+    'html',
+  );
+}
+
+export async function exportSagaTimelineInteractive(
+  sagaPath: string,
+  saga: SagaProject,
+): Promise<string> {
+  return writeTextExport(
+    sagaPath,
+    `${safeFileName(saga.metadata.title)}-timeline-interactiva.html`,
+    buildSagaTimelineInteractiveHtml(saga),
     'html',
   );
 }
