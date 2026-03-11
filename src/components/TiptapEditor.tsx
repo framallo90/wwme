@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react';
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Extension, Node, mergeAttributes, type JSONContent } from '@tiptap/core';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
@@ -21,6 +21,7 @@ export interface TiptapEditorHandle {
   hasSelection: () => boolean;
   getSelectionText: () => string;
   getDocumentText: () => string;
+  insertText: (value: string) => void;
   insertSemanticReference: (reference: SemanticReferenceInsertPayload) => void;
   previewSelectionReplacement: (value: string) => string;
   replaceSelectionWithText: (value: string) => void;
@@ -37,6 +38,7 @@ export interface TiptapEditorHandle {
 interface TiptapEditorProps {
   content: string;
   interiorFormat: InteriorFormat;
+  scrollPersistenceKey?: string;
   continuityHighlightEnabled?: boolean;
   continuityHighlights?: ContinuityHighlightTerm[];
   semanticReferencesCatalog?: SemanticReferenceCatalogEntry[];
@@ -74,10 +76,24 @@ interface SemanticSuggestionState {
 
 const CONTINUITY_PLUGIN_KEY = new PluginKey('continuity-highlights');
 const CONTINUITY_WORD_CHARS = 'A-Za-z0-9\\u00C0-\\u024F';
-const MAX_CONTINUITY_HIGHLIGHT_TERMS = 240;
+const CONTINUITY_HIGHLIGHT_SOFT_WARNING_TERMS = 800;
 const SEMANTIC_SUGGEST_PATTERN = /(?:^|[\s([{"'«])([@#])([\p{L}\p{N}_\-']{0,40})$/u;
 const MAX_SEMANTIC_SUGGESTIONS = 7;
-let lastContinuityTruncationWarned = 0;
+const editorScrollPositions = new Map<string, number>();
+let lastContinuityDensityWarned = 0;
+
+function normalizeEditorSemanticHtml(html: string, catalog: SemanticReferenceCatalogEntry[]): string {
+  if (!html.trim() || catalog.length === 0) {
+    return html;
+  }
+
+  // Evita recorrer todo el HTML en cada tecla cuando no hay shortcodes para convertir.
+  if (!html.includes('@[') && !html.includes('#[')) {
+    return html;
+  }
+
+  return convertSemanticReferenceShortcodesToHtml(html, catalog);
+}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -110,17 +126,17 @@ function buildContinuityHighlightPatterns(highlights: ContinuityHighlightTerm[])
   }
 
   const sorted = patterns.sort((left, right) => right.termLength - left.termLength);
-  if (sorted.length > MAX_CONTINUITY_HIGHLIGHT_TERMS) {
+  if (sorted.length > CONTINUITY_HIGHLIGHT_SOFT_WARNING_TERMS) {
     const now = Date.now();
-    if (now - lastContinuityTruncationWarned > 60_000) {
-      lastContinuityTruncationWarned = now;
+    if (now - lastContinuityDensityWarned > 60_000) {
+      lastContinuityDensityWarned = now;
       console.warn(
-        `[WriteWMe] La biblia tiene ${sorted.length} terminos pero solo se resaltan los primeros ${MAX_CONTINUITY_HIGHLIGHT_TERMS}. ` +
-        `${sorted.length - MAX_CONTINUITY_HIGHLIGHT_TERMS} entidades no tendran resaltado en el editor.`,
+        `[WriteWMe] Resaltado de continuidad intensivo: ${sorted.length} terminos activos. ` +
+          'El resaltado sigue completo, pero el rendimiento puede bajar en equipos lentos.',
       );
     }
   }
-  return sorted.slice(0, MAX_CONTINUITY_HIGHLIGHT_TERMS);
+  return sorted;
 }
 
 function buildContinuityDecorations(doc: ProseMirrorNode, patterns: ContinuityHighlightPattern[]): DecorationSet {
@@ -277,7 +293,7 @@ function syncSemanticReferencesInEditor(
   catalog: SemanticReferenceCatalogEntry[],
 ): { html: string; json: JSONContent } {
   const currentHtml = instance.getHTML();
-  const normalizedHtml = convertSemanticReferenceShortcodesToHtml(currentHtml, catalog);
+  const normalizedHtml = normalizeEditorSemanticHtml(currentHtml, catalog);
   if (normalizedHtml !== currentHtml) {
     const { from, to } = instance.state.selection;
     instance.commands.setContent(normalizedHtml, { emitUpdate: false });
@@ -367,11 +383,12 @@ function buildSemanticSuggestionEntries(
     .map((entry) => entry.entry);
 }
 
-const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
+const TiptapEditorBase = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
   (
     {
       content,
       interiorFormat,
+      scrollPersistenceKey,
       continuityHighlightEnabled = false,
       continuityHighlights = [],
       semanticReferencesCatalog = [],
@@ -382,12 +399,35 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
     ref,
   ) => {
     const [semanticSuggestion, setSemanticSuggestion] = useState<SemanticSuggestionState | null>(null);
+    const semanticCatalogRef = useRef<SemanticReferenceCatalogEntry[]>(semanticReferencesCatalog);
+    const onChangeRef = useRef(onChange);
+    const onBlurRef = useRef(onBlur);
+    const onSemanticReferenceOpenRef = useRef(onSemanticReferenceOpen);
+    const lastInternalHtmlRef = useRef('');
+    const editorWrapperRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+      semanticCatalogRef.current = semanticReferencesCatalog;
+    }, [semanticReferencesCatalog]);
+
+    useEffect(() => {
+      onChangeRef.current = onChange;
+    }, [onChange]);
+
+    useEffect(() => {
+      onBlurRef.current = onBlur;
+    }, [onBlur]);
+
+    useEffect(() => {
+      onSemanticReferenceOpenRef.current = onSemanticReferenceOpen;
+    }, [onSemanticReferenceOpen]);
+
     const continuityExtension = useMemo(
       () => createContinuityHighlightExtension(continuityHighlightEnabled, continuityHighlights),
       [continuityHighlightEnabled, continuityHighlights],
     );
-    const normalizedContent = useMemo(
-      () => convertSemanticReferenceShortcodesToHtml(content, semanticReferencesCatalog),
+    const initialNormalizedContent = useMemo(
+      () => normalizeEditorSemanticHtml(content, semanticReferencesCatalog),
       [content, semanticReferencesCatalog],
     );
 
@@ -400,11 +440,22 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
         SemanticReferenceNode,
         continuityExtension,
       ],
-      content: normalizedContent,
+      content: initialNormalizedContent,
       autofocus: false,
       editorProps: {
         attributes: {
           class: 'editor-content',
+        },
+        handleKeyDown: (view, event) => {
+          const hasModifier = event.ctrlKey || event.metaKey || event.altKey;
+          if (event.key === 'Tab' && !hasModifier) {
+            event.preventDefault();
+            const { from, to } = view.state.selection;
+            const transaction = view.state.tr.insertText('  ', from, to);
+            view.dispatch(transaction);
+            return true;
+          }
+          return false;
         },
         handleClick: (_view, _pos, event) => {
           const target = event.target as HTMLElement | null;
@@ -421,7 +472,7 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
             return false;
           }
 
-          onSemanticReferenceOpen?.({
+          onSemanticReferenceOpenRef.current?.({
             id: refId,
             kind: refKind,
             label,
@@ -431,18 +482,19 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
         },
       },
       onUpdate: ({ editor: instance }) => {
-        const normalized = syncSemanticReferencesInEditor(instance, semanticReferencesCatalog);
-        onChange(normalized);
+        const normalized = syncSemanticReferencesInEditor(instance, semanticCatalogRef.current);
+        lastInternalHtmlRef.current = normalized.html;
+        onChangeRef.current(normalized);
       },
       onBlur: () => {
         setSemanticSuggestion(null);
-        onBlur?.();
+        onBlurRef.current?.();
       },
-    }, [continuityExtension, onSemanticReferenceOpen, semanticReferencesCatalog]);
+    }, [continuityExtension]);
 
     const computeSemanticSuggestion = useCallback(
       (instance: NonNullable<ReturnType<typeof useEditor>>, previousIndex = 0): SemanticSuggestionState | null => {
-        if (semanticReferencesCatalog.length === 0) {
+        if (semanticCatalogRef.current.length === 0) {
           return null;
         }
 
@@ -461,7 +513,7 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
         const trigger = match[1] as '@' | '#';
         const rawQuery = match[2] ?? '';
         const kind: SemanticSuggestionState['kind'] = trigger === '@' ? 'character' : 'location';
-        const entries = buildSemanticSuggestionEntries(semanticReferencesCatalog, kind, rawQuery);
+        const entries = buildSemanticSuggestionEntries(semanticCatalogRef.current, kind, rawQuery);
         if (entries.length === 0) {
           return null;
         }
@@ -502,7 +554,7 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
           },
         };
       },
-      [semanticReferencesCatalog],
+      [],
     );
 
     const applySemanticSuggestion = useCallback(
@@ -568,6 +620,17 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
           return;
         }
 
+        if (
+          event.key === 'Shift' ||
+          event.key === 'Alt' ||
+          event.key === 'AltGraph' ||
+          event.key === 'Control' ||
+          event.key === 'Meta' ||
+          event.key === 'CapsLock'
+        ) {
+          return;
+        }
+
         if (event.key === 'ArrowDown') {
           event.preventDefault();
           setSemanticSuggestion((previous) => {
@@ -623,23 +686,57 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
         return;
       }
 
-      const current = editor.getHTML();
-      if (normalizedContent !== current) {
-        // Preservar la posicion del cursor antes de actualizar
-        const { from, to } = editor.state.selection;
-        editor.commands.setContent(normalizedContent, { emitUpdate: false });
-        
-        // Restaurar la seleccion si el editor tenia el foco
-        if (editor.isFocused) {
-          try {
-            const docSize = editor.state.doc.content.size;
-            editor.commands.setTextSelection({ from: Math.min(from, docSize), to: Math.min(to, docSize) });
-          } catch {
-            // Ignorar errores de rango si el contenido cambio drasticamente
-          }
-        }
+      // Cuando el editor tiene foco, el es la fuente de verdad.
+      if (editor.isFocused) {
+        return;
       }
-    }, [editor, normalizedContent]);
+
+      const nextNormalizedContent = normalizeEditorSemanticHtml(
+        content,
+        semanticCatalogRef.current,
+      );
+
+      // Si el contenido entrante es simplemente el eco del onUpdate del propio editor,
+      // ignorar: sincronizar aqui con el output del editor causa una race condition
+      // cuando React entrega el efecto con contenido viejo mientras el editor ya tiene
+      // teclas mas recientes, reseteando el documento y saltando el cursor al inicio.
+      if (nextNormalizedContent === lastInternalHtmlRef.current) {
+        return;
+      }
+
+      const current = editor.getHTML();
+      if (nextNormalizedContent !== current) {
+        editor.commands.setContent(nextNormalizedContent, { emitUpdate: false });
+      }
+    }, [content, editor]);
+
+    useEffect(() => {
+      if (!scrollPersistenceKey) {
+        return;
+      }
+
+      const wrapper = editorWrapperRef.current;
+      if (!wrapper) {
+        return;
+      }
+
+      const persistedTop = editorScrollPositions.get(scrollPersistenceKey);
+      if (typeof persistedTop === 'number') {
+        wrapper.scrollTop = persistedTop;
+      } else {
+        wrapper.scrollTop = 0;
+      }
+
+      const handleScroll = () => {
+        editorScrollPositions.set(scrollPersistenceKey, wrapper.scrollTop);
+      };
+
+      wrapper.addEventListener('scroll', handleScroll, { passive: true });
+      return () => {
+        editorScrollPositions.set(scrollPersistenceKey, wrapper.scrollTop);
+        wrapper.removeEventListener('scroll', handleScroll);
+      };
+    }, [editor, scrollPersistenceKey]);
 
     useImperativeHandle(ref, () => ({
       hasSelection: () => {
@@ -663,6 +760,13 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
         }
 
         return editor.state.doc.textBetween(0, editor.state.doc.content.size, '\n\n');
+      },
+      insertText: (value: string) => {
+        if (!editor) {
+          return;
+        }
+
+        editor.chain().focus().insertContent(value).run();
       },
       insertSemanticReference: (reference: SemanticReferenceInsertPayload) => {
         if (!editor) {
@@ -739,6 +843,7 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
     return (
       <>
         <EditorContent
+          ref={editorWrapperRef}
           editor={editor}
           className="tiptap-wrapper"
           style={{
@@ -796,6 +901,10 @@ const TiptapEditor = forwardRef<TiptapEditorHandle, TiptapEditorProps>(
     );
   },
 );
+
+TiptapEditorBase.displayName = 'TiptapEditor';
+
+const TiptapEditor = memo(TiptapEditorBase);
 
 TiptapEditor.displayName = 'TiptapEditor';
 
