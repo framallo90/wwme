@@ -11,16 +11,16 @@
 .atlas-cartography-hero {
   position: relative;
   overflow: hidden;
-  border: 1px solid rgba(33, 75, 135, 0.22);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 26px;
   padding: 1.2rem 1.3rem;
   display: grid;
   gap: 1rem;
   background:
     radial-gradient(circle at 8% 12%, rgba(232, 214, 192, 0.4), transparent 24%),
-    radial-gradient(circle at 88% 18%, rgba(121, 217, 234, 0.18), transparent 20%),
-    linear-gradient(135deg, rgba(255, 254, 250, 0.98), rgba(240, 245, 250, 0.95));
-  box-shadow: 0 18px 42px rgba(19, 41, 75, 0.12);
+    radial-gradient(circle at 88% 18%, rgba(196, 147, 62, 0.18), transparent 20%),
+    linear-gradient(135deg, var(--surface-primary), var(--surface-secondary));
+  box-shadow: 0 18px 42px rgba(30, 27, 46, 0.12);
 }
 
 .atlas-cartography-hero::before {
@@ -28,8 +28,8 @@
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(0deg, rgba(33, 75, 135, 0.04), transparent 26%),
-    radial-gradient(circle at 50% 120%, rgba(33, 75, 135, 0.1), transparent 42%);
+    linear-gradient(0deg, rgba(45, 42, 74, 0.04), transparent 26%),
+    radial-gradient(circle at 50% 120%, rgba(45, 42, 74, 0.1), transparent 42%);
   pointer-events: none;
 }
 
@@ -67,7 +67,7 @@
 }
 
 .atlas-cartography-summary {
-  color: #4f6484;
+  color: var(--surface-muted-text);
 }
 
 .atlas-cartography-ledger {
@@ -77,9 +77,9 @@
 }
 
 .atlas-cartography-card {
-  border: 1px solid rgba(33, 75, 135, 0.14);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--surface-primary);
   padding: 0.8rem 0.9rem;
   display: grid;
   gap: 0.24rem;
@@ -89,11 +89,11 @@
 .atlas-cartography-card strong {
   font-size: 1.38rem;
   line-height: 1;
-  color: #12335f;
+  color: var(--surface-text);
 }
 
 .atlas-cartography-card small {
-  color: #5b6f8e;
+  color: var(--surface-muted-text);
 }
 
 .atlas-layout {
@@ -110,18 +110,18 @@
 }
 
 .atlas-canvas-shell {
-  border: 1px solid rgba(33, 75, 135, 0.14);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 20px;
   padding: 1rem;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 250, 0.92));
-  box-shadow: 0 14px 32px rgba(19, 41, 75, 0.09);
+    linear-gradient(180deg, var(--surface-primary), var(--surface-secondary));
+  box-shadow: 0 14px 32px rgba(30, 27, 46, 0.09);
 }
 
 .atlas-canvas {
   position: relative;
   min-height: 460px;
-  border: 1px solid rgba(22, 49, 104, 0.18);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 18px;
   background:
     radial-gradient(circle at 20% 20%, rgba(232, 214, 192, 0.22), transparent 28%),
@@ -136,8 +136,8 @@
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(22, 49, 104, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(22, 49, 104, 0.08) 1px, transparent 1px);
+    linear-gradient(rgba(45, 42, 74, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(45, 42, 74, 0.08) 1px, transparent 1px);
   background-size: 10% 10%;
   pointer-events: none;
 }
@@ -159,7 +159,7 @@
 }
 
 .atlas-lines line {
-  stroke: rgba(22, 49, 104, 0.28);
+  stroke: rgba(45, 42, 74, 0.28);
   stroke-width: 0.45;
 }
 
@@ -168,19 +168,19 @@
   transform: translate(-50%, -50%);
   min-width: 9rem;
   max-width: 11rem;
-  border: 1px solid rgba(22, 49, 104, 0.16);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--surface-primary);
   padding: 0.5rem 0.55rem;
   display: grid;
   gap: 0.15rem;
   text-align: left;
-  box-shadow: 0 0.4rem 1rem rgba(22, 49, 104, 0.08);
+  box-shadow: 0 0.4rem 1rem rgba(45, 42, 74, 0.08);
 }
 
 .atlas-node.is-selected {
-  border-color: rgba(22, 49, 104, 0.45);
-  box-shadow: 0 0 0 1px rgba(22, 49, 104, 0.14), 0 0.5rem 1rem rgba(22, 49, 104, 0.1);
+  border-color: rgba(45, 42, 74, 0.45);
+  box-shadow: 0 0 0 1px rgba(45, 42, 74, 0.14), 0 0.5rem 1rem rgba(45, 42, 74, 0.1);
 }
 
 .atlas-node strong,
@@ -191,7 +191,7 @@
 
 .atlas-node small,
 .atlas-summary-item small {
-  color: #51617f;
+  color: var(--surface-muted-text);
   overflow-wrap: anywhere;
 }
 
@@ -201,9 +201,9 @@
 }
 
 .atlas-summary-item {
-  border: 1px solid rgba(22, 49, 104, 0.12);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 10px;
-  background: rgba(248, 250, 255, 0.94);
+  background: var(--surface-secondary);
   padding: 0.45rem;
   display: grid;
   gap: 0.15rem;

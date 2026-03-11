@@ -1,21 +1,23 @@
 .ai-workbench-panel {
   display: grid;
   gap: 0.85rem;
+  container-type: inline-size;
+  container-name: ai-panel;
 }
 
 .ai-workbench-hero {
   position: relative;
   overflow: hidden;
-  border: 1px solid rgba(33, 75, 135, 0.22);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 24px;
   padding: 1rem 1.05rem;
   display: grid;
   gap: 0.7rem;
   background:
     radial-gradient(circle at 12% 12%, rgba(232, 214, 192, 0.34), transparent 24%),
-    radial-gradient(circle at 88% 18%, rgba(121, 217, 234, 0.18), transparent 22%),
-    linear-gradient(140deg, rgba(255, 255, 255, 0.98), rgba(235, 243, 251, 0.94));
-  box-shadow: 0 18px 40px rgba(19, 41, 75, 0.12);
+    radial-gradient(circle at 88% 18%, rgba(196, 147, 62, 0.18), transparent 22%),
+    linear-gradient(140deg, var(--surface-primary), var(--surface-secondary));
+  box-shadow: 0 18px 40px rgba(30, 27, 46, 0.12);
 }
 
 .ai-workbench-hero::before {
@@ -24,8 +26,8 @@
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(180deg, transparent, rgba(33, 75, 135, 0.05)),
-    linear-gradient(90deg, rgba(33, 75, 135, 0.05), transparent 18%, transparent 82%, rgba(33, 75, 135, 0.05));
+    linear-gradient(180deg, transparent, rgba(45, 42, 74, 0.05)),
+    linear-gradient(90deg, rgba(45, 42, 74, 0.05), transparent 18%, transparent 82%, rgba(45, 42, 74, 0.05));
 }
 
 .ai-workbench-hero > * {
@@ -46,7 +48,7 @@
 
 .ai-panel header p {
   margin: 0.2rem 0 0;
-  color: #5d6780;
+  color: var(--surface-muted-text);
 }
 
 .ollama-status-pill {
@@ -63,24 +65,24 @@
 
 .ollama-status-pill.is-ready {
   background: rgba(16, 185, 129, 0.14);
-  color: #047857;
+  color: var(--status-success-text);
 }
 
 .ollama-status-pill.is-missing-model {
   background: rgba(245, 158, 11, 0.16);
-  color: #9a3412;
+  color: var(--status-warning-text);
 }
 
 .ollama-status-pill.is-offline,
 .ollama-status-pill.is-error {
   background: rgba(239, 68, 68, 0.14);
-  color: #991b1b;
+  color: var(--status-danger-text);
 }
 
 .ollama-status-pill.is-checking,
 .ollama-status-pill.is-idle {
   background: rgba(59, 130, 246, 0.12);
-  color: #1d4ed8;
+  color: var(--status-info-text);
 }
 
 .quick-actions,
@@ -104,12 +106,12 @@
 }
 
 .ai-surface-card {
-  border: 1px solid rgba(22, 49, 104, 0.14);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 20px;
   padding: 0.9rem 0.95rem;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(244, 248, 252, 0.93));
-  box-shadow: 0 12px 28px rgba(19, 41, 75, 0.08);
+    linear-gradient(180deg, var(--surface-primary), var(--surface-secondary));
+  box-shadow: 0 12px 28px rgba(30, 27, 46, 0.08);
 }
 
 .assistant-mode-toggle {
@@ -119,9 +121,9 @@
 }
 
 .assistant-mode-toggle button.is-active {
-  background: linear-gradient(180deg, rgba(22, 49, 104, 0.12), rgba(121, 217, 234, 0.18));
-  border-color: rgba(22, 49, 104, 0.28);
-  color: #163168;
+  background: linear-gradient(180deg, var(--active-bg-start), var(--active-bg-end));
+  border-color: var(--active-border);
+  color: var(--active-text);
 }
 
 .ai-mode-summary {
@@ -137,7 +139,7 @@
 .ai-mode-copy h3 {
   margin: 0;
   font-size: 1.15rem;
-  color: #12325c;
+  color: var(--surface-text);
 }
 
 .ai-mode-description {
@@ -157,16 +159,16 @@
   align-items: center;
   gap: 0.25rem;
   border-radius: 999px;
-  border: 1px solid rgba(22, 49, 104, 0.12);
-  background: rgba(255, 255, 255, 0.82);
-  color: #20406f;
+  border: 1px solid var(--surface-border-strong);
+  background: var(--surface-primary);
+  color: var(--surface-text);
   padding: 0.18rem 0.52rem;
   font-size: 0.75rem;
   font-weight: 700;
 }
 
 .ai-chip.is-chapter {
-  background: rgba(121, 217, 234, 0.16);
+  background: rgba(196, 147, 62, 0.16);
 }
 
 .ai-chip.is-book {
@@ -175,12 +177,12 @@
 
 .ai-chip.is-apply {
   background: rgba(16, 185, 129, 0.14);
-  color: #0f766e;
+  color: var(--status-success-text);
 }
 
 .ai-chip.is-safe,
 .ai-chip.is-outcome {
-  background: rgba(22, 49, 104, 0.08);
+  background: rgba(45, 42, 74, 0.14);
 }
 
 .ai-workflow-grid,
@@ -208,9 +210,9 @@
   min-width: 0;
   width: 100%;
   text-align: left;
-  border: 1px solid rgba(22, 49, 104, 0.12);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--surface-primary);
   padding: 0.75rem 0.8rem;
   display: grid;
   gap: 0.28rem;
@@ -237,7 +239,7 @@
 .ai-action-card strong,
 .ai-utility-card h4,
 .ai-action-section h4 {
-  color: #173862;
+  color: var(--surface-text);
   overflow-wrap: anywhere;
 }
 
@@ -245,7 +247,7 @@
 .ai-control-card small,
 .ai-action-card small,
 .ai-utility-card p {
-  color: #536683;
+  color: var(--muted-text);
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -265,9 +267,9 @@
 }
 
 .length-info-box {
-  border: 1px solid rgba(22, 49, 104, 0.2);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--surface-primary);
   padding: 0.5rem;
   display: grid;
   gap: 0.2rem;
@@ -275,13 +277,13 @@
 
 .length-info-box strong {
   font-size: 0.84rem;
-  color: #1d3569;
+  color: var(--surface-text);
 }
 
 .length-info-box p {
   margin: 0;
   font-size: 0.82rem;
-  color: #4a5b81;
+  color: var(--muted-text);
 }
 
 .ai-composer-presets {
@@ -296,9 +298,9 @@
 }
 
 .ai-context-box {
-  border: 1px solid rgba(22, 49, 104, 0.2);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 14px;
-  background: rgba(245, 248, 255, 0.96);
+  background: var(--surface-secondary);
   padding: 0.65rem;
   display: grid;
   gap: 0.35rem;
@@ -307,7 +309,7 @@
 .ai-context-box h3 {
   margin: 0;
   font-size: 0.9rem;
-  color: #1d3569;
+  color: var(--surface-text);
 }
 
 .ai-context-list {
@@ -315,19 +317,19 @@
   padding-left: 1rem;
   display: grid;
   gap: 0.2rem;
-  color: #31466f;
+  color: var(--surface-muted-text);
   font-size: 0.82rem;
 }
 
 .ai-pinned-rules {
-  border-top: 1px solid rgba(22, 49, 104, 0.12);
+  border-top: 1px solid var(--surface-border-strong);
   padding-top: 0.35rem;
   display: grid;
   gap: 0.25rem;
 }
 
 .ai-pinned-rules strong {
-  color: #1d3569;
+  color: var(--surface-text);
   font-size: 0.82rem;
 }
 
@@ -335,9 +337,9 @@
   flex: 1;
   min-height: 140px;
   overflow-y: auto;
-  border: 1px solid rgba(22, 49, 104, 0.2);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--surface-primary);
   padding: 0.55rem;
   display: grid;
   gap: 0.45rem;
@@ -350,7 +352,7 @@
 }
 
 .chat-message.user {
-  background: rgba(121, 217, 234, 0.16);
+  background: rgba(196, 147, 62, 0.16);
 }
 
 .chat-message.assistant {
@@ -373,9 +375,9 @@
 
 .chat-context-jump {
   border-radius: 999px;
-  border: 1px solid rgba(22, 49, 104, 0.22);
-  background: rgba(255, 255, 255, 0.9);
-  color: #17345f;
+  border: 1px solid var(--surface-border-strong);
+  background: var(--surface-primary);
+  color: var(--surface-text);
   font-size: 0.74rem;
   font-weight: 700;
   padding: 0.2rem 0.52rem;
@@ -391,16 +393,16 @@
 }
 
 .chat-evidence-item {
-  border: 1px solid rgba(22, 49, 104, 0.14);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--surface-secondary);
   padding: 0.35rem 0.42rem;
   display: grid;
   gap: 0.25rem;
 }
 
 .chat-evidence-item small {
-  color: #3f547d;
+  color: var(--muted-text);
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -443,10 +445,10 @@
 }
 
 .prompt-library-item {
-  border: 1px solid rgba(17, 47, 105, 0.18);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 12px;
   padding: 0.55rem;
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--surface-primary);
 }
 
 .prompt-library-item p {
@@ -486,5 +488,33 @@
   .ai-action-card-head {
     flex-direction: column;
     align-items: stretch;
+  }
+}
+
+@container ai-panel (max-width: 420px) {
+  .ai-panel-header-row,
+  .ai-workflow-head,
+  .ai-action-card-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .assistant-mode-toggle,
+  .ai-workflow-grid,
+  .ai-control-grid,
+  .ai-utility-grid,
+  .character-track-row,
+  .chat-range-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-action-badges,
+  .ai-mode-badges {
+    width: 100%;
+  }
+
+  .chat-context-jumps {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 }

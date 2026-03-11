@@ -9,6 +9,7 @@ interface PlotBoardViewProps {
   onOpenBook: (bookPath: string) => void;
   onUpsertEvent: (event: SagaTimelineEvent) => void;
   onDeleteEvent: (eventId: string) => void;
+  onPromoteEventToChapter?: (eventId: string) => void;
 }
 
 function makePlotEmptyEvent(): SagaTimelineEvent {
@@ -305,6 +306,11 @@ function PlotBoardView(props: PlotBoardViewProps) {
                     Editar
                   </button>
                 )}
+                {selectedEvent && props.onPromoteEventToChapter ? (
+                  <button type="button" onClick={() => props.onPromoteEventToChapter?.(selectedEvent.id)}>
+                    Promover a capitulo
+                  </button>
+                ) : null}
               </div>
             </div>
             {editingEvent && selectedEvent && editingEvent.id === selectedEvent.id && props.activeSaga ? (

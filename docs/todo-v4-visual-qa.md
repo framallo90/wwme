@@ -1,7 +1,9 @@
 # TODO Maestro v4
 
+> **DEPRECADO.** El backlog canonico unico esta en [`v4-backlog.md`](v4-backlog.md).
+
 Fecha: 2026-03-08
-Base: `0.3.0` en camino a `v4`
+Base: `0.4.0` en camino a `v4`
 
 ## Leyenda
 
@@ -18,7 +20,7 @@ Base: `0.3.0` en camino a `v4`
 - `npm run verify:exports:e2e` en verde
 - `npm run verify:stress-ui` en verde
 - `npm run verify:a11y-contrast` en verde
-- `npm run build` en entorno sin restriccion `spawn EPERM` (bloqueo externo actual)
+- `npm run build` validado en host sin restricciones (sandbox puede fallar por `spawn EPERM`)
 - validacion manual final de UX/flujo con saga grande en runtime real
 
 ## A. Hecho en esta etapa
@@ -38,6 +40,12 @@ Base: `0.3.0` en camino a `v4`
 - `[x]` Export QA end-to-end con generacion de zips reales y validacion automatica de 5 packs.
 - `[x]` Stress UI por render server-side de vistas pesadas con reporte de tiempos.
 - `[x]` Barrido visual/a11y tecnico (wrap/overflow/focus + contraste WCAG).
+- `[x]` Exportacion modular por rol en UI con accion de lote (cartografo/editor/maquetacion/consultoria/cronologia).
+- `[x]` Timeline: ajustes Gantt rapidos (inicio/duracion/snap por dependencias) + edicion de dependencias en panel lateral.
+- `[x]` Genealogia: raiz configurable + profundidad generacional (2-8) en arbol dinamico.
+- `[x]` Continuidad semantica: chequeo de inconsistencia material en objetos parafraseados.
+- `[x]` Atlas: importacion asistida con diagnostico de filas/ubicaciones saltadas.
+- `[x]` Optimizacion de carga: modales pesados en lazy-load.
 
 ## B. Pendiente critico (P0 para v4)
 
@@ -53,8 +61,8 @@ Base: `0.3.0` en camino a `v4`
   - Evidencia: `npm run verify:stress-ui` PASS.
 - `[x]` QA visual/a11y tecnico.
   - Evidencia: `npm run verify:a11y-contrast` PASS + hardening de overflow/wrap/focus.
-- `[!]` Build productivo en este entorno.
-  - Bloqueo: `spawn EPERM` al levantar subproceso de esbuild/vite.
+- `[x]` Build productivo validado en host real.
+  - Nota: en sandbox aislado puede seguir apareciendo `spawn EPERM`.
 
 ## C. Pendiente alto impacto (P1)
 
@@ -68,9 +76,14 @@ Base: `0.3.0` en camino a `v4`
   - DoD cumplido: paquetes adicionales por rol (maquetacion/consultoria) desde UI.
 - `[x]` Integracion mas profunda de conlangs/magia en continuidad.
   - DoD cumplido parcial: reglas de conlangs/magia integradas al indice canonico para validacion/prompting.
-- `[ ]` Gantt pleno con dependencias editables, snap visual y drag de duracion.
-- `[ ]` Genealogia multi-generacional dedicada (arbol de linaje completo, no solo grafo temporal).
-- `[ ]` Export modular por rol directamente desde UI (sin depender de flujo tecnico).
+- `[-]` Gantt pleno con dependencias editables, snap visual y drag de duracion.
+  - Hecho: edicion de dependencias, duracion y snap por prerequisitos en detalle de evento.
+  - Falta: drag directo de barras en canvas.
+- `[-]` Genealogia multi-generacional dedicada (arbol de linaje completo, no solo grafo temporal).
+  - Hecho: raiz configurable + profundidad generacional hasta 8 niveles.
+  - Falta: layout visual de ramas con enlaces explicitos entre nodos.
+- `[x]` Export modular por rol directamente desde UI (sin depender de flujo tecnico).
+  - Hecho: boton de lote por rol en Sidebar + acciones individuales por pack.
 
 ## D. Pendiente tecnico/UX (P1)
 
@@ -101,5 +114,5 @@ Base: `0.3.0` en camino a `v4`
 ## G. Orden sugerido de ejecucion
 
 1. Ejecutar validacion manual final UX en runtime real (cuando el entorno permita `npm run build`/`npm run dev` sin `EPERM`).
-2. Completar backlog de valor alto pendiente (Gantt pleno, genealogia multi-generacional, export modular UI).
+2. Completar backlog de valor alto pendiente (drag visual Gantt + layout avanzado de arbol genealogico).
 3. Consolidar backlog canonico de release.

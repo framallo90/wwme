@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DragEvent } from 'react';
 
 import { normalizeCanonStatus } from '../lib/canon';
@@ -39,7 +39,7 @@ interface SagaPanelProps {
   saga: SagaProject | null;
   chapterOptionsByBook: Record<string, Array<{ id: string; title: string }>>;
   onChange: (next: SagaMetadata) => void;
-  onSave: () => void;
+  onSave: (nextMetadata?: SagaMetadata) => void;
   onOpenBook: (bookPath: string) => void;
   onUpdateBookVolume: (bookPath: string, volumeNumber: number) => void;
   onMoveBook: (bookPath: string, direction: 'up' | 'down') => void;
@@ -281,17 +281,93 @@ function SagaPanel(props: SagaPanelProps) {
   const [issueEntityFilter, setIssueEntityFilter] = useState('');
   const [autofixPreviewIssueId, setAutofixPreviewIssueId] = useState<string | null>(null);
   const saga = props.saga;
-  const worldBible = saga?.metadata.worldBible ?? null;
+  const [metadataDraft, setMetadataDraft] = useState<SagaMetadata | null>(saga?.metadata ?? null);
+  const [isMetadataDraftDirty, setIsMetadataDraftDirty] = useState(false);
+
+  useEffect(() => {
+    // Sincroniza draft local cuando cambia la saga activa o llega metadata externa.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMetadataDraft(saga?.metadata ?? null);
+    setIsMetadataDraftDirty(false);
+  }, [saga]);
+
+  const sagaMetadata = metadataDraft ?? saga?.metadata ?? null;
+  const worldBible = sagaMetadata?.worldBible ?? null;
+
+  const applyMetadataDraft = useCallback(
+    (updater: (current: SagaMetadata) => SagaMetadata) => {
+      setMetadataDraft((previous) => {
+        const base = previous ?? saga?.metadata;
+        if (!base) {
+          return previous;
+        }
+        return updater(base);
+      });
+      setIsMetadataDraftDirty(true);
+    },
+    [saga],
+  );
+
+  const commitMetadataDraft = useCallback(() => {
+    if (!isMetadataDraftDirty || !metadataDraft) {
+      return;
+    }
+    props.onChange(metadataDraft);
+    setIsMetadataDraftDirty(false);
+  }, [isMetadataDraftDirty, metadataDraft, props]);
+
+  const handlePanelBlurCapture = useCallback(
+    (event: React.FocusEvent<HTMLElement>) => {
+      if (!isMetadataDraftDirty) {
+        return;
+      }
+
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+
+      const tagName = target.tagName.toLowerCase();
+      if (tagName === 'input' || tagName === 'textarea' || tagName === 'select' || target.isContentEditable) {
+        commitMetadataDraft();
+      }
+    },
+    [commitMetadataDraft, isMetadataDraftDirty],
+  );
+
+  const handleSaveSaga = useCallback(() => {
+    const metadataToSave = metadataDraft ?? sagaMetadata;
+    if (!metadataToSave) {
+      return;
+    }
+
+    if (isMetadataDraftDirty) {
+      props.onChange(metadataToSave);
+      setIsMetadataDraftDirty(false);
+    }
+    props.onSave(metadataToSave);
+  }, [isMetadataDraftDirty, metadataDraft, props, sagaMetadata]);
+
+  const consistencySource = useMemo(
+    () =>
+      saga && sagaMetadata
+        ? {
+            ...saga,
+            metadata: sagaMetadata,
+          }
+        : null,
+    [saga, sagaMetadata],
+  );
   const consistencyReport = useMemo(
     () =>
-      saga
-        ? buildSagaConsistencyReport(saga)
+      consistencySource
+        ? buildSagaConsistencyReport(consistencySource)
         : {
             issues: [],
             errorCount: 0,
             warningCount: 0,
           },
-    [saga],
+    [consistencySource],
   );
 
   const issueCountByEventId = useMemo(() => {
@@ -417,7 +493,7 @@ function SagaPanel(props: SagaPanelProps) {
     return map;
   }, [worldBible]);
 
-  if (!saga || !worldBible) {
+  if (!saga || !worldBible || !sagaMetadata) {
     return (
       <section className="settings-view">
         <header>
@@ -431,7 +507,7 @@ function SagaPanel(props: SagaPanelProps) {
     id: entry.id,
     label: `${entry.displayLabel || `T${entry.startOrder}`} | ${entry.title || 'Evento sin titulo'}`,
   }));
-  const linkedBookOptions = saga.metadata.books.map((entry) => ({
+  const linkedBookOptions = sagaMetadata.books.map((entry) => ({
     path: entry.bookPath,
     label: `${entry.volumeNumber ? `Vol. ${entry.volumeNumber} - ` : ''}${entry.title}`,
   }));
@@ -468,8 +544,8 @@ function SagaPanel(props: SagaPanelProps) {
   const sagaHealthCards = [
     {
       label: 'Libros',
-      value: formatSagaCount(saga.metadata.books.length),
-      note: `${formatSagaCount(saga.metadata.books.filter((entry) => entry.volumeNumber != null).length)} con volumen asignado`,
+      value: formatSagaCount(sagaMetadata.books.length),
+      note: `${formatSagaCount(sagaMetadata.books.filter((entry) => entry.volumeNumber != null).length)} con volumen asignado`,
     },
     {
       label: 'Personajes',
@@ -521,13 +597,13 @@ function SagaPanel(props: SagaPanelProps) {
   };
 
   const updateWorldBible = (patch: Partial<SagaWorldBible>): void => {
-    props.onChange({
-      ...saga.metadata,
+    applyMetadataDraft((current) => ({
+      ...current,
       worldBible: {
-        ...worldBible,
+        ...current.worldBible,
         ...patch,
       },
-    });
+    }));
   };
 
   const updateEntity = (section: EntitySectionKey, id: string, patch: Partial<SagaWorldEntity>): void => {
@@ -1386,8 +1462,8 @@ function SagaPanel(props: SagaPanelProps) {
   const applySuggestedFixForIssue = (issue: SagaConsistencyIssue): void => {
     setAutofixPreviewIssueId(null);
     const issueEvent = issue.eventId ? timelineEventById.get(issue.eventId) ?? null : null;
-    const linkedBookPathSet = new Set(saga.metadata.books.map((entry) => entry.bookPath));
-    const fallbackBookPath = saga.metadata.books[0]?.bookPath ?? '';
+    const linkedBookPathSet = new Set(sagaMetadata.books.map((entry) => entry.bookPath));
+    const fallbackBookPath = sagaMetadata.books[0]?.bookPath ?? '';
     const fallbackLocationId = worldBible.locations[0]?.id ?? '';
     const fallbackArtifactId = worldBible.artifacts[0]?.id ?? '';
     const fallbackSecretId = (worldBible.secrets ?? [])[0]?.id ?? '';
@@ -2147,7 +2223,10 @@ function SagaPanel(props: SagaPanelProps) {
   );
 
   return (
-    <section className="settings-view story-bible-view saga-command-view">
+    <section
+      className="settings-view story-bible-view saga-command-view"
+      onBlurCapture={handlePanelBlurCapture}
+    >
       <header className="saga-command-hero">
         <div className="saga-command-copy">
           <span className="section-kicker">Puente de mando</span>
@@ -2158,7 +2237,7 @@ function SagaPanel(props: SagaPanelProps) {
             </div>
             <div className="story-bible-header-actions saga-command-actions">
               <span className="saga-command-pill">{activeTabMeta.label}</span>
-              <button type="button" onClick={props.onSave}>
+              <button type="button" onClick={handleSaveSaga}>
                 Guardar saga
               </button>
             </div>
@@ -2210,17 +2289,34 @@ function SagaPanel(props: SagaPanelProps) {
         <div className="bible-two-col">
           <label>
             Titulo de la saga
-            <input value={saga.metadata.title} onChange={(event) => props.onChange({ ...saga.metadata, title: event.target.value })} />
+            <input
+              value={sagaMetadata.title}
+              onChange={(event) =>
+                applyMetadataDraft((current) => ({
+                  ...current,
+                  title: event.target.value,
+                }))
+              }
+            />
           </label>
           <label>
             ID interno
-            <input value={saga.metadata.id} disabled />
+            <input value={sagaMetadata.id} disabled />
           </label>
         </div>
 
         <label>
           Descripcion general
-          <textarea rows={3} value={saga.metadata.description} onChange={(event) => props.onChange({ ...saga.metadata, description: event.target.value })} />
+          <textarea
+            rows={3}
+            value={sagaMetadata.description}
+            onChange={(event) =>
+              applyMetadataDraft((current) => ({
+                ...current,
+                description: event.target.value,
+              }))
+            }
+          />
         </label>
 
         <label>
@@ -2232,13 +2328,13 @@ function SagaPanel(props: SagaPanelProps) {
       <section className="bible-section">
         <div className="bible-section-head">
           <h3>Libros vinculados</h3>
-          <span className="muted">{saga.metadata.books.length} libros</span>
+          <span className="muted">{sagaMetadata.books.length} libros</span>
         </div>
-        {saga.metadata.books.length === 0 ? (
+        {sagaMetadata.books.length === 0 ? (
           <p className="muted">Todavia no hay libros vinculados a esta saga.</p>
         ) : (
           <div className="bible-card-list">
-            {saga.metadata.books.map((entry) => (
+            {sagaMetadata.books.map((entry) => (
               <article key={entry.bookPath} className="bible-card">
                 <div className="bible-card-head">
                   <strong>{entry.volumeNumber ? `Vol. ${entry.volumeNumber} - ` : ''}{entry.title}</strong>
@@ -2288,24 +2384,24 @@ function SagaPanel(props: SagaPanelProps) {
         <label>
           <input
             type="checkbox"
-            checked={saga.metadata.strictValidationMode === true}
+            checked={sagaMetadata.strictValidationMode === true}
             onChange={(event) =>
-              props.onChange({
-                ...saga.metadata,
+              applyMetadataDraft((current) => ({
+                ...current,
                 strictValidationMode: event.target.checked,
-              })
+              }))
             }
           />{' '}
           Modo estricto: mantener alertas fuertes y frenar exportaciones finales si hay incoherencias graves
         </label>
-        {saga.metadata.strictValidationMode ? (
+        {sagaMetadata.strictValidationMode ? (
           <p className="muted">El guardado del manuscrito no se bloquea. Usa este modo como consejero editorial, no como cerrojo.</p>
         ) : null}
         {consistencyReport.issues.length === 0 ? (
           <p className="muted">No se detectaron problemas estructurales en la saga cargada.</p>
         ) : (
           <>
-            {saga.metadata.strictValidationMode && consistencyReport.errorCount > 0 ? (
+            {sagaMetadata.strictValidationMode && consistencyReport.errorCount > 0 ? (
               <p className="warning-text">
                 Hay incoherencias graves marcadas. Puedes guardar igual, pero conviene corregirlas antes de exportar.
               </p>

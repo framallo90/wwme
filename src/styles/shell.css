@@ -1,0 +1,125 @@
+/* === APP SHELL LAYOUT === */
+
+.app-shell {
+  min-height: 100vh;
+  max-width: min(1900px, 100vw);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: clamp(280px, 20vw, 360px) minmax(620px, 1fr) clamp(320px, 24vw, 420px);
+  grid-template-rows: 1fr auto;
+  gap: 0.85rem;
+  padding: 0.85rem;
+}
+
+.app-shell.is-focus-mode {
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  max-width: min(1800px, 100vw);
+}
+
+.app-shell.is-left-collapsed {
+  grid-template-columns: 32px minmax(0, 1fr) clamp(320px, 24vw, 420px);
+}
+
+.app-shell.is-right-collapsed {
+  grid-template-columns: clamp(280px, 20vw, 360px) minmax(0, 1fr) 32px;
+}
+
+.app-shell.is-left-collapsed.is-right-collapsed {
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  max-width: min(1800px, 100vw);
+}
+
+.shell-side {
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+
+.shell-side-left > .left-sidebar,
+.shell-side-right > .ai-panel {
+  flex: 1;
+  min-height: 0;
+}
+
+.shell-side.is-collapsed {
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  background: var(--surface-secondary);
+  box-shadow: var(--shadow-soft);
+  display: grid;
+  place-items: center;
+}
+
+.shell-side-toggle {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  min-width: 24px;
+  height: 64px;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1;
+  z-index: 6;
+}
+
+.shell-side-toggle-left {
+  right: -12px;
+}
+
+.shell-side-toggle-right {
+  left: -12px;
+}
+
+.shell-side.is-collapsed .shell-side-toggle {
+  position: static;
+  transform: none;
+}
+
+.left-sidebar,
+.center-stage,
+.ai-panel,
+.status-bar {
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  background: var(--panel-bg);
+  backdrop-filter: blur(4px);
+  box-shadow: var(--shadow-soft);
+  position: relative;
+}
+
+.left-sidebar,
+.ai-panel {
+  padding: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.left-sidebar {
+  z-index: 4;
+}
+
+.center-stage,
+.ai-panel {
+  z-index: 2;
+}
+
+.center-stage {
+  padding: 0.8rem;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.center-stack {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}

@@ -1,12 +1,14 @@
 # Estado hacia v4
 
+> **DEPRECADO.** El backlog canonico unico esta en [`v4-backlog.md`](v4-backlog.md).
+
 Fecha de referencia: 2026-03-08.
 
-Base publicada actual: `0.3.0`.
+Base publicada actual: `0.4.0`.
 
-Este documento separa lo que ya entro en el producto desde la `0.3.0` del trabajo que aun falta para llegar a una futura `v4` enfocada en confianza editorial, narrativa de saga y operacion local solida.
+Este documento separa lo que ya entro en el producto desde la `0.4.0` del trabajo que aun falta para llegar a una futura `v4` enfocada en confianza editorial, narrativa de saga y operacion local solida.
 
-## Ya incorporado desde 0.3.0
+## Ya incorporado desde 0.4.0
 
 ### 1. Mundo, saga y continuidad
 
@@ -75,18 +77,23 @@ Este documento separa lo que ya entro en el producto desde la `0.3.0` del trabaj
 4. Export QA E2E con generacion real y validacion automatica de packs: cartografo, cronologia, editorial, maquetacion y consultoria.
 5. Stress UI de render en vistas pesadas con reporte de tiempos.
 6. Pasada visual/a11y tecnica: ajustes de overflow/wrap/focus y auditoria WCAG de contraste en verde.
+7. Timeline con ajustes Gantt rapidos (inicio, duracion y snap por dependencias) + gestion de dependencias en panel de detalle.
+8. Genealogia dinamica con raiz configurable y profundidad multigeneracional (2-8 niveles).
+9. Exportacion por rol reforzada desde UI con accion de lote.
+10. Continuidad semantica extendida a inconsistencias materiales en objetos parafraseados.
+11. Atlas con importacion asistida mas transparente (conteos creados/actualizados/saltados).
+12. Lazy-load de modales de onboarding/revision/editorial/prompts para bajar peso inicial.
 
 ## Falta para llegar a una v4 de confianza alta
 
-1. Validacion manual UX final en runtime real (desktop angosto/mobile) cuando el entorno permita ejecutar Vite sin `spawn EPERM`.
-2. Evolucion de Timeline a Gantt pleno (duraciones editables, dependencias mas ricas, snapping visual).
-3. Genealogia multi-generacional dedicada (arbol de linaje completo).
-4. Export modular por rol expuesto de forma directa en la UI para equipos editoriales.
-5. Consolidacion documental: mantener un backlog v4 unico para evitar drift.
+1. Validacion manual UX final en runtime real (desktop angosto/mobile) con checklist cerrada.
+2. Evolucion final de Timeline a Gantt pleno con drag directo de barras y dependencias desde canvas.
+3. Evolucion final de genealogia a arbol de ramas con enlaces visuales completos.
+4. Consolidacion documental: mantener un backlog v4 unico para evitar drift.
 
 ## Prioridades inmediatas recomendadas
 
-1. Cerrar continuidad semantica profunda.
-2. Completar dependencias visuales cruzadas en timeline/atlas.
-3. Endurecer evidencia trazable del modo consultor.
-4. Completar QA real de exportes y stress UI.
+1. Cerrar QA manual final en runtime real (desktop angosto + mobile).
+2. Completar drag directo en barras Gantt y dependencias desde canvas.
+3. Completar layout de arbol genealogico con ramas y enlaces visuales.
+4. Consolidar backlog unico de release para evitar drift documental.

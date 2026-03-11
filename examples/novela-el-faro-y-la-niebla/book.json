@@ -90,12 +90,16 @@
     "marginInsideMm": 20,
     "marginOutsideMm": 16,
     "paragraphIndentEm": 1.4,
-    "lineHeight": 1.55
+    "lineHeight": 1.55,
+    "dropCapEnabled": false,
+    "sceneBreakGlyph": "* * *",
+    "widowOrphanControl": true,
+    "chapterOpeningStyle": "standard"
   },
   "isPublished": false,
   "publishedAt": null,
   "createdAt": "2026-02-23T07:05:17.9844572Z",
-  "updatedAt": "2026-03-03T02:20:26.307Z",
+  "updatedAt": "2026-03-11T04:14:51.915Z",
   "storyBible": {
     "characters": [],
     "locations": [
@@ -135,5 +139,6 @@
   "chats": {
     "book": [],
     "chapters": {}
-  }
+  },
+  "editorialChecklistCustom": []
 }

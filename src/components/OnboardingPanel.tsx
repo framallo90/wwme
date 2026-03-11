@@ -5,13 +5,17 @@ import './OnboardingPanel.css';
 interface OnboardingPanelProps {
   isOpen: boolean;
   expertMode: boolean;
+  backupGuardMode: 'strict' | 'explore';
   hasBook: boolean;
+  hasBackupConfigured: boolean;
   hasChapters: boolean;
   hasWritingStarted: boolean;
   hasFoundation: boolean;
   hasStoryBible: boolean;
   onClose: () => void;
   onDismissForever: () => void;
+  onBackupGuardModeChange: (mode: 'strict' | 'explore') => void;
+  onConfigureBackup: () => void;
   onCreateBook: () => void;
   onCreateSagaTemplateBook: () => void;
   onOpenBook: () => void;
@@ -66,13 +70,17 @@ function OnboardingPanel(props: OnboardingPanelProps) {
   const {
     isOpen,
     expertMode,
+    backupGuardMode,
     hasBook,
+    hasBackupConfigured,
     hasChapters,
     hasWritingStarted,
     hasFoundation,
     hasStoryBible,
     onClose,
     onDismissForever,
+    onBackupGuardModeChange,
+    onConfigureBackup,
     onCreateBook,
     onCreateSagaTemplateBook,
     onOpenBook,
@@ -115,6 +123,11 @@ function OnboardingPanel(props: OnboardingPanelProps) {
         done: hasBook,
       },
       {
+        id: 'backup',
+        label: 'Backup configurado (carpeta de resguardo)',
+        done: hasBackupConfigured,
+      },
+      {
         id: 'chapter',
         label: 'Primer capitulo creado',
         done: hasChapters,
@@ -135,12 +148,13 @@ function OnboardingPanel(props: OnboardingPanelProps) {
         done: hasStoryBible,
       },
     ],
-    [hasBook, hasChapters, hasFoundation, hasStoryBible, hasWritingStarted],
+    [hasBackupConfigured, hasBook, hasChapters, hasFoundation, hasStoryBible, hasWritingStarted],
   );
 
   const completedSteps = checklist.filter((item) => item.done).length;
   const progress = Math.round((completedSteps / checklist.length) * 100);
   const currentStep = TOUR_STEPS[Math.max(0, Math.min(tourIndex, TOUR_STEPS.length - 1))];
+  const backupGateActive = backupGuardMode === 'strict' && !hasBackupConfigured;
 
   if (!isOpen) {
     return null;
@@ -211,6 +225,33 @@ function OnboardingPanel(props: OnboardingPanelProps) {
 
         <section className="onboarding-progress" aria-live="polite">
           <p>
+            Modo de respaldo: <strong>{backupGuardMode === 'strict' ? 'Seguro (recomendado)' : 'Exploracion'}</strong>
+          </p>
+          <div className="onboarding-actions">
+            <button
+              type="button"
+              className={backupGuardMode === 'strict' ? 'is-active' : ''}
+              onClick={() => onBackupGuardModeChange('strict')}
+            >
+              Seguro
+            </button>
+            <button
+              type="button"
+              className={backupGuardMode === 'explore' ? 'is-active' : ''}
+              onClick={() => onBackupGuardModeChange('explore')}
+            >
+              Exploracion
+            </button>
+          </div>
+          <p className="muted">
+            {backupGuardMode === 'strict'
+              ? 'En modo seguro, no permite continuar sin carpeta de backup.'
+              : 'En exploracion puedes escribir sin backup, pero con aviso visible de riesgo.'}
+          </p>
+        </section>
+
+        <section className="onboarding-progress" aria-live="polite">
+          <p>
             Progreso de arranque: <strong>{completedSteps}/{checklist.length}</strong> ({progress}%)
           </p>
           <div className="onboarding-progress-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
@@ -232,6 +273,12 @@ function OnboardingPanel(props: OnboardingPanelProps) {
               ))}
             </ul>
             <div className="onboarding-actions">
+              <button
+                type="button"
+                onClick={onConfigureBackup}
+              >
+                Configurar backup
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -320,10 +367,20 @@ function OnboardingPanel(props: OnboardingPanelProps) {
         </div>
 
         <footer className="onboarding-footer">
-          <button type="button" onClick={onDismissForever}>
+          <button
+            type="button"
+            onClick={onDismissForever}
+            disabled={backupGateActive}
+            title={backupGateActive ? 'Primero configura backup para desactivar el auto-onboarding.' : undefined}
+          >
             No volver a abrir automaticamente
           </button>
-          <button type="button" onClick={onClose}>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={backupGateActive}
+            title={backupGateActive ? 'Primero configura backup para continuar.' : undefined}
+          >
             Lo veo luego
           </button>
         </footer>

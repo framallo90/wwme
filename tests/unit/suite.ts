@@ -390,6 +390,7 @@ function createConfig(overrides?: Partial<AppConfig>): AppConfig {
     model: 'llama3.2:3b',
     language: 'es',
     theme: 'system',
+    editorBackgroundTone: 'default',
     systemPrompt: '',
     temperature: 0.6,
     audioVoiceName: '',

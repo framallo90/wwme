@@ -177,10 +177,15 @@ fn export_audiobook_wav(_input: ExportAudiobookInput) -> Result<String, String> 
   Err("La exportacion de audiolibro WAV con voces del sistema esta disponible solo en Windows por ahora.".into())
 }
 
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+  app.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
-    .invoke_handler(tauri::generate_handler![export_audiobook_wav])
+    .invoke_handler(tauri::generate_handler![export_audiobook_wav, quit_app])
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
     .setup(|app| {

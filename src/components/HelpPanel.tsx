@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import type { MainView } from '../types/book';
 import './HelpPanel.css';
@@ -319,6 +319,14 @@ const ADVANCED_NOTES = [
   'Si algo tecnico falla, primero entra en `Preferencias` y revisa `IA local`.',
 ];
 
+interface HelpShortcut {
+  id: string;
+  title: string;
+  description: string;
+  disabled?: boolean;
+  onRun: () => void;
+}
+
 function HelpPanel(props: HelpPanelProps) {
   const {
     isOpen,
@@ -333,8 +341,8 @@ function HelpPanel(props: HelpPanelProps) {
     onToggleFocusMode,
   } = props;
   const titleId = useId();
-  const dialogRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     if (!isOpen) {
@@ -360,10 +368,6 @@ function HelpPanel(props: HelpPanelProps) {
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) {
-    return null;
-  }
-
   const handleCreateBook = () => {
     onClose();
     onCreateBook();
@@ -374,96 +378,179 @@ function HelpPanel(props: HelpPanelProps) {
     onOpenBook();
   };
 
-  const quickActions: QuickAction[] = [
-    {
-      title: 'Guiame para arrancar',
-      description: 'Abre el recorrido corto con checklist de primer libro.',
-      buttonLabel: 'Abrir guia inicial',
-      onRun: () => {
-        onClose();
-        onOpenStarterGuide();
+  const quickActions: QuickAction[] = useMemo(
+    () => [
+      {
+        title: 'Guiame para arrancar',
+        description: 'Abre el recorrido corto con checklist de primer libro.',
+        buttonLabel: 'Abrir guia inicial',
+        onRun: () => {
+          onClose();
+          onOpenStarterGuide();
+        },
       },
-    },
-    {
-      title: 'Llevarme al manuscrito',
-      description: 'Salta directo al editor para seguir escribiendo.',
-      buttonLabel: 'Ir al editor',
-      disabled: !hasBook,
-      onRun: () => {
-        onClose();
-        onGoToView('editor');
+      {
+        title: 'Llevarme al manuscrito',
+        description: 'Salta directo al editor para seguir escribiendo.',
+        buttonLabel: 'Ir al editor',
+        disabled: !hasBook,
+        onRun: () => {
+          onClose();
+          onGoToView('editor');
+        },
       },
-    },
-    {
-      title: 'Abrir mi banco de ideas',
-      description: 'Te lleva a `Recortes` para guardar escenas sueltas o notas.',
-      buttonLabel: 'Ir a recortes',
-      disabled: !hasBook,
-      onRun: () => {
-        onClose();
-        onGoToView('scratchpad');
+      {
+        title: 'Abrir mi banco de ideas',
+        description: 'Te lleva a `Recortes` para guardar escenas sueltas o notas.',
+        buttonLabel: 'Ir a recortes',
+        disabled: !hasBook,
+        onRun: () => {
+          onClose();
+          onGoToView('scratchpad');
+        },
       },
-    },
-    {
-      title: 'Ordenar el canon',
-      description: 'Abre `Saga` para reglas globales, timeline y relaciones.',
-      buttonLabel: 'Ir a saga',
-      disabled: !hasSaga,
-      onRun: () => {
-        onClose();
-        onGoToView('saga');
+      {
+        title: 'Ordenar el canon',
+        description: 'Abre `Saga` para reglas globales, timeline y relaciones.',
+        buttonLabel: 'Ir a saga',
+        disabled: !hasSaga,
+        onRun: () => {
+          onClose();
+          onGoToView('saga');
+        },
       },
-    },
-  ];
+    ],
+    [hasBook, hasSaga, onClose, onGoToView, onOpenStarterGuide],
+  );
 
-  const handleDialogKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
-    if (event.key !== 'Tab') {
-      return;
-    }
+  const taskShortcuts: HelpShortcut[] = useMemo(
+    () => [
+      {
+        id: 'task-write',
+        title: 'Seguir escribiendo',
+        description: 'Abre el editor en modo operativo inmediato.',
+        disabled: !hasBook,
+        onRun: () => {
+          onClose();
+          onGoToView('editor');
+        },
+      },
+      {
+        id: 'task-continuity',
+        title: 'Revisar continuidad',
+        description: 'Salta a Timeline para detectar huecos y cruces.',
+        disabled: !hasSaga,
+        onRun: () => {
+          onClose();
+          onGoToView('timeline');
+        },
+      },
+      {
+        id: 'task-atlas',
+        title: 'Ir al atlas',
+        description: 'Revisa mapa, capas, pines y rutas del mundo.',
+        disabled: !hasSaga,
+        onRun: () => {
+          onClose();
+          onGoToView('atlas');
+        },
+      },
+      {
+        id: 'task-export',
+        title: 'Preparar exportacion',
+        description: 'Abre preview para control editorial final.',
+        disabled: !hasBook,
+        onRun: () => {
+          onClose();
+          onGoToView('preview');
+        },
+      },
+      {
+        id: 'task-onboarding',
+        title: 'Abrir guia inicial',
+        description: 'Reabre checklist y tour de primer arranque.',
+        onRun: () => {
+          onClose();
+          onOpenStarterGuide();
+        },
+      },
+    ],
+    [hasBook, hasSaga, onClose, onGoToView, onOpenStarterGuide],
+  );
 
-    const container = dialogRef.current;
-    if (!container) {
-      return;
-    }
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+  const hasSearch = normalizedSearch.length > 0;
+  const matches = (value: string): boolean => value.toLowerCase().includes(normalizedSearch);
 
-    const focusables = Array.from(
-      container.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      ),
-    );
+  const filteredQuickActions = hasSearch
+    ? quickActions.filter((item) => matches(item.title) || matches(item.description) || matches(item.buttonLabel))
+    : quickActions;
+  const filteredTaskShortcuts = hasSearch
+    ? taskShortcuts.filter((item) => matches(item.title) || matches(item.description))
+    : taskShortcuts;
+  const filteredQuickStart = hasSearch
+    ? QUICK_START_STEPS.filter(
+        (item) => matches(item.title) || matches(item.reason) || item.actions.some(matches) || matches(item.check),
+      )
+    : QUICK_START_STEPS;
+  const filteredMainViews = hasSearch
+    ? MAIN_VIEWS_GUIDE.filter(
+        (item) =>
+          matches(item.name) ||
+          matches(item.purpose) ||
+          matches(item.bestMoment) ||
+          item.howToUse.some(matches),
+      )
+    : MAIN_VIEWS_GUIDE;
+  const filteredSidebarGuide = hasSearch
+    ? SIDEBAR_GUIDE.filter(
+        (item) =>
+          matches(item.name) ||
+          matches(item.purpose) ||
+          matches(item.bestMoment) ||
+          item.howToUse.some(matches),
+      )
+    : SIDEBAR_GUIDE;
+  const filteredAiGuide = hasSearch
+    ? AI_GUIDE.filter(
+        (item) =>
+          matches(item.name) ||
+          matches(item.purpose) ||
+          matches(item.bestMoment) ||
+          item.howToUse.some(matches),
+      )
+    : AI_GUIDE;
+  const filteredIssues = hasSearch
+    ? COMMON_ISSUES.filter(
+        (item) => matches(item.title) || matches(item.reason) || item.actions.some(matches) || matches(item.check),
+      )
+    : COMMON_ISSUES;
+  const filteredShortcuts = hasSearch ? SHORTCUTS.filter(matches) : SHORTCUTS;
+  const filteredAdvancedNotes = hasSearch ? ADVANCED_NOTES.filter(matches) : ADVANCED_NOTES;
 
-    if (focusables.length === 0) {
-      event.preventDefault();
-      return;
-    }
+  const hasAnyResult =
+    filteredQuickActions.length > 0 ||
+    filteredTaskShortcuts.length > 0 ||
+    filteredQuickStart.length > 0 ||
+    filteredMainViews.length > 0 ||
+    filteredSidebarGuide.length > 0 ||
+    filteredAiGuide.length > 0 ||
+    filteredIssues.length > 0 ||
+    filteredShortcuts.length > 0 ||
+    filteredAdvancedNotes.length > 0;
 
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-    const active = document.activeElement as HTMLElement | null;
-
-    if (event.shiftKey && active === first) {
-      event.preventDefault();
-      last.focus();
-      return;
-    }
-
-    if (!event.shiftKey && active === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  };
+  if (!isOpen) {
+    return null;
+  }
 
   return (
-    <div className="help-overlay" onClick={onClose}>
-      <section
-        ref={dialogRef}
-        className="help-panel"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        onKeyDown={handleDialogKeyDown}
-        onClick={(event) => event.stopPropagation()}
-      >
+    <aside
+      className="help-drawer"
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby={titleId}
+    >
+      <section className="help-panel">
         <header className="help-header">
           <h2 id={titleId}>Asistente de escritura WriteWMe</h2>
           <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="Cerrar ayuda">
@@ -476,8 +563,30 @@ function HelpPanel(props: HelpPanelProps) {
           programador. Si algo tecnico aparece, queda al final en `Avanzado`.
         </p>
 
+        <label className="help-search-field">
+          Buscar en ayuda
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Ej: exportar, continuidad, timeline, IA, backup..."
+          />
+        </label>
+
+        <div className="help-shortcuts-grid">
+          {filteredTaskShortcuts.map((shortcut) => (
+            <article key={shortcut.id} className="help-quick-card">
+              <h3>{shortcut.title}</h3>
+              <p>{shortcut.description}</p>
+              <button type="button" disabled={shortcut.disabled} onClick={shortcut.onRun}>
+                Abrir
+              </button>
+            </article>
+          ))}
+        </div>
+
         <div className="help-quick-grid">
-          {quickActions.map((action) => (
+          {filteredQuickActions.map((action) => (
             <article key={action.title} className="help-quick-card">
               <h3>{action.title}</h3>
               <p>{action.description}</p>
@@ -487,6 +596,8 @@ function HelpPanel(props: HelpPanelProps) {
             </article>
           ))}
         </div>
+
+        {hasSearch && !hasAnyResult ? <p className="muted">No se encontraron resultados para "{searchTerm.trim()}".</p> : null}
 
         <div className="help-track-grid">
           <article className="help-track-card">
@@ -515,7 +626,8 @@ function HelpPanel(props: HelpPanelProps) {
         <details className="help-section">
           <summary>1) Primeros pasos sin friccion</summary>
           <div className="help-step-list">
-            {QUICK_START_STEPS.map((step) => (
+            {filteredQuickStart.length === 0 ? <p className="muted">Sin resultados en esta seccion.</p> : null}
+            {filteredQuickStart.map((step) => (
               <article key={step.title} className="help-step-card">
                 <h3>{step.title}</h3>
                 <p className="help-step-reason">
@@ -537,7 +649,8 @@ function HelpPanel(props: HelpPanelProps) {
         <details className="help-section">
           <summary>2) Pantallas principales</summary>
           <div className="help-function-grid">
-            {MAIN_VIEWS_GUIDE.map((entry) => (
+            {filteredMainViews.length === 0 ? <p className="muted">Sin resultados en esta seccion.</p> : null}
+            {filteredMainViews.map((entry) => (
               <article key={entry.name} className="help-function-card">
                 <h3>{entry.name}</h3>
                 <p>
@@ -559,7 +672,8 @@ function HelpPanel(props: HelpPanelProps) {
         <details className="help-section">
           <summary>3) Biblioteca, capitulos y exportacion</summary>
           <div className="help-function-grid">
-            {SIDEBAR_GUIDE.map((entry) => (
+            {filteredSidebarGuide.length === 0 ? <p className="muted">Sin resultados en esta seccion.</p> : null}
+            {filteredSidebarGuide.map((entry) => (
               <article key={entry.name} className="help-function-card">
                 <h3>{entry.name}</h3>
                 <p>
@@ -581,7 +695,8 @@ function HelpPanel(props: HelpPanelProps) {
         <details className="help-section">
           <summary>4) IA con contexto claro</summary>
           <div className="help-function-grid">
-            {AI_GUIDE.map((entry) => (
+            {filteredAiGuide.length === 0 ? <p className="muted">Sin resultados en esta seccion.</p> : null}
+            {filteredAiGuide.map((entry) => (
               <article key={entry.name} className="help-function-card">
                 <h3>{entry.name}</h3>
                 <p>
@@ -603,7 +718,8 @@ function HelpPanel(props: HelpPanelProps) {
         <details className="help-section">
           <summary>5) Problemas frecuentes</summary>
           <div className="help-step-list">
-            {COMMON_ISSUES.map((issue) => (
+            {filteredIssues.length === 0 ? <p className="muted">Sin resultados en esta seccion.</p> : null}
+            {filteredIssues.map((issue) => (
               <article key={issue.title} className="help-step-card">
                 <h3>{issue.title}</h3>
                 <p className="help-step-reason">
@@ -626,7 +742,7 @@ function HelpPanel(props: HelpPanelProps) {
           <article>
             <h3>Atajos utiles</h3>
             <ul>
-              {SHORTCUTS.map((shortcut) => (
+              {filteredShortcuts.map((shortcut) => (
                 <li key={shortcut}>{shortcut}</li>
               ))}
             </ul>
@@ -657,7 +773,7 @@ function HelpPanel(props: HelpPanelProps) {
             <article className="help-step-card">
               <h3>Notas tecnicas minimas</h3>
               <ul>
-                {ADVANCED_NOTES.map((note) => (
+                {filteredAdvancedNotes.map((note) => (
                   <li key={note}>{note}</li>
                 ))}
               </ul>
@@ -681,7 +797,7 @@ function HelpPanel(props: HelpPanelProps) {
           </button>
         </footer>
       </section>
-    </div>
+    </aside>
   );
 }
 

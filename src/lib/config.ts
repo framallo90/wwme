@@ -4,6 +4,8 @@ import { DEFAULT_SYSTEM_PROMPT } from './prompts';
 export const DEFAULT_APP_CONFIG: AppConfig = {
   model: 'llama3.2:3b',
   language: 'es',
+  theme: 'system',
+  editorBackgroundTone: 'default',
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   temperature: 0.6,
   audioVoiceName: '',
@@ -19,7 +21,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   continuousAgentMaxRounds: 3,
   continuityGuardEnabled: false,
   autosaveIntervalMs: 5000,
-  backupEnabled: false,
+  backupEnabled: true,
   backupDirectory: '',
   backupIntervalMs: 120000,
   expertWriterMode: false,

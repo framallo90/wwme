@@ -7,13 +7,28 @@ import { formatNumber } from '../lib/metrics';
 import type { ContinuityGuardReport, ContinuityHighlightTerm } from '../lib/continuityGuard';
 import type { SemanticReferenceCatalogEntry } from '../lib/semanticReferences';
 import type { AudioPlaybackState } from '../lib/audio';
-import type { ChapterDocument, ChapterLengthPreset, ChapterManuscriptNote, InteriorFormat } from '../types/book';
+import type {
+  ChapterDocument,
+  ChapterLengthPreset,
+  ChapterManuscriptNote,
+  EditorBackgroundTone,
+  InteriorFormat,
+} from '../types/book';
 import type { TiptapEditorHandle } from './TiptapEditor';
 
 const LazyTiptapEditor = lazy(() => import('./TiptapEditor'));
+const CONTINUITY_HIGHLIGHT_DENSITY_WARNING_THRESHOLD = 800;
+const EDITOR_BACKGROUND_OPTIONS: Array<{ value: EditorBackgroundTone; label: string }> = [
+  { value: 'default', label: 'Predeterminado' },
+  { value: 'white', label: 'Blanco limpio' },
+  { value: 'mist', label: 'Bruma suave' },
+  { value: 'sage', label: 'Salvia suave' },
+  { value: 'sand', label: 'Arena suave' },
+];
 
 interface EditorPaneProps {
   chapter: ChapterDocument | null;
+  scrollPersistenceKey: string;
   interiorFormat: InteriorFormat;
   autosaveIntervalMs: number;
   canUndoEdit: boolean;
@@ -24,6 +39,7 @@ interface EditorPaneProps {
   chapterPageEnd: number;
   bookWordCount: number;
   bookEstimatedPages: number;
+  editorBackgroundTone: EditorBackgroundTone;
   continuityHighlightEnabled: boolean;
   continuityHighlights: ContinuityHighlightTerm[];
   continuityReport: ContinuityGuardReport | null;
@@ -39,12 +55,26 @@ interface EditorPaneProps {
   onTogglePauseReadAloud: () => void;
   onStopReadAloud: () => void;
   onExportChapterAudio: () => void;
+  onEditorBackgroundToneChange: (tone: EditorBackgroundTone) => void;
   onLengthPresetChange: (preset: ChapterLengthPreset) => void;
   onContinuityHighlightToggle: (enabled: boolean) => void;
   onRefreshContinuityBriefing: () => void;
   onContentChange: (payload: { html: string; json: JSONContent }) => void;
   onInsertCharacterReference: () => void;
   onInsertLocationReference: () => void;
+  onLookupLoreFromSelection: () => void;
+  lorePeek: {
+    query: string;
+    matches: Array<{
+      id: string;
+      kind: 'character' | 'location' | 'timeline';
+      label: string;
+      detail: string;
+      targetView: 'bible' | 'timeline';
+    }>;
+  } | null;
+  onOpenLorePeek: (input: { targetView: 'bible' | 'timeline'; id: string; label: string }) => void;
+  onAddSelectionToLooseThreads: () => void;
   onOpenSemanticReference: (reference: {
     id: string;
     kind: 'character' | 'location';
@@ -60,6 +90,22 @@ interface EditorPaneProps {
 const EditorPane = forwardRef<TiptapEditorHandle, EditorPaneProps>((props, ref) => {
   const [editorEnabled, setEditorEnabled] = useState(false);
   const [advancedToolsVisible, setAdvancedToolsVisible] = useState(false);
+  const renderEditorBackgroundControl = () => (
+    <label className="editor-background-control" title="Cambia el fondo del papel del manuscrito.">
+      <span>Fondo</span>
+      <select
+        aria-label="Fondo del editor"
+        value={props.editorBackgroundTone}
+        onChange={(event) => props.onEditorBackgroundToneChange(event.target.value as EditorBackgroundTone)}
+      >
+        {EDITOR_BACKGROUND_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 
   if (!props.chapter) {
     return (
@@ -80,6 +126,17 @@ const EditorPane = forwardRef<TiptapEditorHandle, EditorPaneProps>((props, ref) 
         </div>
         <div className="editor-header-meta">
           <span>Auto-guardado {Math.round(props.autosaveIntervalMs / 1000)}s</span>
+          {renderEditorBackgroundControl()}
+          {!editorEnabled ? (
+            <button
+              type="button"
+              className="editor-activate-button"
+              onClick={() => setEditorEnabled(true)}
+              title="Activa el editor de texto para escribir este capitulo."
+            >
+              Activar editor
+            </button>
+          ) : null}
           <button
             type="button"
             className="editor-tools-toggle"
@@ -184,8 +241,14 @@ const EditorPane = forwardRef<TiptapEditorHandle, EditorPaneProps>((props, ref) 
         <p className="continuity-guard-summary">
           Entidades detectadas: {props.continuityReport?.mentions.length ?? 0} | alertas activas:{' '}
           {props.continuityReport?.issues.length ?? 0} | refs semanticas: {props.semanticReferenceCharacterCount} personajes /{' '}
-          {props.semanticReferenceLocationCount} lugares
+          {props.semanticReferenceLocationCount} lugares | terminos de resaltado: {props.continuityHighlights.length}
         </p>
+        {props.continuityHighlights.length > CONTINUITY_HIGHLIGHT_DENSITY_WARNING_THRESHOLD ? (
+          <p className="muted">
+            Aviso: resaltado intensivo activo ({props.continuityHighlights.length} terminos). Se monitorean todos los
+            terminos, pero la respuesta del editor puede bajar en equipos lentos.
+          </p>
+        ) : null}
         <div className="editor-reference-toolbar">
           <button type="button" onClick={props.onInsertCharacterReference} title="Inserta una referencia semantica a un personaje del canon.">
             Insertar @Personaje
@@ -193,10 +256,50 @@ const EditorPane = forwardRef<TiptapEditorHandle, EditorPaneProps>((props, ref) 
           <button type="button" onClick={props.onInsertLocationReference} title="Inserta una referencia semantica a un lugar del canon.">
             Insertar #Lugar
           </button>
+          <button type="button" onClick={props.onLookupLoreFromSelection} title="Busca lore del texto seleccionado sin salir del editor.">
+            Buscar lore (seleccion)
+          </button>
+          <button type="button" onClick={props.onAddSelectionToLooseThreads} title="Convierte la seleccion en un hilo abierto del libro.">
+            Seleccion a hilo suelto
+          </button>
           <button type="button" onClick={props.onAddManuscriptNote} title="Guarda una nota privada sobre el fragmento actual o la seleccion.">
             Nueva nota al margen
           </button>
         </div>
+        {props.lorePeek ? (
+          <section className="continuity-briefing-panel" aria-label="Resultado de busqueda de lore">
+            <div className="continuity-guard-header">
+              <div>
+                <h3>Contexto de lore</h3>
+                <p className="muted">Consulta para "{props.lorePeek.query}"</p>
+              </div>
+            </div>
+            {props.lorePeek.matches.length === 0 ? (
+              <p className="muted">No hubo coincidencias directas en biblia o timeline.</p>
+            ) : (
+              <ul className="continuity-issue-list">
+                {props.lorePeek.matches.map((entry) => (
+                  <li key={`${entry.kind}-${entry.id}`}>
+                    <strong>{entry.label}</strong>
+                    <p>{entry.detail}</p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        props.onOpenLorePeek({
+                          targetView: entry.targetView,
+                          id: entry.id,
+                          label: entry.label,
+                        })
+                      }
+                    >
+                      Abrir {entry.targetView === 'timeline' ? 'timeline' : 'biblia'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        ) : null}
         {(props.continuityReport?.mentions.length ?? 0) > 0 ? (
           <div className="continuity-entity-list" role="list" aria-label="Entidades detectadas en el capitulo">
             {(props.continuityReport?.mentions ?? []).slice(0, 10).map((entry) => (
@@ -355,7 +458,10 @@ const EditorPane = forwardRef<TiptapEditorHandle, EditorPaneProps>((props, ref) 
         <section className="editor-stage-shell">
           <div className="editor-stage-note">
             <span className="section-kicker">Mesa de escritura</span>
-            <strong>Modo manuscrito</strong>
+            <div className="editor-stage-note-actions">
+              {renderEditorBackgroundControl()}
+              <strong>Modo manuscrito</strong>
+            </div>
           </div>
           <div className="editor-paper-frame">
             <Suspense
@@ -369,6 +475,7 @@ const EditorPane = forwardRef<TiptapEditorHandle, EditorPaneProps>((props, ref) 
                 ref={ref}
                 content={props.chapter.content}
                 interiorFormat={props.interiorFormat}
+                scrollPersistenceKey={props.scrollPersistenceKey}
                 continuityHighlightEnabled={props.continuityHighlightEnabled}
                 continuityHighlights={props.continuityHighlights}
                 semanticReferencesCatalog={props.semanticReferencesCatalog}
@@ -380,15 +487,23 @@ const EditorPane = forwardRef<TiptapEditorHandle, EditorPaneProps>((props, ref) 
           </div>
         </section>
       ) : (
-        <section className="editor-lazy-gate editor-stage-shell" role="status" aria-live="polite">
-          <span className="section-kicker">Motor bajo demanda</span>
-          <h3>Editor bajo demanda</h3>
-          <p className="muted">
-            Para acelerar el arranque, el motor de escritura se carga cuando vas a editar.
-          </p>
-          <button type="button" onClick={() => setEditorEnabled(true)}>
-            Activar editor
-          </button>
+        <section className="editor-stage-shell editor-stage-shell--lazy" role="status" aria-live="polite">
+          <div className="editor-lazy-gate-head">
+            <div className="editor-lazy-gate-title">
+              <span className="section-kicker">Motor bajo demanda</span>
+              <h3>Editor bajo demanda</h3>
+            </div>
+            <div className="editor-lazy-gate-actions">
+              {renderEditorBackgroundControl()}
+              <button type="button" className="editor-lazy-gate-activate" onClick={() => setEditorEnabled(true)}>
+                Activar editor
+              </button>
+            </div>
+          </div>
+          <div className="editor-lazy-gate">
+            <p className="muted">Para acelerar el arranque, el motor de escritura se carga solo cuando vas a editar.</p>
+            <p className="muted">Si vas a escribir ahora, activalo desde aqui o desde el encabezado superior.</p>
+          </div>
         </section>
       )}
     </section>

@@ -3,6 +3,7 @@ import type { BookProject, ChapterDocument } from '../types/book';
 export interface SearchReplaceOptions {
   caseSensitive: boolean;
   wholeWord: boolean;
+  useRegex?: boolean;
 }
 
 export interface ChapterSearchMatch {
@@ -44,13 +45,51 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function buildPattern(query: string, wholeWord: boolean): string {
-  const escaped = escapeRegExp(query);
-  return wholeWord ? `\\b${escaped}\\b` : escaped;
+function isRegexMode(options: SearchReplaceOptions): boolean {
+  return options.useRegex === true;
 }
 
-function buildFlags(caseSensitive: boolean): string {
-  return caseSensitive ? 'g' : 'gi';
+function buildPattern(query: string, options: SearchReplaceOptions): string {
+  const source = isRegexMode(options) ? query : escapeRegExp(query);
+  if (options.wholeWord) {
+    return `\\b(?:${source})\\b`;
+  }
+  return source;
+}
+
+function buildFlags(options: SearchReplaceOptions): string {
+  return options.caseSensitive ? 'g' : 'gi';
+}
+
+function buildSearchRegex(query: string, options: SearchReplaceOptions): RegExp | null {
+  const normalizedQuery = query.trim();
+  if (!normalizedQuery) {
+    return null;
+  }
+  const pattern = buildPattern(normalizedQuery, options);
+  const flags = buildFlags(options);
+  try {
+    return new RegExp(pattern, flags);
+  } catch {
+    return null;
+  }
+}
+
+export function getSearchPatternError(query: string, options: SearchReplaceOptions): string | null {
+  if (!query.trim() || !isRegexMode(options)) {
+    return null;
+  }
+  const pattern = buildPattern(query.trim(), options);
+  const flags = buildFlags(options);
+  try {
+    void new RegExp(pattern, flags);
+    return null;
+  } catch (error) {
+    if (error instanceof Error && error.message.trim()) {
+      return error.message.trim();
+    }
+    return 'Expresion regular invalida.';
+  }
 }
 
 function parseHtmlToBody(html: string): HTMLElement {
@@ -71,9 +110,10 @@ function getTextContentFromHtml(html: string): string {
 }
 
 function buildSample(text: string, query: string, options: SearchReplaceOptions): string {
-  const pattern = buildPattern(query, options.wholeWord);
-  const flags = buildFlags(options.caseSensitive);
-  const regex = new RegExp(pattern, flags);
+  const regex = buildSearchRegex(query, options);
+  if (!regex) {
+    return text.slice(0, 180);
+  }
   const match = regex.exec(text);
   if (!match || typeof match.index !== 'number') {
     return text.slice(0, 180);
@@ -107,14 +147,16 @@ export function countMatchesInHtml(html: string, query: string, options: SearchR
   }
 
   const body = parseHtmlToBody(html);
-  const pattern = buildPattern(normalizedQuery, options.wholeWord);
-  const flags = buildFlags(options.caseSensitive);
+  const regex = buildSearchRegex(normalizedQuery, options);
+  if (!regex) {
+    return 0;
+  }
   const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
 
   let total = 0;
   let node = walker.nextNode();
   while (node) {
-    total += countMatchesInText(node.textContent ?? '', pattern, flags);
+    total += countMatchesInText(node.textContent ?? '', regex.source, regex.flags);
     node = walker.nextNode();
   }
 
@@ -133,8 +175,12 @@ export function replaceMatchesInHtml(
   }
 
   const body = parseHtmlToBody(html);
-  const pattern = buildPattern(normalizedQuery, options.wholeWord);
-  const flags = buildFlags(options.caseSensitive);
+  const regex = buildSearchRegex(normalizedQuery, options);
+  if (!regex) {
+    return { html, replacements: 0 };
+  }
+  const pattern = regex.source;
+  const flags = regex.flags;
   const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
 
   let replacements = 0;

@@ -1,7 +1,7 @@
 {
   "name": "writewme",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,9 +10,12 @@
     "lint": "eslint .",
     "test": "node ./scripts/run_unit_tests.mjs",
     "verify:examples": "node ./scripts/verify_examples.mjs",
-    "verify:exports": "node ./scripts/verify_export_packs.mjs",
+    "verify:exports": "node ./scripts/export_qa_e2e.mjs",
     "verify:exports:e2e": "node ./scripts/export_qa_e2e.mjs",
     "verify:stress-ui": "node ./scripts/stress_ui_render.mjs",
+    "verify:visual-qa": "powershell -ExecutionPolicy Bypass -File ./scripts/visual_qa_e2e.ps1",
+    "audit:css-tokens": "node ./scripts/css_token_audit.mjs",
+    "design:tokens": "node ./scripts/export_design_tokens.mjs",
     "verify:a11y-contrast": "powershell -ExecutionPolicy Bypass -File ./scripts/a11y_contrast_audit.ps1",
     "verify:local": "powershell -ExecutionPolicy Bypass -File ./scripts/verify_local.ps1",
     "migrate:contentjson": "node ./scripts/migrate_contentjson_history.mjs",

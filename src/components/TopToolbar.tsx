@@ -12,9 +12,11 @@ import {
   GitBranch,
   GitCompare,
   Grid3x3,
+  LayoutDashboard,
   Languages,
   Link2,
   ListTree,
+  LogOut,
   Map,
   NotebookPen,
   Search,
@@ -46,6 +48,7 @@ interface TopToolbarProps {
   onShowFoundation: () => void;
   onShowBible: () => void;
   onShowSaga: () => void;
+  onShowSagaDashboard: () => void;
   onShowTimeline: () => void;
   onShowPlot: () => void;
   onShowRelations: () => void;
@@ -57,6 +60,7 @@ interface TopToolbarProps {
   onShowScratchpad: () => void;
   onShowLooseThreads: () => void;
   onShowCharMatrix: () => void;
+  onQuitApp: () => void;
 }
 
 interface ViewConfig {
@@ -223,6 +227,14 @@ function buildModes(props: TopToolbarProps): ModeConfig[] {
       disabled: !props.hasSaga,
       views: [
         {
+          id: 'saga-dashboard',
+          label: 'Panel',
+          title: 'Panel general de la saga: progreso, riesgo y accesos rapidos.',
+          icon: LayoutDashboard,
+          disabled: !props.hasSaga,
+          onClick: props.onShowSagaDashboard,
+        },
+        {
           id: 'saga',
           label: 'Saga',
           title: 'Biblia ampliada y gestion de saga.',
@@ -350,6 +362,15 @@ function TopToolbar(props: TopToolbarProps) {
           title="Oculta o muestra los paneles laterales para escribir con foco total. Atajo: Ctrl+Shift+F."
         >
           <span>{props.focusMode ? 'Salir foco' : 'Foco 100%'}</span>
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          onClick={props.onQuitApp}
+          title="Guarda y cierra la aplicacion."
+        >
+          <LogOut size={16} />
+          <span>Salir</span>
         </button>
       </div>
 

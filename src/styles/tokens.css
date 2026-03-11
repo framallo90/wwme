@@ -1,7 +1,207 @@
+/* === DESIGN TOKENS + RESET === */
+
 :root {
-  --font-body: 'Trebuchet MS', 'Segoe UI', sans-serif;
-  --font-display: Cambria, Georgia, serif;
-  --font-mono: Consolas, 'Courier New', monospace;
+  --font-body: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Palatino Linotype', Palatino, Georgia, serif;
+  --font-mono: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  font-family: var(--font-body);
+  color: #2a2540;
+  --font-scale: 1;
+  --wwme-ink: #2d2a4a;
+  --wwme-ink-soft: #5c5680;
+  --wwme-amber: #c4933e;
+  --wwme-amber-soft: #f0dbb8;
+  --wwme-parchment: #f0e6d6;
+  --bg-top: #faf8f5;
+  --bg-bottom: #efe9df;
+  --body-text: #1e1b2e;
+  --panel-bg: rgba(255, 253, 250, 0.92);
+  --panel-border: rgba(45, 42, 74, 0.14);
+  --muted-text: #6e6785;
+  --surface-primary: rgba(255, 253, 250, 0.97);
+  --surface-secondary: rgba(250, 247, 242, 0.96);
+  --surface-tertiary: rgba(244, 240, 232, 0.97);
+  --surface-border-strong: rgba(45, 42, 74, 0.2);
+  --surface-text: #1e1b2e;
+  --surface-muted-text: #6e6785;
+  --shadow-soft: 0 12px 34px rgba(30, 27, 46, 0.1);
+  --shadow-focus: 0 0 0 3px rgba(196, 147, 62, 0.3);
+  --button-bg-start: #fffdfb;
+  --button-bg-end: #f5f0e8;
+  --button-bg-hover-start: #fffef9;
+  --button-bg-hover-end: #f0eadd;
+  --button-border: rgba(45, 42, 74, 0.18);
+  --button-text: #2d2a4a;
+  --active-bg-start: #3d3660;
+  --active-bg-end: #2d2a4a;
+  --active-text: #faf6f0;
+  --active-border: rgba(196, 147, 62, 0.48);
+  --text-inverse: #faf6f0;
+  --status-info-text: #3b5998;
+  --status-info-bg: #e8eff8;
+  --status-success-text: #2e7d5b;
+  --status-success-bg: #e4f5ec;
+  --status-warning-text: #8a6420;
+  --status-warning-bg: #fdf0d5;
+  --status-warning-surface: #fdf8ee;
+  --status-danger-text: #9b2c2c;
+  --status-danger-bg: #fde8e8;
+  --status-danger-border: #f5a8a8;
+  --status-danger-strong-bg: #c53030;
+  --status-danger-strong-text: #ffffff;
+  --neutral-border: #d8d3ca;
+  --neutral-surface: #faf8f5;
+  --field-bg: rgba(255, 253, 250, 0.96);
+  --field-border: rgba(45, 42, 74, 0.18);
+  --field-text: #2d2a4a;
+  --field-placeholder: #9590a5;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(196, 147, 62, 0.1), transparent 36%),
+    radial-gradient(circle at 92% 4%, rgba(92, 86, 128, 0.08), transparent 32%),
+    radial-gradient(circle at 75% 100%, rgba(45, 42, 74, 0.06), transparent 34%),
+    linear-gradient(170deg, var(--bg-top), var(--bg-bottom));
+}
+
+:root[data-theme='dark'] {
+  --bg-top: #1c1924;
+  --bg-bottom: #141120;
+  --body-text: #e4ddd0;
+  --panel-bg: rgba(30, 27, 42, 0.96);
+  --panel-border: rgba(196, 175, 140, 0.22);
+  --muted-text: #b0a898;
+  --surface-primary: rgba(38, 34, 52, 0.97);
+  --surface-secondary: rgba(46, 42, 60, 0.97);
+  --surface-tertiary: rgba(54, 50, 68, 0.98);
+  --surface-border-strong: rgba(196, 175, 140, 0.32);
+  --surface-text: #ede6d8;
+  --surface-muted-text: #c4baa8;
+  --shadow-soft: 0 12px 34px rgba(6, 4, 14, 0.48);
+  --button-bg-start: #3a3550;
+  --button-bg-end: #302c44;
+  --button-bg-hover-start: #464060;
+  --button-bg-hover-end: #3a3550;
+  --button-border: rgba(196, 175, 140, 0.32);
+  --button-text: #ede6d8;
+  --active-bg-start: #c4933e;
+  --active-bg-end: #a87a2e;
+  --active-text: #1e1b2e;
+  --active-border: rgba(196, 147, 62, 0.64);
+  --text-inverse: #faf6f0;
+  --status-info-text: #8fb4e0;
+  --status-info-bg: rgba(70, 100, 150, 0.22);
+  --status-success-text: #6ee7b7;
+  --status-success-bg: rgba(41, 126, 88, 0.22);
+  --status-warning-text: #f0c870;
+  --status-warning-bg: rgba(160, 110, 40, 0.24);
+  --status-warning-surface: rgba(120, 85, 30, 0.2);
+  --status-danger-text: #fca5a5;
+  --status-danger-bg: rgba(150, 50, 50, 0.22);
+  --status-danger-border: rgba(248, 113, 113, 0.5);
+  --status-danger-strong-bg: #b91c1c;
+  --status-danger-strong-text: #ffffff;
+  --neutral-border: rgba(196, 175, 140, 0.38);
+  --neutral-surface: rgba(42, 38, 56, 0.94);
+  --field-bg: rgba(38, 34, 52, 0.96);
+  --field-border: rgba(196, 175, 140, 0.3);
+  --field-text: #ede6d8;
+  --field-placeholder: #9e9488;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(196, 147, 62, 0.12), transparent 36%),
+    radial-gradient(circle at 92% 4%, rgba(92, 70, 120, 0.14), transparent 32%),
+    radial-gradient(circle at 75% 100%, rgba(30, 20, 50, 0.3), transparent 34%),
+    linear-gradient(170deg, var(--bg-top), var(--bg-bottom));
+}
+
+:root[data-theme='sepia'] {
+  --bg-top: #f5ead6;
+  --bg-bottom: #e2d0b4;
+  --body-text: #352818;
+  --panel-bg: rgba(252, 245, 232, 0.94);
+  --panel-border: rgba(90, 68, 42, 0.18);
+  --muted-text: #7a6348;
+  --surface-primary: rgba(254, 248, 238, 0.97);
+  --surface-secondary: rgba(248, 238, 220, 0.96);
+  --surface-tertiary: rgba(244, 232, 210, 0.97);
+  --surface-border-strong: rgba(90, 68, 42, 0.24);
+  --surface-text: #3a2c1c;
+  --surface-muted-text: #6e5438;
+  --shadow-soft: 0 12px 34px rgba(60, 40, 22, 0.14);
+  --button-bg-start: #fef8ee;
+  --button-bg-end: #f2e4cc;
+  --button-bg-hover-start: #fffaf2;
+  --button-bg-hover-end: #eedcbe;
+  --button-border: rgba(90, 68, 42, 0.22);
+  --button-text: #3a2c1c;
+  --active-bg-start: #6e4f2d;
+  --active-bg-end: #52391f;
+  --active-text: #fff7ea;
+  --active-border: rgba(128, 92, 50, 0.56);
+  --text-inverse: #fff7ea;
+  --status-info-text: #3b66a2;
+  --status-info-bg: rgba(143, 179, 228, 0.24);
+  --status-success-text: #2b6a4f;
+  --status-success-bg: rgba(96, 164, 131, 0.2);
+  --status-warning-text: #7a541f;
+  --status-warning-bg: rgba(220, 169, 92, 0.24);
+  --status-warning-surface: rgba(245, 230, 198, 0.88);
+  --status-danger-text: #8f3b34;
+  --status-danger-bg: rgba(214, 153, 143, 0.2);
+  --status-danger-border: rgba(175, 104, 95, 0.45);
+  --status-danger-strong-bg: #8f3b34;
+  --status-danger-strong-text: #fff7ea;
+  --neutral-border: rgba(128, 92, 50, 0.3);
+  --neutral-surface: rgba(252, 244, 228, 0.92);
+  --field-bg: rgba(254, 248, 238, 0.96);
+  --field-border: rgba(90, 68, 42, 0.22);
+  --field-text: #3a2c1c;
+  --field-placeholder: #8a7058;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(196, 155, 95, 0.22), transparent 36%),
+    radial-gradient(circle at 92% 4%, rgba(210, 180, 130, 0.2), transparent 32%),
+    radial-gradient(circle at 75% 100%, rgba(130, 95, 55, 0.12), transparent 34%),
+    linear-gradient(170deg, var(--bg-top), var(--bg-bottom));
+}
+
+:root[data-text-size='large'] {
+  --font-scale: 1.08;
+}
+
+:root[data-contrast='high'] {
+  --bg-top: #faf8f5;
+  --bg-bottom: #e8e0d2;
+  --panel-bg: rgba(255, 253, 250, 0.98);
+  --panel-border: rgba(45, 42, 74, 0.48);
+  --muted-text: #3d3660;
+  --surface-primary: #fffdfb;
+  --surface-secondary: #f8f5f0;
+  --surface-tertiary: #f0ece4;
+  --surface-border-strong: rgba(45, 42, 74, 0.44);
+  --surface-text: #1e1b2e;
+  --surface-muted-text: #3d3660;
+  --shadow-focus: 0 0 0 3px rgba(45, 42, 74, 0.4);
+  --field-placeholder: #5c5680;
+  --neutral-border: rgba(45, 42, 74, 0.44);
+  --neutral-surface: #f8f5f0;
+}
+
+/* --- RESET --- */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: transparent;
+  color: var(--body-text);
+  font-size: calc(16px * var(--font-scale));
+  line-height: 1.45;
+}
+
+#root {
+  min-height: 100vh;
 }
 
 body,
@@ -25,4 +225,84 @@ h3,
 code,
 pre {
   font-family: var(--font-mono);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  min-width: 0;
+}
+
+button {
+  cursor: pointer;
+  border: 1px solid var(--button-border);
+  background: linear-gradient(180deg, var(--button-bg-start), var(--button-bg-end));
+  color: var(--button-text);
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem;
+  font-weight: 600;
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+button:hover:not(:disabled) {
+  background: linear-gradient(180deg, var(--button-bg-hover-start), var(--button-bg-hover-end));
+  border-color: rgba(196, 147, 62, 0.55);
+  transform: translateY(-1px);
+  box-shadow: 0 5px 16px rgba(30, 27, 46, 0.12);
+}
+
+button:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-color: rgba(196, 147, 62, 0.7);
+}
+
+:root[data-contrast='high'] button:focus-visible,
+:root[data-contrast='high'] input:focus-visible,
+:root[data-contrast='high'] textarea:focus-visible,
+:root[data-contrast='high'] select:focus-visible {
+  outline: 3px solid #2d2a4a;
+  outline-offset: 2px;
+  box-shadow: none;
+  border-color: #2d2a4a;
+}
+
+textarea,
+input,
+select {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--field-border);
+  padding: 0.45rem 0.55rem;
+  background: var(--field-bg);
+  color: var(--field-text);
+}
+
+textarea::placeholder,
+input::placeholder {
+  color: var(--field-placeholder);
+  opacity: 1;
+}
+
+:root[data-contrast='high'] button,
+:root[data-contrast='high'] input,
+:root[data-contrast='high'] textarea,
+:root[data-contrast='high'] select {
+  border-color: rgba(45, 42, 74, 0.58);
+  color: #1e1b2e;
+  background: #fffdfb;
+}
+
+:root[data-contrast='high'] .muted {
+  color: #3d3660;
 }

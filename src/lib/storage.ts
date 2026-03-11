@@ -942,9 +942,71 @@ function normalizeChapterSnapshot(snapshot: ChapterSnapshot): { snapshot: Chapte
     },
   };
 
+  const hasSnapshotChanges = (() => {
+    const hasVersionChange =
+      (typeof snapshot.version === 'number' && Number.isFinite(snapshot.version)
+        ? Math.max(1, Math.trunc(snapshot.version))
+        : 1) !== normalizedSnapshot.version;
+    if (hasVersionChange) {
+      return true;
+    }
+
+    if ((normalizeStoryText(snapshot.chapterId) || normalizedChapter.id) !== normalizedSnapshot.chapterId) {
+      return true;
+    }
+
+    if ((normalizeStoryText(snapshot.reason) || 'Snapshot') !== normalizedSnapshot.reason) {
+      return true;
+    }
+
+    if (normalizeStoryText(snapshot.milestoneLabel) !== normalizedSnapshot.milestoneLabel) {
+      return true;
+    }
+
+    if ((normalizeStoryText(snapshot.createdAt) || normalizedChapter.updatedAt) !== normalizedSnapshot.createdAt) {
+      return true;
+    }
+
+    const rawChapter = snapshot.chapter ?? ({} as Partial<ChapterDocument>);
+    const rawChapterNormalized = ensureChapterDocument(rawChapter);
+    const rawChapterContent = sanitizeLegacyChapterContent(rawChapterNormalized.content).content;
+
+    if (rawChapterNormalized.id !== normalizedSnapshot.chapter.id) return true;
+    if (rawChapterNormalized.title !== normalizedSnapshot.chapter.title) return true;
+    if (rawChapterContent !== normalizedSnapshot.chapter.content) return true;
+    if ((rawChapterNormalized.pointOfView ?? '') !== (normalizedSnapshot.chapter.pointOfView ?? '')) return true;
+    if ((rawChapterNormalized.synopsis ?? '') !== (normalizedSnapshot.chapter.synopsis ?? '')) return true;
+    if ((rawChapterNormalized.status ?? 'borrador') !== (normalizedSnapshot.chapter.status ?? 'borrador')) return true;
+    if ((rawChapterNormalized.wordTarget ?? null) !== (normalizedSnapshot.chapter.wordTarget ?? null)) return true;
+    if (rawChapterNormalized.lengthPreset !== normalizedSnapshot.chapter.lengthPreset) return true;
+    if (rawChapterNormalized.createdAt !== normalizedSnapshot.chapter.createdAt) return true;
+    if (rawChapterNormalized.updatedAt !== normalizedSnapshot.chapter.updatedAt) return true;
+    if ((rawChapter.contentJson ?? null) !== null) return true;
+
+    const rawNotes = rawChapterNormalized.manuscriptNotes ?? [];
+    const normalizedNotes = normalizedSnapshot.chapter.manuscriptNotes ?? [];
+    if (rawNotes.length !== normalizedNotes.length) return true;
+    for (let index = 0; index < rawNotes.length; index += 1) {
+      const left = rawNotes[index];
+      const right = normalizedNotes[index];
+      if (
+        left.id !== right.id ||
+        left.excerpt !== right.excerpt ||
+        left.note !== right.note ||
+        left.status !== right.status ||
+        left.createdAt !== right.createdAt ||
+        left.updatedAt !== right.updatedAt
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  })();
+
   return {
     snapshot: normalizedSnapshot,
-    changed: JSON.stringify(snapshot) !== JSON.stringify(normalizedSnapshot),
+    changed: hasSnapshotChanges,
   };
 }
 
@@ -3361,6 +3423,13 @@ export async function loadAppConfig(bookPath: string): Promise<AppConfig> {
       loaded.theme === 'light' || loaded.theme === 'dark' || loaded.theme === 'sepia'
         ? loaded.theme
         : DEFAULT_APP_CONFIG.theme,
+    editorBackgroundTone:
+      loaded.editorBackgroundTone === 'white' ||
+      loaded.editorBackgroundTone === 'mist' ||
+      loaded.editorBackgroundTone === 'sage' ||
+      loaded.editorBackgroundTone === 'sand'
+        ? loaded.editorBackgroundTone
+        : DEFAULT_APP_CONFIG.editorBackgroundTone,
     systemPrompt:
       typeof loaded.systemPrompt === 'string' && loaded.systemPrompt.trim()
         ? loaded.systemPrompt

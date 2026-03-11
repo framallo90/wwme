@@ -18,7 +18,8 @@ export type MainView =
   | 'language'
   | 'scratchpad'
   | 'loose-threads'
-  | 'char-matrix';
+  | 'char-matrix'
+  | 'saga-dashboard';
 
 export type ChatScope = 'chapter' | 'book';
 export type AiAssistantMode = 'rewrite' | 'consultor';
@@ -571,9 +572,13 @@ export interface LibraryIndex {
   updatedAt: string;
 }
 
+export type EditorBackgroundTone = 'default' | 'white' | 'mist' | 'sage' | 'sand';
+
 export interface AppConfig {
   model: string;
   language: string;
+  theme: 'system' | 'light' | 'dark' | 'sepia';
+  editorBackgroundTone: EditorBackgroundTone;
   systemPrompt: string;
   temperature: number;
   audioVoiceName: string;

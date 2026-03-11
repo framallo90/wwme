@@ -52,6 +52,7 @@ interface SidebarProps {
   onOpenEditorialChecklist: () => void;
   onExportCollaborationPatch: () => void;
   onImportCollaborationPatch: () => void;
+  exportBusy?: boolean;
 }
 
 function formatCount(value: number): string {
@@ -427,10 +428,11 @@ function Sidebar(props: SidebarProps) {
           Exportar <ContextTip text="Genera salidas editoriales, Amazon y colaboracion offline." />
         </summary>
         <div className="collapsible-body export-section">
+          {props.exportBusy ? <p className="muted">Exportacion en curso...</p> : null}
           <button
             type="button"
             onClick={props.onOpenEditorialChecklist}
-            disabled={!props.hasBook}
+            disabled={!props.hasBook || Boolean(props.exportBusy)}
             title="Revisa bloqueos editoriales antes de exportar o publicar."
           >
             Checklist editorial
@@ -438,33 +440,33 @@ function Sidebar(props: SidebarProps) {
           <button
             type="button"
             onClick={props.onExportChapter}
-            disabled={!props.hasBook || !props.activeChapterId}
+            disabled={!props.hasBook || !props.activeChapterId || Boolean(props.exportBusy)}
             title="Exporta el capitulo activo a Markdown."
           >
             Capitulo a Markdown
           </button>
-          <button type="button" onClick={props.onExportBookSplit} disabled={!props.hasBook} title="Exporta un archivo por capitulo.">
+          <button type="button" onClick={props.onExportBookSplit} disabled={!props.hasBook || Boolean(props.exportBusy)} title="Exporta un archivo por capitulo.">
             Libro por capitulos
           </button>
-          <button type="button" onClick={props.onExportBookSingle} disabled={!props.hasBook} title="Exporta todo el libro en un solo archivo.">
+          <button type="button" onClick={props.onExportBookSingle} disabled={!props.hasBook || Boolean(props.exportBusy)} title="Exporta todo el libro en un solo archivo.">
             Libro archivo unico
           </button>
-          <button type="button" onClick={props.onExportAmazonBundle} disabled={!props.hasBook} title="Genera pack TXT + HTML para carga rapida en Amazon.">
+          <button type="button" onClick={props.onExportAmazonBundle} disabled={!props.hasBook || Boolean(props.exportBusy)} title="Genera pack TXT + HTML para carga rapida en Amazon.">
             Pack Amazon (TXT + HTML)
           </button>
-          <button type="button" onClick={props.onExportBookDocx} disabled={!props.hasBook} title="Genera manuscrito editorial en formato DOCX.">
+          <button type="button" onClick={props.onExportBookDocx} disabled={!props.hasBook || Boolean(props.exportBusy)} title="Genera manuscrito editorial en formato DOCX.">
             Libro DOCX editorial
           </button>
-          <button type="button" onClick={props.onExportBookPdf} disabled={!props.hasBook} title="Genera manuscrito editorial en formato PDF con perfil reproducible.">
+          <button type="button" onClick={props.onExportBookPdf} disabled={!props.hasBook || Boolean(props.exportBusy)} title="Genera manuscrito editorial en formato PDF con perfil reproducible.">
             Libro PDF editorial
           </button>
-          <button type="button" onClick={props.onExportBookEpub} disabled={!props.hasBook} title="Genera eBook en formato EPUB.">
+          <button type="button" onClick={props.onExportBookEpub} disabled={!props.hasBook || Boolean(props.exportBusy)} title="Genera eBook en formato EPUB.">
             Libro EPUB editorial
           </button>
           <button
             type="button"
             onClick={props.onExportAudiobook}
-            disabled={!props.hasBook}
+            disabled={!props.hasBook || Boolean(props.exportBusy)}
             title="Genera audiolibro WAV con la voz del sistema en el idioma configurado."
           >
             Audiolibro WAV
@@ -472,7 +474,7 @@ function Sidebar(props: SidebarProps) {
           <button
             type="button"
             onClick={props.onExportCartographerPack}
-            disabled={!props.hasSaga}
+            disabled={!props.hasSaga || Boolean(props.exportBusy)}
             title="Exporta atlas, pines, capas y rutas en un pack dedicado para cartografia."
           >
             Pack cartografo
@@ -480,7 +482,7 @@ function Sidebar(props: SidebarProps) {
           <button
             type="button"
             onClick={props.onExportEditorPack}
-            disabled={!props.hasBook}
+            disabled={!props.hasBook || Boolean(props.exportBusy)}
             title="Exporta manuscrito y contexto narrativo para revision editorial."
           >
             Pack editor
@@ -488,7 +490,7 @@ function Sidebar(props: SidebarProps) {
           <button
             type="button"
             onClick={props.onExportLayoutPack}
-            disabled={!props.hasBook}
+            disabled={!props.hasBook || Boolean(props.exportBusy)}
             title="Exporta hoja de estilos interior, muestra y metricas para maquetacion."
           >
             Pack maquetacion
@@ -496,7 +498,7 @@ function Sidebar(props: SidebarProps) {
           <button
             type="button"
             onClick={props.onExportConsultantPack}
-            disabled={!props.hasBook}
+            disabled={!props.hasBook || Boolean(props.exportBusy)}
             title="Exporta manuscrito + contexto canonicamente relevante para consultoria analitica."
           >
             Pack consultoria
@@ -504,7 +506,7 @@ function Sidebar(props: SidebarProps) {
           <button
             type="button"
             onClick={props.onExportHistorianPack}
-            disabled={!props.hasSaga}
+            disabled={!props.hasSaga || Boolean(props.exportBusy)}
             title="Exporta cronologia, secretos y carriles para revisiones historicas."
           >
             Pack cronologia
@@ -512,7 +514,7 @@ function Sidebar(props: SidebarProps) {
           <button
             type="button"
             onClick={props.onExportTimelineInteractive}
-            disabled={!props.hasSaga}
+            disabled={!props.hasSaga || Boolean(props.exportBusy)}
             title="Genera una timeline HTML readonly tipo Gantt para compartir con edicion."
           >
             Timeline interactiva
@@ -520,7 +522,7 @@ function Sidebar(props: SidebarProps) {
           <button
             type="button"
             onClick={props.onExportAllRolePacks}
-            disabled={!props.hasBook && !props.hasSaga}
+            disabled={(!props.hasBook && !props.hasSaga) || Boolean(props.exportBusy)}
             title="Genera en lote los packs por rol disponibles segun el contexto abierto."
           >
             Lote packs por rol
@@ -528,7 +530,7 @@ function Sidebar(props: SidebarProps) {
           <button
             type="button"
             onClick={props.onExportSagaBible}
-            disabled={!props.hasSaga}
+            disabled={!props.hasSaga || Boolean(props.exportBusy)}
             title="Compila una biblia de saga en HTML imprimible, util para revision o PDF."
           >
             Biblia de saga
@@ -536,7 +538,7 @@ function Sidebar(props: SidebarProps) {
           <button
             type="button"
             onClick={props.onExportCollaborationPatch}
-            disabled={!props.hasBook}
+            disabled={!props.hasBook || Boolean(props.exportBusy)}
             title="Exporta un paquete de edicion JSON para enviar a un coautor."
           >
             Exportar paquete de edicion
@@ -544,7 +546,7 @@ function Sidebar(props: SidebarProps) {
           <button
             type="button"
             onClick={props.onImportCollaborationPatch}
-            disabled={!props.hasBook}
+            disabled={!props.hasBook || Boolean(props.exportBusy)}
             title="Importa un paquete de edicion y aplica cambios al libro."
           >
             Importar paquete de edicion

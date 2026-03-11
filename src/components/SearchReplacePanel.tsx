@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { ChapterSearchMatch, ReplacePreviewReport, SagaBookSearchMatch } from '../lib/searchReplace';
 
 interface SearchReplacePanelProps {
@@ -7,6 +8,8 @@ interface SearchReplacePanelProps {
   replacement: string;
   caseSensitive: boolean;
   wholeWord: boolean;
+  useRegex: boolean;
+  patternError: string | null;
   activeChapterId: string | null;
   results: ChapterSearchMatch[];
   totalMatches: number;
@@ -15,6 +18,7 @@ interface SearchReplacePanelProps {
   onReplacementChange: (value: string) => void;
   onCaseSensitiveChange: (value: boolean) => void;
   onWholeWordChange: (value: boolean) => void;
+  onUseRegexChange: (value: boolean) => void;
   onRunSearch: () => void;
   onPreviewReplaceInBook: () => void;
   onReplaceInChapter: () => void;
@@ -82,7 +86,21 @@ function SearchReplacePanel(props: SearchReplacePanelProps) {
           <input type="checkbox" checked={props.wholeWord} onChange={(event) => props.onWholeWordChange(event.target.checked)} />
           Palabra completa
         </label>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={props.useRegex}
+            onChange={(event) => props.onUseRegexChange(event.target.checked)}
+          />
+          Expresion regular (regex)
+        </label>
       </div>
+
+      {props.patternError ? (
+        <p className="search-pattern-warning">
+          Regex invalido: <strong>{props.patternError}</strong>
+        </p>
+      ) : null}
 
       <div className="search-actions-row">
         <button type="button" onClick={props.onRunSearch} disabled={props.busy}>
@@ -202,4 +220,4 @@ function SearchReplacePanel(props: SearchReplacePanelProps) {
   );
 }
 
-export default SearchReplacePanel;
+export default memo(SearchReplacePanel);

@@ -1,5 +1,5 @@
 import { Suspense, lazy, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { confirm, open } from '@tauri-apps/plugin-dialog';
 import { exists, readFile } from '@tauri-apps/plugin-fs';
@@ -1077,6 +1077,7 @@ function App() {
   const dirtyRef = useRef(false);
   const saveInFlightRef = useRef(false);
   const closeInterceptBusyRef = useRef(false);
+  const closeInterceptApprovedRef = useRef(false);
   const persistBookBeforeCloseRef = useRef<() => Promise<boolean>>(() => Promise.resolve(true));
   const languageSaveResetTimerRef = useRef<number | null>(null);
   const snapshotUndoCursorRef = useRef<Record<string, number | undefined>>({});
@@ -2973,10 +2974,17 @@ function App() {
   useEffect(() => {
     const root = document.documentElement;
     root.setAttribute('data-theme', resolvedTheme);
+    root.setAttribute('data-editor-tone', config.editorBackgroundTone);
     root.setAttribute('data-contrast', config.accessibilityHighContrast ? 'high' : 'normal');
     root.setAttribute('data-text-size', config.accessibilityLargeText ? 'large' : 'normal');
     root.lang = activeLanguage;
-  }, [resolvedTheme, config.accessibilityHighContrast, config.accessibilityLargeText, activeLanguage]);
+  }, [
+    resolvedTheme,
+    config.editorBackgroundTone,
+    config.accessibilityHighContrast,
+    config.accessibilityLargeText,
+    activeLanguage,
+  ]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -3097,9 +3105,8 @@ function App() {
       return false;
     }
 
-    let appWindow: ReturnType<typeof getCurrentWindow>;
     try {
-      appWindow = getCurrentWindow();
+      getCurrentWindow();
     } catch {
       setStatus('No se puede cerrar desde el navegador.');
       return false;
@@ -3123,9 +3130,11 @@ function App() {
         }
       }
 
-      await appWindow.destroy();
+      closeInterceptApprovedRef.current = true;
+      await invoke('quit_app');
       return true;
     } catch (error) {
+      closeInterceptApprovedRef.current = false;
       setStatus(`Salir de la app: ${formatUnknownError(error)}`);
       return false;
     } finally {
@@ -3154,7 +3163,15 @@ function App() {
       try {
         const appWindow = getCurrentWindow();
         unlistenCloseRequested = await appWindow.onCloseRequested((event) => {
+          if (closeInterceptApprovedRef.current) {
+            closeInterceptApprovedRef.current = false;
+            return;
+          }
+
           event.preventDefault();
+          if (closeInterceptBusyRef.current) {
+            return;
+          }
           void requestAppQuit();
         });
       } catch {
@@ -4351,6 +4368,30 @@ function App() {
       setStatus(`Error guardando settings: ${formatUnknownError(error)}`);
     }
   }, [book, config, activeLanguage, syncBookToLibrary]);
+
+  const handleEditorBackgroundToneChange = useCallback(
+    (tone: AppConfig['editorBackgroundTone']) => {
+      setConfig((previous) => {
+        if (previous.editorBackgroundTone === tone) {
+          return previous;
+        }
+
+        const nextConfig: AppConfig = {
+          ...previous,
+          editorBackgroundTone: tone,
+        };
+
+        if (book?.path) {
+          void saveAppConfig(book.path, nextConfig).catch((error) => {
+            setStatus(`No se pudo guardar el fondo del editor: ${formatUnknownError(error)}`);
+          });
+        }
+
+        return nextConfig;
+      });
+    },
+    [book?.path],
+  );
 
   const handlePickBackupDirectory = useCallback(async () => {
     const selectedDirectoryResult = await open({
@@ -9022,6 +9063,7 @@ function App() {
         chapterPageEnd={activeChapterPageRange?.end ?? 0}
         bookWordCount={bookWordCount}
         bookEstimatedPages={bookEstimatedPages}
+        editorBackgroundTone={config.editorBackgroundTone}
         continuityHighlightEnabled={continuityHighlightEnabled}
         continuityHighlights={continuityHighlights}
         continuityReport={activeChapterContinuityReport}
@@ -9043,6 +9085,7 @@ function App() {
         onExportChapterAudio={() => {
           void handleExportActiveChapterAudio();
         }}
+        onEditorBackgroundToneChange={handleEditorBackgroundToneChange}
         onLengthPresetChange={handleChapterLengthPresetChange}
         onContinuityHighlightToggle={setContinuityHighlightEnabled}
         onRefreshContinuityBriefing={handleRefreshContinuityBriefing}
@@ -9121,6 +9164,7 @@ function App() {
     handleReadActiveChapterAloud,
     handleTogglePauseReadAloud,
     handleExportActiveChapterAudio,
+    handleEditorBackgroundToneChange,
     handleInsertSemanticReference,
     handleLookupLoreFromSelection,
     handleOpenLorePeek,

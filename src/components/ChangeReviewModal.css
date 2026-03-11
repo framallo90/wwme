@@ -15,7 +15,7 @@
   border: 1px solid rgba(30, 62, 125, 0.4);
   border-radius: 16px;
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.98), rgba(237, 247, 255, 0.98));
-  box-shadow: 0 22px 50px rgba(8, 18, 45, 0.34);
+  box-shadow: 0 22px 50px rgba(20, 18, 38, 0.34);
   padding: 0.9rem;
   display: grid;
   gap: 0.7rem;
@@ -23,7 +23,7 @@
 
 .change-review-header h2 {
   margin: 0;
-  color: #102048;
+  color: #1e1b2e;
 }
 
 .change-review-header p {
@@ -37,7 +37,7 @@
 }
 
 .change-review-diff {
-  border: 1px solid rgba(22, 49, 104, 0.24);
+  border: 1px solid rgba(45, 42, 74, 0.24);
   border-radius: 12px;
   padding: 0.55rem;
   background: rgba(255, 255, 255, 0.92);

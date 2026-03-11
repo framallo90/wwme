@@ -2,7 +2,7 @@
 
 Procesador de libro offline para crear, escribir, reescribir, revisar y modificar texto + portada/contraportada con IA local (Ollama).
 
-Version base publicada: `0.3.0`
+Version base publicada: `0.4.0`
 Estado de desarrollo actual: `camino a v4`
 
 Stack:
@@ -63,6 +63,19 @@ Auditoria especifica de contraste (WCAG):
 npm run verify:a11y-contrast
 ```
 
+QA visual automatizado (stress + contraste + auditoria CSS + export tokens):
+
+```bash
+npm run verify:visual-qa
+```
+
+Auditoria de colores hardcodeados y export de tokens:
+
+```bash
+npm run audit:css-tokens
+npm run design:tokens
+```
+
 Migracion de historial para limpiar `contentJson` en `chapters/` y `versions/`:
 
 ```bash
@@ -94,7 +107,7 @@ Regla de calidad del proyecto:
 - `README.md`: vision general, stack y comandos base.
 - `docs/operacion-local.md`: ejecucion, verificacion y troubleshooting.
 - `docs/saga-timeline-guia.md`: uso diario de saga, timeline canonica y seguimiento de personajes.
-- `docs/v4-status.md`: estado funcional desde `0.3.0`, alcance ya incorporado y pendientes para la futura `v4`.
+- `docs/v4-backlog.md`: backlog canonico v4 (estado actual, pendientes reales y criterio de cierre).
 - `docs/versioning.md`: versionado y liberaciones.
 - `CHANGELOG.md`: historial de cambios por version.
 
@@ -105,9 +118,9 @@ Resumen corto del estado actual:
 - Ya incorporado: saga compartida, timeline canonica, plot board por actos/subtramas, grafo de relaciones, atlas visual con mapa/pines/capas/rutas, banco de ideas, modo foco, control de cambios con hitos, reglas fijadas para IA y contexto visible.
 - Ya incorporado: trust layer para IA con `aiSafeMode`, revision manual para cambios de riesgo, rollback de sesiones, auditoria local y transacciones recuperables.
 - Ya incorporado: validacion Amazon/KDP, export DOCX/EPUB/pack Amazon + packs modulares (cartografo/editor/cronologia/maquetacion/consultoria), analisis de estilo, lectura/exportacion de audio y verificaciones locales.
-- Pendiente para objetivo v4: continuidad semantica multi-escena mas profunda, dependencias visuales cruzadas timeline/atlas, evidencia consultor mas precisa y stress-tests UI reales para sagas grandes.
+- Pendiente para objetivo v4: QA manual final en runtime real y cierre de integraciones MCP externas (browser/design) sobre la base automatizada ya disponible.
 
-Detalle completo en `docs/v4-status.md`.
+Detalle completo en `docs/v4-backlog.md`.
 
 ## Estructura de libro en disco
 

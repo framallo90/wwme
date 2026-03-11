@@ -8,6 +8,7 @@ interface VersionDiffViewProps {
   bookPath: string | null;
   chapters: ChapterDocument[];
   activeChapterId: string | null;
+  onRestoreSnapshot?: (chapterId: string, version: number) => void;
 }
 
 interface VersionChoice {
@@ -20,6 +21,16 @@ const CURRENT_VERSION_KEY = 'current';
 
 function snapshotKey(version: number): string {
   return `snapshot:${version}`;
+}
+
+function parseSnapshotVersionKey(value: string): number | null {
+  const match = value.match(/^snapshot:(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(match[1] ?? '', 10);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function formatUnknownError(error: unknown): string {
@@ -150,6 +161,8 @@ function VersionDiffView(props: VersionDiffViewProps) {
     : CURRENT_VERSION_KEY;
   const leftVersionKey = availableVersionKeys.has(leftSelection) ? leftSelection : fallbackLeftKey;
   const rightVersionKey = availableVersionKeys.has(rightSelection) ? rightSelection : CURRENT_VERSION_KEY;
+  const leftSnapshotVersion = parseSnapshotVersionKey(leftVersionKey);
+  const rightSnapshotVersion = parseSnapshotVersionKey(rightVersionKey);
 
   const snapshotByVersion = useMemo(() => {
     const map = new Map<number, ChapterSnapshot>();
@@ -254,6 +267,38 @@ function VersionDiffView(props: VersionDiffViewProps) {
           }}
         >
           Invertir
+        </button>
+        <button
+          type="button"
+          disabled={!selectedChapterId || leftSnapshotVersion === null}
+          onClick={() => {
+            if (!selectedChapterId || leftSnapshotVersion === null || !props.onRestoreSnapshot) {
+              return;
+            }
+            if (!globalThis.confirm(`Restaurar ${selectedChapterId} a la version base v${leftSnapshotVersion}?`)) {
+              return;
+            }
+            props.onRestoreSnapshot(selectedChapterId, leftSnapshotVersion);
+          }}
+          title={leftSnapshotVersion === null ? 'Selecciona una version historica como base para restaurar.' : 'Restaura el capitulo usando la version base seleccionada.'}
+        >
+          Restaurar base
+        </button>
+        <button
+          type="button"
+          disabled={!selectedChapterId || rightSnapshotVersion === null}
+          onClick={() => {
+            if (!selectedChapterId || rightSnapshotVersion === null || !props.onRestoreSnapshot) {
+              return;
+            }
+            if (!globalThis.confirm(`Restaurar ${selectedChapterId} a la version comparada v${rightSnapshotVersion}?`)) {
+              return;
+            }
+            props.onRestoreSnapshot(selectedChapterId, rightSnapshotVersion);
+          }}
+          title={rightSnapshotVersion === null ? 'Selecciona una version historica comparada para restaurar.' : 'Restaura el capitulo usando la version comparada seleccionada.'}
+        >
+          Restaurar comparada
         </button>
       </div>
 

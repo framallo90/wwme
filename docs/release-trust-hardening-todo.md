@@ -1,5 +1,7 @@
 # Release Trust Hardening TODO
 
+> **DEPRECADO.** El backlog canonico unico esta en [`v4-backlog.md`](v4-backlog.md).
+
 Estado actualizado: 2026-03-08
 
 - [x] 1) Refactor `App.tsx` (extraer flujo de auto-aplicado de libro a modulo reutilizable y testeable).
@@ -15,13 +17,14 @@ Estado actualizado: 2026-03-08
 - [x] 4) Umbral de riesgo: si expansion/continuidad detectan riesgo alto, forzar aprobacion manual.
 - [x] 5) Auditoria persistente + transacciones IA + metricas de confianza (`ai-audit/`, `ai-transactions/`, `trust-metrics.json`).
 
-## Verificacion Blindado (2026-03-06)
+## Verificacion Blindado (actualizado 2026-03-08)
 
-- [ ] Build verify (`writewme-verify-build`): bloqueado por entorno (`spawn EPERM` al iniciar subprocesos/esbuild), no por una regresion clara de app.
+- [ ] Build verify (`writewme-verify-build`) en sandbox: bloqueado por entorno (`spawn EPERM` al iniciar subprocesos/esbuild).
+- [x] Build en host real: PASS reportado en entorno local de usuario (2026-03-08).
 - [x] Ollama: PASS por skill (`verify_ollama.py`) con modelo `llama3.2:3b`.
 - [x] Integridad de ejemplos: PASS con `node scripts/verify_examples.mjs` en `examples/demo-book` y `examples/novela-el-faro-y-la-niebla`.
 - [x] `scripts/verify_ollama.py` y `scripts/verify_book.py` alineados con skills/documentacion del repo.
-- [x] Unit tests (`npm run test`): PASS (87 tests).
+- [x] Unit tests (`npm run test`): PASS (89 tests).
 - [x] Export QA E2E (`npm run verify:exports:e2e`): PASS (5 packs reales generados y validados).
 - [x] Stress UI (`npm run verify:stress-ui`): PASS (reporte JSON en `reports/stress-ui/...`).
 - [x] A11y contraste (`npm run verify:a11y-contrast`): PASS (WCAG, 6/6).
@@ -44,5 +47,5 @@ Estado actualizado: 2026-03-08
 
 - [x] `npx tsc -b`: PASS.
 - [x] `npm run lint`: PASS.
-- [x] `npm run test`: PASS (87 tests).
+- [x] `npm run test`: PASS (89 tests).
 - [ ] `npm run build`: bloqueado por entorno (`spawn EPERM` al iniciar worker de esbuild).

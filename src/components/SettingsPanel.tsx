@@ -3,6 +3,14 @@ import type { AppConfig } from '../types/book';
 import { SYSTEM_PROMPT_PRESETS } from '../lib/prompts';
 import type { OllamaServiceStatus } from '../lib/ollamaClient';
 
+const EDITOR_BACKGROUND_OPTIONS: Array<{ value: AppConfig['editorBackgroundTone']; label: string }> = [
+  { value: 'default', label: 'Predeterminado' },
+  { value: 'white', label: 'Blanco limpio' },
+  { value: 'mist', label: 'Bruma suave' },
+  { value: 'sage', label: 'Salvia suave' },
+  { value: 'sand', label: 'Arena suave' },
+];
+
 interface SettingsPanelProps {
   config: AppConfig;
   bookPath: string | null;
@@ -99,6 +107,44 @@ function SettingsPanel(props: SettingsPanelProps) {
           placeholder="es"
         />
       </label>
+
+      <label>
+        Tema visual
+        <select
+          value={config.theme}
+          onChange={(event) =>
+            props.onChange({
+              ...config,
+              theme: event.target.value as AppConfig['theme'],
+            })
+          }
+        >
+          <option value="system">Sistema</option>
+          <option value="light">Claro</option>
+          <option value="dark">Oscuro</option>
+          <option value="sepia">Sepia</option>
+        </select>
+      </label>
+
+      <label>
+        Fondo del editor
+        <select
+          value={config.editorBackgroundTone}
+          onChange={(event) =>
+            props.onChange({
+              ...config,
+              editorBackgroundTone: event.target.value as AppConfig['editorBackgroundTone'],
+            })
+          }
+        >
+          {EDITOR_BACKGROUND_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="muted">Cambia solo la mesa de escritura: puedes dejar el tema general y suavizar el papel del manuscrito.</p>
 
       <label>
         Temperatura

@@ -105,11 +105,16 @@ interface ImportedAtlasPinDraft {
   notes: string;
 }
 
+interface ImportedAtlasPinsParseResult {
+  pins: ImportedAtlasPinDraft[];
+  skipped: string[];
+}
+
 function parseImportedAtlasPins(
   raw: string,
   locations: SagaProject['metadata']['worldBible']['locations'],
   defaultLayerId: string,
-): ImportedAtlasPinDraft[] {
+): ImportedAtlasPinsParseResult {
   const locationLookup = new Map<string, string>();
   for (const location of locations) {
     locationLookup.set(normalizeAtlasLookup(location.id), location.id);
@@ -121,28 +126,53 @@ function parseImportedAtlasPins(
     }
   }
 
-  const normalizePinRecord = (entry: Record<string, unknown>): ImportedAtlasPinDraft | null => {
+  const normalizePinRecord = (entry: Record<string, unknown>): { pin: ImportedAtlasPinDraft | null; skipped: string | null } => {
     const rawLocationId =
       String(entry.locationId ?? entry.locationid ?? entry.location ?? entry.name ?? entry.label ?? '').trim();
     const resolvedLocationId = locationLookup.get(normalizeAtlasLookup(rawLocationId)) ?? rawLocationId;
     if (!resolvedLocationId || !locations.some((location) => location.id === resolvedLocationId)) {
-      return null;
+      return {
+        pin: null,
+        skipped: rawLocationId || 'ubicacion sin nombre',
+      };
     }
 
     const xPct = Number(entry.xPct ?? entry.xpct ?? entry.x ?? entry.left ?? 0);
     const yPct = Number(entry.yPct ?? entry.ypct ?? entry.y ?? entry.top ?? 0);
     if (!Number.isFinite(xPct) || !Number.isFinite(yPct)) {
-      return null;
+      return {
+        pin: null,
+        skipped: rawLocationId || resolvedLocationId,
+      };
     }
 
     return {
-      locationId: resolvedLocationId,
-      label: String(entry.label ?? entry.name ?? rawLocationId).trim(),
-      layerId: String(entry.layerId ?? entry.layerid ?? entry.layer ?? defaultLayerId).trim() || defaultLayerId,
-      xPct,
-      yPct,
-      notes: String(entry.notes ?? '').trim(),
+      pin: {
+        locationId: resolvedLocationId,
+        label: String(entry.label ?? entry.name ?? rawLocationId).trim(),
+        layerId: String(entry.layerId ?? entry.layerid ?? entry.layer ?? defaultLayerId).trim() || defaultLayerId,
+        xPct,
+        yPct,
+        notes: String(entry.notes ?? '').trim(),
+      },
+      skipped: null,
     };
+  };
+
+  const collectResults = (entries: Record<string, unknown>[]): ImportedAtlasPinsParseResult => {
+    const pins: ImportedAtlasPinDraft[] = [];
+    const skipped: string[] = [];
+
+    for (const entry of entries) {
+      const normalized = normalizePinRecord(entry);
+      if (normalized.pin) {
+        pins.push(normalized.pin);
+      } else if (normalized.skipped) {
+        skipped.push(normalized.skipped);
+      }
+    }
+
+    return { pins, skipped };
   };
 
   try {
@@ -157,22 +187,16 @@ function parseImportedAtlasPins(
           : [];
 
     if (Array.isArray(candidates)) {
-      return candidates
-        .map((entry) =>
-          entry && typeof entry === 'object'
-            ? normalizePinRecord(entry as Record<string, unknown>)
-            : null,
-        )
-        .filter((entry): entry is ImportedAtlasPinDraft => Boolean(entry));
+      return collectResults(
+        candidates.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object'),
+      );
     }
   } catch {
     const rows = parseCsvRows(raw);
-    return rows
-      .map((entry) => normalizePinRecord(entry))
-      .filter((entry): entry is ImportedAtlasPinDraft => Boolean(entry));
+    return collectResults(rows);
   }
 
-  return [];
+  return { pins: [], skipped: [] };
 }
 
 function findNearestPinnedNode(
@@ -320,13 +344,20 @@ function WorldMapView(props: WorldMapViewProps) {
     }
 
     const raw = await readTextFile(selected);
-    const importedPins = parseImportedAtlasPins(raw, saga.metadata.worldBible.locations, effectiveLayerId);
+    const importResult = parseImportedAtlasPins(raw, saga.metadata.worldBible.locations, effectiveLayerId);
+    const importedPins = importResult.pins;
     if (importedPins.length === 0) {
-      setAtlasNotice('No se encontraron pines importables. Usa JSON/CSV con locationId, xPct y yPct.');
+      const skippedPreview =
+        importResult.skipped.length > 0
+          ? ` Saltadas: ${importResult.skipped.slice(0, 4).join(', ')}${importResult.skipped.length > 4 ? '...' : ''}.`
+          : '';
+      setAtlasNotice(`No se encontraron pines importables. Usa JSON/CSV con locationId, xPct y yPct.${skippedPreview}`);
       return;
     }
 
     const mergedPins = [...atlas.pins];
+    let updatedCount = 0;
+    let createdCount = 0;
     for (const importedPin of importedPins) {
       const existingIndex = mergedPins.findIndex((pin) => pin.locationId === importedPin.locationId);
       const normalizedPin = {
@@ -340,8 +371,10 @@ function WorldMapView(props: WorldMapViewProps) {
       };
       if (existingIndex >= 0) {
         mergedPins[existingIndex] = normalizedPin;
+        updatedCount += 1;
       } else {
         mergedPins.push(normalizedPin);
+        createdCount += 1;
       }
     }
 
@@ -364,7 +397,13 @@ function WorldMapView(props: WorldMapViewProps) {
     ];
 
     updateAtlas({ pins: mergedPins, layers: nextLayers });
-    setAtlasNotice(`Importacion asistida completada: ${importedPins.length} pin(es) vinculados a lugares existentes.`);
+    const skippedInfo =
+      importResult.skipped.length > 0
+        ? ` | Saltadas ${importResult.skipped.length}: ${importResult.skipped.slice(0, 3).join(', ')}${importResult.skipped.length > 3 ? '...' : ''}`
+        : '';
+    setAtlasNotice(
+      `Importacion asistida completada: ${importedPins.length} pin(es), ${createdCount} nuevos, ${updatedCount} actualizados.${skippedInfo}`,
+    );
   };
 
   const handleCanvasClick = (event: MouseEvent<HTMLDivElement>) => {

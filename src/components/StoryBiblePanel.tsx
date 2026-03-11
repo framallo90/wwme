@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { normalizeCanonStatus } from '../lib/canon';
 import type { BookSecret, StoryBible, StoryCharacter, StoryLocation } from '../types/book';
@@ -7,8 +7,8 @@ interface StoryBiblePanelProps {
   storyBible: StoryBible;
   hasActiveChapter: boolean;
   onChange: (next: StoryBible) => void;
-  onSyncFromActiveChapter: () => void;
-  onSave: () => void;
+  onSyncFromActiveChapter: (baseStoryBible?: StoryBible) => void;
+  onSave: (nextStoryBible?: StoryBible) => void;
 }
 
 function createLocalId(prefix: 'char' | 'loc' | 'secret'): string {
@@ -55,65 +55,126 @@ function createEmptyLocation(): StoryLocation {
 function StoryBiblePanel(props: StoryBiblePanelProps) {
   const [showAdvice, setShowAdvice] = useState(false);
   const [showApocryphal, setShowApocryphal] = useState(false);
+  const [draftStoryBible, setDraftStoryBible] = useState<StoryBible>(props.storyBible);
+  const [isDraftDirty, setIsDraftDirty] = useState(false);
+
+  useEffect(() => {
+    // Sincroniza draft local cuando cambia la fuente externa (abrir libro/sync).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDraftStoryBible(props.storyBible);
+    setIsDraftDirty(false);
+  }, [props.storyBible]);
+
+  const applyDraft = useCallback((updater: (current: StoryBible) => StoryBible) => {
+    setDraftStoryBible((previous) => updater(previous));
+    setIsDraftDirty(true);
+  }, []);
+
+  const commitDraft = useCallback(() => {
+    if (!isDraftDirty) {
+      return;
+    }
+    props.onChange(draftStoryBible);
+    setIsDraftDirty(false);
+  }, [draftStoryBible, isDraftDirty, props]);
+
+  const handleFormBlurCapture = useCallback(
+    (event: React.FocusEvent<HTMLElement>) => {
+      if (!isDraftDirty) {
+        return;
+      }
+
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+
+      const tagName = target.tagName.toLowerCase();
+      if (tagName === 'input' || tagName === 'textarea' || tagName === 'select' || target.isContentEditable) {
+        commitDraft();
+      }
+    },
+    [commitDraft, isDraftDirty],
+  );
 
   const updateCharacter = (id: string, patch: Partial<StoryCharacter>) => {
-    props.onChange({
-      ...props.storyBible,
-      characters: props.storyBible.characters.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
-    });
+    applyDraft((current) => ({
+      ...current,
+      characters: current.characters.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
+    }));
   };
 
+  const confirmRemoval = (label: string): boolean =>
+    globalThis.confirm(`Quitar ${label}? Esta accion se guardara cuando guardes la biblia.`);
+
   const removeCharacter = (id: string) => {
-    props.onChange({
-      ...props.storyBible,
-      characters: props.storyBible.characters.filter((entry) => entry.id !== id),
-    });
+    const character = draftStoryBible.characters.find((entry) => entry.id === id);
+    const label = character?.name?.trim() || 'este personaje';
+    if (!confirmRemoval(label)) {
+      return;
+    }
+    applyDraft((current) => ({
+      ...current,
+      characters: current.characters.filter((entry) => entry.id !== id),
+    }));
   };
 
   const updateLocation = (id: string, patch: Partial<StoryLocation>) => {
-    props.onChange({
-      ...props.storyBible,
-      locations: props.storyBible.locations.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
-    });
+    applyDraft((current) => ({
+      ...current,
+      locations: current.locations.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
+    }));
   };
 
   const removeLocation = (id: string) => {
-    props.onChange({
-      ...props.storyBible,
-      locations: props.storyBible.locations.filter((entry) => entry.id !== id),
-    });
+    const location = draftStoryBible.locations.find((entry) => entry.id === id);
+    const label = location?.name?.trim() || 'esta ubicacion';
+    if (!confirmRemoval(label)) {
+      return;
+    }
+    applyDraft((current) => ({
+      ...current,
+      locations: current.locations.filter((entry) => entry.id !== id),
+    }));
   };
 
   const updateSecret = (id: string, patch: Partial<BookSecret>) => {
-    const secrets = props.storyBible.secrets ?? [];
-    props.onChange({
-      ...props.storyBible,
-      secrets: secrets.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
+    applyDraft((current) => {
+      const secrets = current.secrets ?? [];
+      return {
+        ...current,
+        secrets: secrets.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
+      };
     });
   };
 
   const removeSecret = (id: string) => {
-    props.onChange({
-      ...props.storyBible,
-      secrets: (props.storyBible.secrets ?? []).filter((entry) => entry.id !== id),
-    });
+    const secret = (draftStoryBible.secrets ?? []).find((entry) => entry.id === id);
+    const label = secret?.title?.trim() || 'este secreto';
+    if (!confirmRemoval(label)) {
+      return;
+    }
+    applyDraft((current) => ({
+      ...current,
+      secrets: (current.secrets ?? []).filter((entry) => entry.id !== id),
+    }));
   };
 
   const visibleCharacters = showApocryphal
-    ? props.storyBible.characters
-    : props.storyBible.characters.filter((entry) => normalizeCanonStatus(entry.canonStatus) === 'canonical');
+    ? draftStoryBible.characters
+    : draftStoryBible.characters.filter((entry) => normalizeCanonStatus(entry.canonStatus) === 'canonical');
   const visibleLocations = showApocryphal
-    ? props.storyBible.locations
-    : props.storyBible.locations.filter((entry) => normalizeCanonStatus(entry.canonStatus) === 'canonical');
-  const apocryphalCharactersCount = props.storyBible.characters.filter(
+    ? draftStoryBible.locations
+    : draftStoryBible.locations.filter((entry) => normalizeCanonStatus(entry.canonStatus) === 'canonical');
+  const apocryphalCharactersCount = draftStoryBible.characters.filter(
     (entry) => normalizeCanonStatus(entry.canonStatus) === 'apocryphal',
   ).length;
-  const apocryphalLocationsCount = props.storyBible.locations.filter(
+  const apocryphalLocationsCount = draftStoryBible.locations.filter(
     (entry) => normalizeCanonStatus(entry.canonStatus) === 'apocryphal',
   ).length;
 
   return (
-    <section className="settings-view story-bible-view">
+    <section className="settings-view story-bible-view" onBlurCapture={handleFormBlurCapture}>
       <header>
         <div className="story-bible-header-top">
           <h2>Biblia de la historia</h2>
@@ -126,13 +187,29 @@ function StoryBiblePanel(props: StoryBiblePanelProps) {
             </button>
             <button
               type="button"
-              onClick={props.onSyncFromActiveChapter}
+              onClick={() => {
+                if (isDraftDirty) {
+                  props.onChange(draftStoryBible);
+                  setIsDraftDirty(false);
+                }
+                props.onSyncFromActiveChapter(draftStoryBible);
+              }}
               disabled={!props.hasActiveChapter}
               title="Detecta personajes y lugares nuevos del capitulo activo y los agrega a la biblia."
             >
               Sincronizar capitulo activo
             </button>
-            <button type="button" onClick={props.onSave} title="Guarda todos los cambios de la biblia.">
+            <button
+              type="button"
+              onClick={() => {
+                if (isDraftDirty) {
+                  props.onChange(draftStoryBible);
+                  setIsDraftDirty(false);
+                }
+                props.onSave(draftStoryBible);
+              }}
+              title="Guarda todos los cambios de la biblia."
+            >
               Guardar biblia
             </button>
           </div>
@@ -165,10 +242,10 @@ function StoryBiblePanel(props: StoryBiblePanelProps) {
           <button
             type="button"
             onClick={() =>
-              props.onChange({
-                ...props.storyBible,
-                characters: [...props.storyBible.characters, createEmptyCharacter()],
-              })
+              applyDraft((current) => ({
+                ...current,
+                characters: [...current.characters, createEmptyCharacter()],
+              }))
             }
           >
             Agregar personaje
@@ -300,10 +377,10 @@ function StoryBiblePanel(props: StoryBiblePanelProps) {
           <button
             type="button"
             onClick={() =>
-              props.onChange({
-                ...props.storyBible,
-                locations: [...props.storyBible.locations, createEmptyLocation()],
-              })
+              applyDraft((current) => ({
+                ...current,
+                locations: [...current.locations, createEmptyLocation()],
+              }))
             }
           >
             Agregar lugar
@@ -389,12 +466,12 @@ function StoryBiblePanel(props: StoryBiblePanelProps) {
         Reglas de continuidad global
         <textarea
           rows={4}
-          value={props.storyBible.continuityRules}
+          value={draftStoryBible.continuityRules}
           onChange={(event) =>
-            props.onChange({
-              ...props.storyBible,
+            applyDraft((current) => ({
+              ...current,
               continuityRules: event.target.value,
-            })
+            }))
           }
           placeholder="Hechos que no se deben contradecir en ningun capitulo."
         />
@@ -406,21 +483,21 @@ function StoryBiblePanel(props: StoryBiblePanelProps) {
           <button
             type="button"
             onClick={() =>
-              props.onChange({
-                ...props.storyBible,
-                secrets: [...(props.storyBible.secrets ?? []), createEmptySecret()],
-              })
+              applyDraft((current) => ({
+                ...current,
+                secrets: [...(current.secrets ?? []), createEmptySecret()],
+              }))
             }
           >
             Agregar secreto
           </button>
         </div>
         <p className="muted">Verdades ocultas que el lector o los personajes no saben todavia. Separadas de los hilos abiertos: esto es lo que ES, no lo que falta resolver.</p>
-        {(props.storyBible.secrets ?? []).length === 0 ? (
+        {(draftStoryBible.secrets ?? []).length === 0 ? (
           <p className="muted">Sin secretos definidos.</p>
         ) : (
           <div className="bible-card-list">
-            {(props.storyBible.secrets ?? []).map((secret) => (
+            {(draftStoryBible.secrets ?? []).map((secret) => (
               <article key={secret.id} className="bible-card">
                 <div className="bible-card-head">
                   <strong>{secret.title || 'Secreto sin titulo'}</strong>
@@ -467,7 +544,18 @@ function StoryBiblePanel(props: StoryBiblePanelProps) {
         )}
       </section>
 
-      <button type="button" onClick={props.onSave}>Guardar biblia de la historia</button>
+      <button
+        type="button"
+        onClick={() => {
+          if (isDraftDirty) {
+            props.onChange(draftStoryBible);
+            setIsDraftDirty(false);
+          }
+          props.onSave(draftStoryBible);
+        }}
+      >
+        Guardar biblia de la historia
+      </button>
     </section>
   );
 }

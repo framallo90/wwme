@@ -17,11 +17,11 @@
 }
 
 .story-bible-advice {
-  border: 1px solid rgba(18, 46, 92, 0.18);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 16px;
   background:
-    linear-gradient(180deg, rgba(243, 249, 255, 0.9), rgba(255, 251, 245, 0.86)),
-    linear-gradient(90deg, rgba(121, 217, 234, 0.12) 0, transparent 12%);
+    linear-gradient(180deg, var(--surface-secondary), var(--surface-primary)),
+    linear-gradient(90deg, rgba(196, 147, 62, 0.12) 0, transparent 12%);
   padding: 0.75rem 0.85rem;
   display: grid;
   gap: 0.35rem;
@@ -39,15 +39,15 @@
 }
 
 .bible-section {
-  border: 1px solid rgba(22, 49, 104, 0.16);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 16px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 250, 253, 0.9)),
+    linear-gradient(180deg, var(--surface-primary), var(--surface-secondary)),
     linear-gradient(90deg, rgba(232, 214, 192, 0.1), transparent 12%);
   padding: 0.75rem;
   display: grid;
   gap: 0.55rem;
-  box-shadow: 0 10px 24px rgba(19, 41, 75, 0.06);
+  box-shadow: 0 10px 24px rgba(30, 27, 46, 0.06);
 }
 
 .bible-section-head {
@@ -60,7 +60,7 @@
 .bible-section-head h3 {
   margin: 0;
   font-family: var(--font-display);
-  color: #14315c;
+  color: var(--surface-text);
 }
 
 .bible-card-list {
@@ -69,11 +69,11 @@
 }
 
 .bible-card {
-  border: 1px solid rgba(22, 49, 104, 0.14);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 14px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(249, 251, 254, 0.9)),
-    linear-gradient(90deg, rgba(121, 217, 234, 0.08) 0, transparent 10%);
+    linear-gradient(180deg, var(--surface-primary), var(--surface-secondary)),
+    linear-gradient(90deg, rgba(196, 147, 62, 0.08) 0, transparent 10%);
   padding: 0.65rem;
   display: grid;
   gap: 0.45rem;
@@ -97,15 +97,15 @@
 }
 
 .saga-command-hero {
-  border: 1px solid rgba(22, 49, 104, 0.18);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 22px;
   padding: 1rem 1.05rem;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(240, 246, 252, 0.92)),
-    radial-gradient(circle at top right, rgba(121, 217, 234, 0.16), transparent 36%);
+    linear-gradient(180deg, var(--surface-primary), var(--surface-secondary)),
+    radial-gradient(circle at top right, rgba(196, 147, 62, 0.16), transparent 36%);
   display: grid;
   gap: 0.85rem;
-  box-shadow: 0 16px 30px rgba(19, 41, 75, 0.1);
+  box-shadow: 0 16px 30px rgba(30, 27, 46, 0.1);
 }
 
 .saga-command-copy {
@@ -116,13 +116,13 @@
 .saga-command-titlebar h2 {
   margin: 0;
   font-family: var(--font-display);
-  color: #12325b;
+  color: var(--surface-text);
 }
 
 .saga-command-titlebar p,
 .saga-command-summary {
   margin: 0;
-  color: var(--muted-text);
+  color: var(--surface-muted-text);
   line-height: 1.4;
 }
 
@@ -135,9 +135,9 @@
   align-items: center;
   border-radius: 999px;
   padding: 0.2rem 0.55rem;
-  border: 1px solid rgba(22, 49, 104, 0.14);
-  background: rgba(255, 255, 255, 0.8);
-  color: #173862;
+  border: 1px solid var(--surface-border-strong);
+  background: var(--surface-primary);
+  color: var(--surface-text);
   font-size: 0.8rem;
   font-weight: 600;
 }
@@ -151,10 +151,10 @@
 .saga-command-card {
   border-radius: 16px;
   padding: 0.75rem 0.8rem;
-  border: 1px solid rgba(22, 49, 104, 0.14);
+  border: 1px solid var(--surface-border-strong);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 252, 255, 0.92)),
-    linear-gradient(90deg, rgba(121, 217, 234, 0.14) 0, rgba(121, 217, 234, 0.14) 5px, transparent 5px);
+    linear-gradient(180deg, var(--surface-primary), var(--surface-tertiary)),
+    linear-gradient(90deg, rgba(196, 147, 62, 0.14) 0, rgba(196, 147, 62, 0.14) 5px, transparent 5px);
   display: grid;
   gap: 0.15rem;
 }
@@ -162,11 +162,11 @@
 .saga-command-card strong {
   font-family: var(--font-display);
   font-size: 1.15rem;
-  color: #14315c;
+  color: var(--surface-text);
 }
 
 .saga-command-card small {
-  color: var(--muted-text);
+  color: var(--surface-muted-text);
   line-height: 1.35;
 }
 
@@ -180,10 +180,10 @@
 
 .saga-tab-btn {
   padding: 0.42rem 0.8rem;
-  border: 1px solid rgba(22, 49, 104, 0.14);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.8);
-  color: #153963;
+  background: var(--surface-primary);
+  color: var(--surface-text);
   font-size: 0.82rem;
   cursor: pointer;
   white-space: nowrap;
@@ -191,30 +191,28 @@
 }
 
 .saga-tab-btn:hover {
-  background: rgba(121, 217, 234, 0.16);
-  border-color: rgba(121, 217, 234, 0.48);
+  background: rgba(196, 147, 62, 0.16);
+  border-color: rgba(196, 147, 62, 0.48);
 }
 
 .saga-tab-btn.is-active {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(238, 248, 252, 0.92)),
-    linear-gradient(90deg, rgba(121, 217, 234, 0.22) 0, rgba(121, 217, 234, 0.22) 5px, transparent 5px);
-  color: #0e315c;
-  border-color: rgba(121, 217, 234, 0.72);
+  background: linear-gradient(180deg, var(--active-bg-start), var(--active-bg-end));
+  color: var(--active-text);
+  border-color: var(--active-border);
   font-weight: 700;
-  box-shadow: 0 8px 18px rgba(19, 41, 75, 0.08);
+  box-shadow: 0 8px 18px rgba(30, 27, 46, 0.08);
 }
 
 .saga-tab-btn-issues {
-  background: rgba(255, 242, 242, 0.92);
-  border-color: rgba(220, 38, 38, 0.26);
-  color: #b42318;
+  background: var(--status-danger-bg);
+  border-color: var(--status-danger-border);
+  color: var(--status-danger-text);
 }
 
 .saga-tab-btn-issues.is-active {
-  background: rgba(220, 38, 38, 0.94);
-  color: #fff;
-  border-color: rgba(220, 38, 38, 0.9);
+  background: var(--status-danger-strong-bg);
+  color: var(--status-danger-strong-text);
+  border-color: var(--status-danger-strong-bg);
 }
 
 .saga-overview-grid {

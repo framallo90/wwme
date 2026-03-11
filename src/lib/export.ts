@@ -1104,7 +1104,7 @@ function buildDocxArchive(metadata: BookMetadata, orderedChapters: ChapterDocume
   <LinksUpToDate>false</LinksUpToDate>
   <SharedDoc>false</SharedDoc>
   <HyperlinksChanged>false</HyperlinksChanged>
-  <AppVersion>0.3.0</AppVersion>
+  <AppVersion>0.4.0</AppVersion>
 </Properties>`;
   const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
